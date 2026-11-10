@@ -1,6 +1,10 @@
 import MNGCore
 import MNGKit
+import Photos
+import PhotosUI
 import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
 
 /// Browser for one unlocked vault: breadcrumb, search and the encrypted file
 /// grid. Folders and files come from the decrypted manifest only.
@@ -11,6 +15,15 @@ struct VaultBrowseView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var isCreatingFolder = false
     @State private var pendingDelete: PendingDelete?
+    @State private var isPickingFile = false
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var previewTarget: PreviewTarget?
+
+    /// `VaultFile` is not `Identifiable`, so the sheet uses a tiny wrapper.
+    private struct PreviewTarget: Identifiable {
+        let file: VaultFile
+        var id: String { file.id }
+    }
 
     private enum PendingDelete: Identifiable {
         case file(VaultFile)
@@ -42,6 +55,10 @@ struct VaultBrowseView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 toolbar
+
+                if let progress = state.upload {
+                    uploadProgress(progress)
+                }
 
                 if !state.notice.isEmpty {
                     bar(
@@ -82,6 +99,24 @@ struct VaultBrowseView: View {
         .background(Palette.bg.ignoresSafeArea())
         .sheet(isPresented: $isCreatingFolder) {
             VaultFolderSheet(model: model)
+        }
+        .sheet(isPresented: $isPickingFile) {
+            VaultDocumentPicker { url in
+                isPickingFile = false
+                uploadFile(at: url)
+            }
+            .ignoresSafeArea()
+        }
+        .sheet(item: $previewTarget) { target in
+            VaultPreviewSheet(model: model)
+                .onAppear {
+                    Task { await state.openPreview(target.file) }
+                }
+        }
+        .onChange(of: photoItems) { _, items in
+            guard let item = items.first else { return }
+            photoItems = []
+            Task { await uploadPhoto(item) }
         }
         .alert(
             Strings.vaultDeleteTitle,
@@ -158,6 +193,42 @@ struct VaultBrowseView: View {
                 .buttonStyle(.plain)
                 .disabled(state.isWorking)
 
+                Menu {
+                    Button {
+                        isPickingFile = true
+                    } label: {
+                        Label(Strings.vaultUploadFiles, systemImage: "folder")
+                    }
+                } label: {
+                    Label(Strings.vaultUpload, systemImage: "square.and.arrow.up")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Palette.accent)
+                        .padding(.horizontal, 12)
+                        .frame(height: 34)
+                        .background(
+                            Palette.accentSoft,
+                            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        )
+                }
+                .disabled(state.isWorking)
+
+                PhotosPicker(
+                    selection: $photoItems,
+                    maxSelectionCount: 1,
+                    matching: .images
+                ) {
+                    Label(Strings.vaultUploadPhotos, systemImage: "photo")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Palette.accent)
+                        .padding(.horizontal, 12)
+                        .frame(height: 34)
+                        .background(
+                            Palette.accentSoft,
+                            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        )
+                }
+                .disabled(state.isWorking)
+
                 Button {
                     state.lock()
                 } label: {
@@ -175,6 +246,37 @@ struct VaultBrowseView: View {
 
                 Spacer(minLength: 0)
             }
+        }
+    }
+
+    private func uploadProgress(_ progress: VaultModel.UploadProgress) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Palette.fill)
+                    Capsule()
+                        .fill(Palette.accent)
+                        .frame(
+                            width: geometry.size.width
+                                * CGFloat(progress.done) / CGFloat(max(1, progress.total))
+                        )
+                }
+            }
+            .frame(height: 4)
+
+            Text(Strings.vaultUploadingProgress)
+                .font(.system(size: 12))
+                .foregroundStyle(Palette.text3)
+        }
+        .padding(12)
+        .background(
+            Palette.bgElevated,
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Palette.hairline, lineWidth: 0.5)
         }
     }
 
@@ -343,14 +445,7 @@ struct VaultBrowseView: View {
 
     private func fileTile(_ file: VaultFile) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon(for: file))
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Palette.text2)
-                .frame(width: 34, height: 34)
-                .background(
-                    Palette.fill,
-                    in: RoundedRectangle(cornerRadius: 9, style: .continuous)
-                )
+            VaultThumbnail(file: file, model: model)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(file.name)
@@ -384,6 +479,9 @@ struct VaultBrowseView: View {
                 .stroke(Palette.hairline, lineWidth: 0.5)
         }
         .contentShape(Rectangle())
+        .onTapGesture {
+            previewTarget = PreviewTarget(file: file)
+        }
         .contextMenu {
             Button(role: .destructive) {
                 pendingDelete = .file(file)
@@ -394,67 +492,74 @@ struct VaultBrowseView: View {
     }
 
     private func label(for file: VaultFile) -> String {
-        switch kind(for: file) {
+        switch VaultModel.kind(for: file) {
         case "image": return Strings.vaultImageLabel
         case "video": return Strings.vaultVideoLabel
         default: return Strings.vaultFileLabel
         }
     }
 
-    private func icon(for file: VaultFile) -> String {
-        switch kind(for: file) {
-        case "image": return "photo"
-        case "video": return "film"
-        default: return "doc"
-        }
-    }
-
-    /// Mirror of the PWA's `classify_kind`: the mime type wins, the file
-    /// extension is the fallback.
-    private func kind(for file: VaultFile) -> String {
-        let stored = file.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if !stored.isEmpty {
-            return stored
-        }
-        let mime = file.mime.lowercased()
-        if mime.hasPrefix("video/") || isVideoExtension(file.name) {
-            return "video"
-        }
-        if mime.hasPrefix("image/") || isImageExtension(file.name) {
-            return "image"
-        }
-        return "file"
-    }
-
-    private func isVideoExtension(_ name: String) -> Bool {
-        switch fileExtension(name) {
-        case "mp4", "m4v", "mov", "webm", "mkv", "avi", "3gp":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private func isImageExtension(_ name: String) -> Bool {
-        switch fileExtension(name) {
-        case "jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "avif", "bmp",
-             "tif", "tiff":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private func fileExtension(_ name: String) -> String {
-        guard let dot = name.lastIndex(of: "."), dot != name.startIndex else {
-            return ""
-        }
-        return String(name[name.index(after: dot)...]).lowercased()
-    }
-
     private var displayName: String {
         let name = state.manifest?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return name.isEmpty ? vault.name : name
+    }
+
+    // MARK: - Upload helpers
+
+    private func uploadFile(at url: URL) {
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey, .nameKey])
+        let size = Int64(values?.fileSize ?? 0)
+        let name = values?.name ?? url.lastPathComponent
+        let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
+            ?? "application/octet-stream"
+        Task {
+            await state.upload(
+                VaultUploadSource.file(
+                    name: name,
+                    mime: mime,
+                    size: size,
+                    url: url
+                )
+            )
+        }
+    }
+
+    private func uploadPhoto(_ item: PhotosPickerItem) async {
+        guard let data = try? await item.loadTransferable(type: Data.self) else {
+            state.reportOperationError(Strings.vaultFileUnreadable)
+            return
+        }
+        let mime = item.supportedContentTypes.first?.preferredMIMEType
+            ?? "image/jpeg"
+        let name = originalName(for: item, mime: mime)
+        await state.upload(
+            VaultUploadSource.memory(name: name, mime: mime, data: data)
+        )
+    }
+
+    /// Best-effort original file name of a picked photo.
+    private func originalName(for item: PhotosPickerItem, mime: String) -> String {
+        let fallback = "IMG_\(Int(Date().timeIntervalSince1970)).\(fileExtension(for: mime))"
+        guard let identifier = item.itemIdentifier,
+              let assets = PHAsset.fetchAssets(
+                withLocalIdentifiers: [identifier],
+                options: nil
+              ),
+              let asset = assets.firstObject,
+              let resource = PHAssetResource.assetResources(for: asset).first else {
+            return fallback
+        }
+        return resource.originalFilename
+    }
+
+    private func fileExtension(for mime: String) -> String {
+        switch mime {
+        case "image/png": return "png"
+        case "image/heic": return "heic"
+        case "image/webp": return "webp"
+        case "image/gif": return "gif"
+        default: return "jpg"
+        }
     }
 
     // MARK: - Building blocks
@@ -499,5 +604,47 @@ struct VaultBrowseView: View {
         .padding(.horizontal, 16)
         .padding(.top, 34)
         .padding(.bottom, 40)
+    }
+}
+
+/// Decrypted thumbnail of one vault file. Manifests created by the web client
+/// do not carry one, so the tile falls back to a file icon.
+private struct VaultThumbnail: View {
+    let file: VaultFile
+    let model: ShellModel
+
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Image(systemName: icon)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Palette.text2)
+            }
+        }
+        .frame(width: 34, height: 34)
+        .background(
+            Palette.fill,
+            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .task(id: file.id) {
+            guard image == nil else { return }
+            guard let data = await model.vault.thumbnail(for: file) else { return }
+            image = UIImage(data: data)
+        }
+    }
+
+    private var icon: String {
+        switch VaultModel.kind(for: file) {
+        case "image": return "photo"
+        case "video": return "film"
+        default: return "doc"
+        }
     }
 }

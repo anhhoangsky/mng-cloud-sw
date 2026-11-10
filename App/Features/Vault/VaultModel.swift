@@ -18,6 +18,25 @@ final class VaultModel {
         case browse(NativeVault)
     }
 
+    /// Progress of one encrypted upload.
+    struct UploadProgress: Equatable {
+        let name: String
+        let done: Int
+        let total: Int
+    }
+
+    /// Decrypted preview of one vault file. The bytes stay in the model; the
+    /// view turns them into an image or a player.
+    enum PreviewState: Equatable {
+        case idle
+        case loading
+        case image(Data)
+        case video(URL)
+        case text(String)
+        case file
+        case failed(String)
+    }
+
     /// The PWA locks an idle vault after 15 minutes.
     static let idleLockSeconds: TimeInterval = 15 * 60
     static let idleCheckSeconds: TimeInterval = 15
@@ -36,6 +55,11 @@ final class VaultModel {
     private(set) var notice = ""
     private(set) var operationError = ""
     private(set) var isWorking = false
+    private(set) var upload: UploadProgress?
+    private(set) var preview: PreviewState = .idle
+    private(set) var previewFile: VaultFile?
+    private(set) var previewNote = ""
+    private(set) var thumbnails: [String: Data] = [:]
 
     var onToast: ((String) -> Void)?
     var onUnauthorized: (() -> Void)?
@@ -307,6 +331,11 @@ final class VaultModel {
         lastActivity = Date()
     }
 
+    /// Show one operation error in the browse screen.
+    func reportOperationError(_ message: String) {
+        operationError = message
+    }
+
     var currentVault: NativeVault? {
         if case .browse(let vault) = screen { return vault }
         return nil
@@ -388,9 +417,15 @@ final class VaultModel {
     /// Create one folder in the current directory.
     func createFolder(name: String) async -> Bool {
         guard let vault = currentVault, let key else { return false }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            operationError = Strings.vaultFolderName
+        guard let trimmed = VaultModel.cleanEntryName(name, maxCharacters: 80) else {
+            operationError = Strings.vaultFolderInvalid
+            return false
+        }
+        let parent = folder
+        if manifest?.folders.contains(where: {
+            $0.parent == parent && SearchFold.fold($0.name) == SearchFold.fold(trimmed)
+        }) == true {
+            operationError = Strings.vaultFolderExists
             return false
         }
         isWorking = true
@@ -399,7 +434,7 @@ final class VaultModel {
             let entry = VaultFolder(
                 id: Hex.encode(SecureRandom.bytes(count: 16)),
                 name: trimmed,
-                parent: folder,
+                parent: parent,
                 created: Int64(Date().timeIntervalSince1970)
             )
             let result = try await applyManifestChange(vault: vault, key: key) { document in
@@ -412,7 +447,7 @@ final class VaultModel {
             manifest = result.manifest
             upsert(result.vault)
             isWorking = false
-            notice = Strings.vaultCreateFolder
+            notice = Strings.vaultFolderCreated(trimmed)
             return true
         } catch let error as APIError {
             isWorking = false
@@ -497,6 +532,231 @@ final class VaultModel {
             isWorking = false
             operationError = unlockMessage(error)
         }
+    }
+
+    // MARK: - Upload and preview
+
+    /// Encrypt one file in 4 MiB chunks, upload every block and merge the new
+    /// entry into the encrypted manifest. Only one plaintext and one ciphertext
+    /// chunk are in memory at a time.
+    func upload(_ source: VaultUploadSource) async {
+        guard let vault = currentVault, let key else { return }
+        guard let name = VaultModel.cleanEntryName(source.name, maxCharacters: 255) else {
+            operationError = Strings.vaultFileInvalid
+            return
+        }
+        let size = source.size
+        guard size > 0 else {
+            operationError = Strings.vaultFileEmpty
+            return
+        }
+        let chunkSize = VaultKey.chunkBytes
+        let total = Int((size + Int64(chunkSize) - 1) / Int64(chunkSize))
+        guard total <= 4096 else {
+            operationError = Strings.vaultFileTooLarge
+            return
+        }
+
+        isWorking = true
+        operationError = ""
+        notice = ""
+        upload = UploadProgress(name: name, done: 0, total: total)
+
+        var handle: FileHandle?
+        var scopedURL: URL?
+        if case .file(_, _, _, let url) = source {
+            if url.startAccessingSecurityScopedResource() {
+                scopedURL = url
+            }
+            handle = try? FileHandle(forReadingFrom: url)
+            if handle == nil {
+                if let scopedURL {
+                    scopedURL.stopAccessingSecurityScopedResource()
+                }
+                isWorking = false
+                upload = nil
+                operationError = Strings.vaultFileUnreadable
+                return
+            }
+        }
+        defer {
+            try? handle?.close()
+            scopedURL?.stopAccessingSecurityScopedResource()
+        }
+
+        let readChunk: (Int) throws -> Data = { index in
+            switch source {
+            case .file:
+                guard let handle else { return Data() }
+                try handle.seek(toOffset: UInt64(index * chunkSize))
+                return try handle.read(upToCount: chunkSize) ?? Data()
+            case .memory(_, _, let data):
+                let start = index * chunkSize
+                let end = min(start + chunkSize, data.count)
+                guard start < end else { return Data() }
+                return data.subdata(in: start..<end)
+            }
+        }
+
+        let fileID = Hex.encode(SecureRandom.bytes(count: 16))
+        var chunks: [VaultChunk] = []
+        var blockIDs: [String] = []
+        var cipherBytes: Int64 = 0
+
+        do {
+            for index in 0..<total {
+                let plain = try readChunk(index)
+                let cipher = try key.encryptChunk(
+                    uid: vault.uid,
+                    fileID: fileID,
+                    index: index,
+                    total: total,
+                    nonce: VaultKey.randomNonce(),
+                    plaintext: [UInt8](plain)
+                )
+                let blockID = SHA1.hex(cipher)
+                try await client.uploadNativeBlock(
+                    id: vault.id,
+                    block: blockID,
+                    data: Data(cipher)
+                )
+                chunks.append(VaultChunk(id: blockID, size: Int64(plain.count)))
+                blockIDs.append(blockID)
+                cipherBytes += Int64(cipher.count)
+                upload = UploadProgress(name: name, done: index + 1, total: total)
+            }
+
+            let remote = "f-\(fileID).bin"
+            let committed = try await client.commitNativeFile(
+                id: vault.id,
+                name: remote,
+                size: cipherBytes,
+                blocks: blockIDs
+            )
+            let now = Int64(Date().timeIntervalSince1970)
+            let entry = VaultFile(
+                id: fileID,
+                remote: remote,
+                fileID: committed,
+                name: name,
+                folder: folder,
+                size: size,
+                mime: source.mime,
+                kind: VaultModel.classifyKind(name: name, mime: source.mime),
+                created: now,
+                added: now,
+                chunks: chunks
+            )
+            let result = try await applyManifestChange(vault: vault, key: key) { document in
+                if document.files.contains(where: { $0.id == entry.id }) {
+                    return false
+                }
+                document.files.append(entry)
+                return true
+            }
+            manifest = result.manifest
+            upsert(result.vault)
+            isWorking = false
+            upload = nil
+            notice = Strings.vaultUploaded(name)
+        } catch let error as APIError {
+            isWorking = false
+            upload = nil
+            if error.status == 401 {
+                onUnauthorized?()
+                return
+            }
+            operationError = error.message
+        } catch {
+            isWorking = false
+            upload = nil
+            operationError = unlockMessage(error)
+        }
+    }
+
+    /// Download and decrypt one vault file for the preview sheet.
+    func openPreview(_ file: VaultFile) async {
+        guard let vault = currentVault, let key else { return }
+        previewFile = file
+        preview = .loading
+        previewNote = Strings.vaultDecrypting(0, file.chunks.count)
+        do {
+            var plain = Data()
+            let total = file.chunks.count
+            for (index, chunk) in file.chunks.enumerated() {
+                let data = try await downloadBlob(vault: vault, file: file, blob: chunk.id)
+                let decrypted = try key.decryptChunk(
+                    uid: vault.uid,
+                    fileID: file.id,
+                    index: index,
+                    total: total,
+                    data: [UInt8](data)
+                )
+                plain.append(contentsOf: decrypted.copyBytes())
+                previewNote = Strings.vaultDecrypting(index + 1, total)
+            }
+            preview = VaultModel.makePreview(file: file, bytes: plain)
+            previewNote = Strings.vaultDecoded(bytes: file.size)
+        } catch let error as APIError {
+            if error.status == 401 {
+                onUnauthorized?()
+                return
+            }
+            preview = .failed(error.message)
+            previewNote = Strings.vaultDecryptFailed
+        } catch {
+            preview = .failed(unlockMessage(error))
+            previewNote = Strings.vaultDecryptFailed
+        }
+    }
+
+    /// Close the preview and delete the decrypted temporary file.
+    func closePreview() {
+        if case .video(let url) = preview {
+            try? FileManager.default.removeItem(at: url)
+        }
+        preview = .idle
+        previewFile = nil
+        previewNote = ""
+    }
+
+    /// Decrypted thumbnail of one vault file, when the manifest has one.
+    func thumbnail(for file: VaultFile) async -> Data? {
+        if let cached = thumbnails[file.id] {
+            return cached
+        }
+        let blob = file.thumb?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !blob.isEmpty, let vault = currentVault, let key else { return nil }
+        do {
+            let data = try await client.nativeBlobBytes(id: vault.id, blob: blob)
+            let plain = try key.decryptThumb(
+                uid: vault.uid,
+                fileID: file.id,
+                data: [UInt8](data)
+            )
+            let bytes = Data(plain.copyBytes())
+            thumbnails[file.id] = bytes
+            return bytes
+        } catch {
+            return nil
+        }
+    }
+
+    /// One ciphertext block of a vault file. New manifests store 40-hex Seafile
+    /// block ids; older read-only manifests used 32-hex local blob ids.
+    private func downloadBlob(
+        vault: NativeVault,
+        file: VaultFile,
+        blob: String
+    ) async throws -> Data {
+        if file.fileID.count == 40, blob.count == 40 {
+            return try await client.nativeFileBlockBytes(
+                id: vault.id,
+                fileID: file.fileID,
+                block: blob
+            )
+        }
+        return try await client.nativeBlobBytes(id: vault.id, blob: blob)
     }
 
     // MARK: - Manifest compare-and-swap
@@ -632,8 +892,7 @@ final class VaultModel {
     }
 
     /// Every folder id in the subtree rooted at `root`.
-    static func subtreeFolderIDs(_ document: VaultManifest, root: String) -> Set<String> {
-        var ids = Set<String>()
+    static func subtreeFolderIDs(_ document: VaultManifest, root: String) -> Set<String> {        var ids = Set<String>()
         guard document.folders.contains(where: { $0.id == root }) else { return ids }
         ids.insert(root)
         var changed = true
@@ -647,6 +906,141 @@ final class VaultModel {
             }
         }
         return ids
+    }
+
+    /// Port of the PWA's `clean_entry_name`: trim, reject empty names, control
+    /// characters, path separators and the `.`/`..` entries.
+    static func cleanEntryName(_ raw: String, maxCharacters: Int) -> String? {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        guard value.count <= maxCharacters else { return nil }
+        guard value != "." && value != ".." else { return nil }
+        guard !value.contains("/"), !value.contains("\\") else { return nil }
+        guard !value.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else {
+            return nil
+        }
+        return value
+    }
+
+    /// Legacy caps text previews at 2 MiB and 200,000 characters.
+    static let textPreviewBytes = 2 * 1024 * 1024
+    static let textPreviewCharacters = 200_000
+
+    /// Port of the PWA's `classify_kind`: the mime type wins, the file
+    /// extension is the fallback.
+    static func kind(for file: VaultFile) -> String {
+        let stored = file.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !stored.isEmpty {
+            return stored
+        }
+        return classifyKind(name: file.name, mime: file.mime)
+    }
+
+    static func classifyKind(name: String, mime: String) -> String {
+        let lower = mime.lowercased()
+        if lower.hasPrefix("video/") || isVideoExtension(name) {
+            return "video"
+        }
+        if lower.hasPrefix("image/") || isImageExtension(name) {
+            return "image"
+        }
+        return "file"
+    }
+
+    static func fileExtension(_ name: String) -> String {
+        guard let dot = name.lastIndex(of: "."), dot != name.startIndex else {
+            return ""
+        }
+        return String(name[name.index(after: dot)...]).lowercased()
+    }
+
+    static func isVideoExtension(_ name: String) -> Bool {
+        switch fileExtension(name) {
+        case "mp4", "m4v", "mov", "webm", "mkv", "avi", "3gp":
+            return true
+        default:
+            return false
+        }
+    }
+
+    static func isImageExtension(_ name: String) -> Bool {
+        switch fileExtension(name) {
+        case "jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "avif", "bmp",
+             "tif", "tiff":
+            return true
+        default:
+            return false
+        }
+    }
+
+    static func isTextFile(_ file: VaultFile) -> Bool {
+        let mime = file.mime.lowercased()
+        if mime.hasPrefix("text/") {
+            return true
+        }
+        if ["application/json", "application/xml", "application/javascript",
+            "application/x-yaml"].contains(mime) {
+            return true
+        }
+        switch fileExtension(file.name) {
+        case "txt", "md", "markdown", "json", "csv", "tsv", "log", "xml", "yml",
+             "yaml", "ini", "conf", "html", "htm", "css", "js", "ts", "php",
+             "py", "sh", "rs", "toml":
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Mime type used by the preview, mirroring the PWA's `preview_mime`.
+    static func previewMime(for file: VaultFile) -> String {
+        let mime = file.mime.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !mime.isEmpty {
+            return mime
+        }
+        switch fileExtension(file.name) {
+        case "jpg", "jpeg": return "image/jpeg"
+        case "png": return "image/png"
+        case "gif": return "image/gif"
+        case "webp": return "image/webp"
+        case "avif": return "image/avif"
+        case "mp4", "m4v": return "video/mp4"
+        case "mov": return "video/quicktime"
+        case "webm": return "video/webm"
+        case "mkv": return "video/x-matroska"
+        default: return "application/octet-stream"
+        }
+    }
+
+    /// Turn the decrypted bytes into the preview body.
+    static func makePreview(file: VaultFile, bytes: Data) -> PreviewState {
+        let mime = previewMime(for: file)
+        if mime.hasPrefix("image/") {
+            return .image(bytes)
+        }
+        if mime.hasPrefix("video/") {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("mng-vault", isDirectory: true)
+            try? FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+            let ext = fileExtension(file.name).isEmpty ? "mp4" : fileExtension(file.name)
+            let target = directory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension(ext)
+            do {
+                try bytes.write(to: target, options: .atomic)
+                return .video(target)
+            } catch {
+                return .file
+            }
+        }
+        if bytes.count <= textPreviewBytes, isTextFile(file) {
+            let text = String(decoding: bytes, as: UTF8.self)
+            return .text(String(text.prefix(textPreviewCharacters)))
+        }
+        return .file
     }
 
     private static func isSHA256(_ value: String) -> Bool {

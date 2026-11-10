@@ -1015,6 +1015,18 @@ Album → Tài liệu → ảnh → text → khoá; upload file nhỏ/4 MiB/4 Mi
 retry; xoá vault đòi mật khẩu; không log/không gửi mật khẩu hay key; tự khoá
 sau 15 phút.
 
+P7.2 (2026-11-11): tải lên từ Files (document picker) hoặc thư viện ảnh
+(PhotosPicker); mỗi tệp chia 4 MiB, mỗi khối mã hóa AES-256-GCM với AAD
+`chunk/{index}/{total}`, block id = SHA-1 40 hex của ciphertext (server tự
+kiểm tra lại), `PUT /blobs/{block}` rồi `POST /files` commit và ghi vào manifest
+bằng CAS. Xem trước: tải từng khối, giải mã, ghép lại; ảnh hiện trực tiếp, video
+phát bằng `AVPlayer` từ file tạm (xoá khi đóng), text hiện 2 MiB/200k ký tự,
+định dạng khác hiện "không xem trước được". Thumbnail giải mã khi manifest có
+`thumb`. Còn lại P7.3: đổi tên kho, sinh thumbnail mới khi tải lên, chuyển ảnh
+từ thư viện sang kho. Trình duyệt E2EE Seafile đã bị PWA gỡ khỏi UI
+(`vault.rs` chỉ còn native vault) nên không port sang iOS; crypto `RepoKey` v2/v3
+vẫn nằm trong MNGCore với KAT.
+
 Trạng thái (2026-11-11) — P7.1 xong: tab Kho thay placeholder bằng màn hình
 thật (danh sách → mở khoá → duyệt). Tạo kho sinh uid 32 hex + salt 16 byte,
 mã hoá verifier và manifest rỗng bằng AES-256-GCM rồi `POST /vaults`; mật
@@ -1026,10 +1038,10 @@ mục dùng đúng thứ tự sort fold của PWA, tìm kiếm fold theo tên, b
 verify local trước khi gọi server. Khoá tự động khi rời tab, sau 15 phút không
 tương tác và khi app vào nền. MNGKit đã có đủ route vault (list/create/manifest
 CAS/prepare/commit/blob upload/binary download/delete/rename) kèm test.
-Còn lại P7.2: tải lên (chia 4 MiB, SHA-1 block id), xem trước ảnh/video/text,
-thumbnail giải mã, tên tệp từ picker. Trình duyệt E2EE Seafile đã bị PWA gỡ
-khỏi UI (`vault.rs` chỉ còn native vault) nên không port sang iOS; crypto
-`RepoKey` v2/v3 vẫn nằm trong MNGCore với KAT.
+Còn lại P7.3: đổi tên kho, sinh thumbnail mới khi tải lên, chuyển ảnh từ thư viện
+sang kho. Trình duyệt E2EE Seafile đã bị PWA gỡ khỏi UI (`vault.rs` chỉ còn native
+vault) nên không port sang iOS; crypto `RepoKey` v2/v3 vẫn nằm trong MNGCore với
+KAT.
 
 ### P8 — Editor ảnh (1 tuần)
 

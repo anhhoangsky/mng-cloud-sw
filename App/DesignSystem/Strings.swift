@@ -298,6 +298,22 @@ enum Strings {
     static let vaultFolderName = "Tên thư mục"
     static let vaultFolderPlaceholder = "Tên thư mục mới"
     static let vaultFolderCreating = "Đang tạo…"
+    static let vaultFolderInvalid = "Tên thư mục không hợp lệ (tối đa 80 ký tự)."
+    static let vaultFolderExists = "Thư mục này đã tồn tại."
+    static let vaultFileInvalid = "Tên tệp không hợp lệ."
+    static let vaultFileEmpty = "Tệp rỗng chưa được hỗ trợ."
+    static let vaultFileTooLarge = "Tệp vượt quá 16 GiB nên chưa thể mã hóa."
+    static let vaultFileUnreadable = "Không đọc được tệp."
+    static let vaultUploadPhotos = "Chọn ảnh"
+    static let vaultUploadFiles = "Chọn tệp"
+    static let vaultUploading = "Đang mã hóa"
+    static let vaultUploadingProgress = "Đang tải lên — {done}/{total} khối"
+    static let vaultPreviewTitle = "Xem trước"
+    static let vaultPreviewFile = "Tệp"
+    static let vaultPreviewNote = "Đã giải mã trong ứng dụng này"
+    static let vaultPreviewUnsupported = "Trình duyệt không xem trước được định dạng này."
+    static let vaultPreviewFailed = "Không mở được tệp"
+    static let vaultDecryptFailed = "Không giải mã được tệp."
     static let vaultFileLabel = "Tệp"
     static let vaultImageLabel = "Ảnh"
     static let vaultVideoLabel = "Video"
@@ -322,6 +338,22 @@ enum Strings {
 
     static func vaultFolderPath(_ path: String) -> String {
         "Trong: \(path)"
+    }
+
+    static func vaultFolderCreated(_ name: String) -> String {
+        "Đã tạo thư mục “\(name)”."
+    }
+
+    static func vaultUploaded(_ name: String) -> String {
+        "Đã tải lên “\(name)” vào kho mã hóa."
+    }
+
+    static func vaultDecrypting(_ done: Int, _ total: Int) -> String {
+        "Đang giải mã \(done)/\(total) khối."
+    }
+
+    static func vaultDecoded(bytes: Int64) -> String {
+        "\(MNGFormat.bytes(bytes)) • \(vaultPreviewNote)"
     }
 
     static func vaultDeleteBody(_ name: String) -> String {
