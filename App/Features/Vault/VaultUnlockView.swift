@@ -42,7 +42,7 @@ struct VaultUnlockView: View {
     private var hero: some View {
         HStack(alignment: .top, spacing: 14) {
             Image(systemName: "lock.fill")
-                .font(.system(size: 20, weight: .semibold))
+                .font(.mng(20, weight: .semibold))
                 .foregroundStyle(Palette.accent)
                 .frame(width: 46, height: 46)
                 .background(
@@ -52,11 +52,11 @@ struct VaultUnlockView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(vault.name)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.mng(20, weight: .semibold))
                     .foregroundStyle(Palette.text)
                     .lineLimit(2)
                 Text(Strings.vaultUnlockBody)
-                    .font(.system(size: 12))
+                    .font(.mng(12))
                     .foregroundStyle(Palette.text3)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -67,7 +67,7 @@ struct VaultUnlockView: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(Strings.vaultPassword)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.mng(12, weight: .semibold))
                     .foregroundStyle(Palette.text2)
 
                 SecureField(
@@ -94,7 +94,7 @@ struct VaultUnlockView: View {
 
             if !state.unlockError.isEmpty {
                 Text(state.unlockError)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.mng(12, weight: .medium))
                     .foregroundStyle(Palette.danger)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -107,10 +107,10 @@ struct VaultUnlockView: View {
                         ProgressView().controlSize(.small)
                     } else {
                         Image(systemName: "lock.open")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.mng(14, weight: .semibold))
                     }
                     Text(state.isUnlocking ? Strings.vaultUnlocking : Strings.vaultUnlock)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.mng(15, weight: .semibold))
                 }
                 .foregroundStyle(Palette.accentInk)
                 .frame(maxWidth: .infinity)
@@ -132,13 +132,13 @@ struct VaultUnlockView: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 24, weight: .regular))
+                    .font(.mng(24, weight: .regular))
                     .foregroundStyle(Palette.text4)
                 Text(Strings.vaultNoIndexTitle)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.mng(14, weight: .semibold))
                     .foregroundStyle(Palette.text)
                 Text(Strings.vaultNoIndexBody)
-                    .font(.system(size: 12))
+                    .font(.mng(12))
                     .foregroundStyle(Palette.text3)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -158,9 +158,9 @@ struct VaultUnlockView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.mng(12, weight: .semibold))
                 Text(Strings.vaultBackToList)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.mng(14, weight: .semibold))
             }
             .foregroundStyle(Palette.accent)
         }
@@ -171,10 +171,10 @@ struct VaultUnlockView: View {
     private var noteBar: some View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: "shield.lefthalf.filled")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.mng(13, weight: .semibold))
                 .foregroundStyle(Palette.text3)
             Text(Strings.vaultNoteServer)
-                .font(.system(size: 12))
+                .font(.mng(12))
                 .foregroundStyle(Palette.text3)
                 .fixedSize(horizontal: false, vertical: true)
         }

@@ -127,7 +127,7 @@ struct AdminView: View {
         case .idle, .loading:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text(Strings.adminLoading).font(.system(size: 12)).foregroundStyle(Palette.text3)
+                Text(Strings.adminLoading).font(.mng(12)).foregroundStyle(Palette.text3)
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 30)
@@ -164,7 +164,7 @@ struct AdminView: View {
     private func row(_ user: AdminUser) -> some View {
         HStack(spacing: 12) {
             Image(systemName: user.isAdmin ? "shield.fill" : "person.fill")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.mng(14, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 29, height: 29)
                 .background(
@@ -174,12 +174,12 @@ struct AdminView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(user.displayName.isEmpty ? user.username : user.displayName)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.mng(15, weight: .semibold))
                     .foregroundStyle(Palette.text)
                     .lineLimit(1)
 
                 Text(subtitle(user))
-                    .font(.system(size: 12))
+                    .font(.mng(12))
                     .foregroundStyle(Palette.text3)
                     .lineLimit(1)
             }
@@ -188,7 +188,7 @@ struct AdminView: View {
 
             if !user.active {
                 Text(Strings.adminInactive)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.mng(11, weight: .semibold))
                     .foregroundStyle(Palette.danger)
             }
         }
@@ -240,10 +240,10 @@ struct AdminView: View {
     private func noticeBar(icon: String, tint: Color, message: String) -> some View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.mng(13, weight: .semibold))
                 .foregroundStyle(tint)
             Text(message)
-                .font(.system(size: 12, weight: .medium))
+                .font(.mng(12, weight: .medium))
                 .foregroundStyle(Palette.text2)
                 .fixedSize(horizontal: false, vertical: true)
         }

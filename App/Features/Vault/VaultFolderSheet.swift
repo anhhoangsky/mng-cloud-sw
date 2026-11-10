@@ -16,12 +16,12 @@ struct VaultFolderSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(Strings.vaultFolderPath(state.folderPath(state.folder)))
-                        .font(.system(size: 12))
+                        .font(.mng(12))
                         .foregroundStyle(Palette.text3)
 
                     VStack(alignment: .leading, spacing: 6) {
                         Text(Strings.vaultFolderName)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.mng(12, weight: .semibold))
                             .foregroundStyle(Palette.text2)
 
                         TextField(
@@ -47,7 +47,7 @@ struct VaultFolderSheet: View {
 
                     if !state.operationError.isEmpty {
                         Text(state.operationError)
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.mng(12, weight: .medium))
                             .foregroundStyle(Palette.danger)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -60,14 +60,14 @@ struct VaultFolderSheet: View {
                                 ProgressView().controlSize(.small)
                             } else {
                                 Image(systemName: "folder.badge.plus")
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(.mng(14, weight: .semibold))
                             }
                             Text(
                                 state.isWorking
                                     ? Strings.vaultFolderCreating
                                     : Strings.vaultCreateFolder
                             )
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.mng(15, weight: .semibold))
                         }
                         .foregroundStyle(Palette.accentInk)
                         .frame(maxWidth: .infinity)

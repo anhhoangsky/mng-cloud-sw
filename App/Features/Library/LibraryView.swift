@@ -162,12 +162,12 @@ struct LibraryView: View {
             if case .failed(let message) = library.olderState {
                 VStack(spacing: 8) {
                     Text(message)
-                        .font(.system(size: 13))
+                        .font(.mng(13))
                         .foregroundStyle(Palette.text3)
                     Button(Strings.retry) {
                         Task { await library.loadOlder() }
                     }
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.mng(13, weight: .semibold))
                     .foregroundStyle(Palette.accent)
                 }
                 .frame(maxWidth: .infinity)
@@ -177,7 +177,7 @@ struct LibraryView: View {
                     ProgressView()
                         .controlSize(.small)
                     Text(Strings.loadOlder)
-                        .font(.system(size: 12))
+                        .font(.mng(12))
                         .foregroundStyle(Palette.text3)
                 }
                 .frame(maxWidth: .infinity)
@@ -215,9 +215,9 @@ struct LibraryView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.mng(11, weight: .semibold))
                         Text(Strings.allYears)
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.mng(13, weight: .semibold))
                     }
                     .foregroundStyle(Palette.text2)
                     .padding(.horizontal, 13)
@@ -273,7 +273,7 @@ private struct LibraryToolbar: View {
                     Button(Strings.select) {
                         library.enterSelection()
                     }
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.mng(13, weight: .semibold))
                     .foregroundStyle(Palette.accent)
                     .buttonStyle(.plain)
                 }
@@ -292,9 +292,9 @@ private struct LibraryToolbar: View {
                             HStack(spacing: 5) {
                                 Text(summary)
                                 Image(systemName: "xmark")
-                                    .font(.system(size: 9, weight: .bold))
+                                    .font(.mng(9, weight: .bold))
                             }
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.mng(13, weight: .semibold))
                             .foregroundStyle(Palette.bg)
                             .padding(.horizontal, 13)
                             .frame(height: 32)
@@ -315,7 +315,7 @@ private struct LibraryToolbar: View {
                     Task { await library.selectLayout(layout) }
                 } label: {
                     Text(layoutLabel(layout))
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.mng(13, weight: .semibold))
                         .foregroundStyle(
                             library.filters.layout == layout ? Palette.text : Palette.text2
                         )
@@ -350,9 +350,9 @@ private struct LibraryToolbar: View {
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: kindIcon(kind))
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.mng(12, weight: .semibold))
                 Text(kindLabel(kind))
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.mng(13, weight: .semibold))
             }
             .foregroundStyle(active ? Palette.bg : Palette.text2)
             .padding(.horizontal, 13)
@@ -400,10 +400,10 @@ private struct MonthSectionHeader: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(title)
-                .font(.system(size: 13, weight: .bold))
+                .font(.mng(13, weight: .bold))
                 .foregroundStyle(Palette.text2)
             Text(Strings.itemCount(count))
-                .font(.system(size: 13))
+                .font(.mng(13))
                 .foregroundStyle(Palette.text3)
             Spacer(minLength: 0)
         }
@@ -424,22 +424,22 @@ private struct LibraryEmptyState: View {
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 34, weight: .regular))
+                .font(.mng(34, weight: .regular))
                 .foregroundStyle(Palette.text4)
 
             Text(title)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.mng(18, weight: .semibold))
                 .foregroundStyle(Palette.text2)
 
             Text(message)
-                .font(.system(size: 13))
+                .font(.mng(13))
                 .foregroundStyle(Palette.text3)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 340)
 
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.mng(14, weight: .semibold))
                     .foregroundStyle(Palette.accentInk)
                     .padding(.horizontal, 18)
                     .frame(height: 36)

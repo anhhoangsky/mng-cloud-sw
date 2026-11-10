@@ -99,7 +99,7 @@ struct SettingsView: View {
                     HStack(spacing: 7) {
                         ProgressView().controlSize(.small)
                         Text(Strings.cloudTesting)
-                            .font(.system(size: 12))
+                            .font(.mng(12))
                             .foregroundStyle(Palette.text3)
                     }
                 } else {
@@ -108,7 +108,7 @@ struct SettingsView: View {
                             .fill(healthColor(cloud))
                             .frame(width: 7, height: 7)
                         Text(healthText(cloud))
-                            .font(.system(size: 12))
+                            .font(.mng(12))
                             .foregroundStyle(Palette.text3)
                             .lineLimit(1)
                     }
@@ -147,7 +147,7 @@ struct SettingsView: View {
                             .fill(icloudDotColor)
                             .frame(width: 7, height: 7)
                         Text(model.icloud.row.value)
-                            .font(.system(size: 12))
+                            .font(.mng(12))
                             .foregroundStyle(Palette.text3)
                             .lineLimit(1)
                         chevron
@@ -232,7 +232,7 @@ struct SettingsView: View {
                 subtitle: Strings.storageServerBody
             ) {
                 Text(storageFreeText)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.mng(12, weight: .semibold))
                     .foregroundStyle(Palette.text3)
             }
         }
@@ -367,17 +367,17 @@ struct SettingsView: View {
     private var aboutSection: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(Strings.aboutSection.uppercased())
-                .font(.system(size: 11, weight: .semibold))
+                .font(.mng(11, weight: .semibold))
                 .tracking(0.06)
                 .foregroundStyle(Palette.text4)
                 .padding(.horizontal, 4)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("MNG Cloud \(model.appVersion)")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.mng(14, weight: .semibold))
                     .foregroundStyle(Palette.text)
                 Text(Strings.settingsAboutBody)
-                    .font(.system(size: 12))
+                    .font(.mng(12))
                     .foregroundStyle(Palette.text3)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -403,7 +403,7 @@ struct SettingsView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title.uppercased())
-                .font(.system(size: 11, weight: .semibold))
+                .font(.mng(11, weight: .semibold))
                 .tracking(0.06)
                 .foregroundStyle(Palette.text4)
                 .padding(.horizontal, 4)
@@ -423,7 +423,7 @@ struct SettingsView: View {
 
             if let note {
                 Text(note)
-                    .font(.system(size: 12))
+                    .font(.mng(12))
                     .foregroundStyle(Palette.text3)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 4)
@@ -439,7 +439,7 @@ struct SettingsView: View {
 
     private var chevron: some View {
         Image(systemName: "chevron.right")
-            .font(.system(size: 11, weight: .semibold))
+            .font(.mng(11, weight: .semibold))
             .foregroundStyle(Palette.text4)
     }
 }
@@ -469,7 +469,7 @@ private struct SettingsRowLabel<Trailing: View>: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.mng(15, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 29, height: 29)
                 .background(
@@ -479,13 +479,13 @@ private struct SettingsRowLabel<Trailing: View>: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.mng(15, weight: .semibold))
                     .foregroundStyle(Palette.text)
                     .lineLimit(1)
 
                 if !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.system(size: 12))
+                        .font(.mng(12))
                         .foregroundStyle(Palette.text3)
                         .lineLimit(2)
                         .truncationMode(.tail)

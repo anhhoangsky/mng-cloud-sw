@@ -140,9 +140,9 @@ struct ItemInfoSheet: View {
     private func actionLabel(_ text: String, icon: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: icon)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.mng(14, weight: .semibold))
             Text(text)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.mng(15, weight: .semibold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }
@@ -154,12 +154,12 @@ struct ItemInfoSheet: View {
     private func infoRow(_ label: String, value: String, lineLimit: Int = 1) -> some View {
         HStack(alignment: .top, spacing: 14) {
             Text(label)
-                .font(.system(size: 13))
+                .font(.mng(13))
                 .foregroundStyle(Palette.text3)
                 .frame(width: 96, alignment: .leading)
 
             Text(value)
-                .font(.system(size: 13))
+                .font(.mng(13))
                 .foregroundStyle(Palette.text)
                 .multilineTextAlignment(.trailing)
                 .lineLimit(lineLimit)
@@ -174,7 +174,7 @@ struct ItemInfoSheet: View {
     private func locationRow(_ item: Item) -> some View {
         HStack(alignment: .top, spacing: 14) {
             Text(Strings.itemLocation)
-                .font(.system(size: 13))
+                .font(.mng(13))
                 .foregroundStyle(Palette.text3)
                 .frame(width: 96, alignment: .leading)
 
@@ -185,7 +185,7 @@ struct ItemInfoSheet: View {
                 openURL(url)
             } label: {
                 Text(MNGFormat.coordinate(latitude: item.lat, longitude: item.lng))
-                    .font(.system(size: 13))
+                    .font(.mng(13))
                     .foregroundStyle(Palette.accent)
                     .multilineTextAlignment(.trailing)
                     .frame(maxWidth: .infinity, alignment: .trailing)
@@ -199,12 +199,12 @@ struct ItemInfoSheet: View {
     private func webdavRow(_ item: Item) -> some View {
         HStack(alignment: .top, spacing: 14) {
             Text(Strings.itemWebDAV)
-                .font(.system(size: 13))
+                .font(.mng(13))
                 .foregroundStyle(Palette.text3)
                 .frame(width: 96, alignment: .leading)
 
             Text(item.webdavURL)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.mng(11, design: .monospaced))
                 .foregroundStyle(Palette.text2)
                 .multilineTextAlignment(.trailing)
                 .lineLimit(2)

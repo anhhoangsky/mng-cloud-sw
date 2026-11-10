@@ -52,7 +52,7 @@ struct ICloudDetailView: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "icloud.fill")
-                .font(.system(size: 22, weight: .semibold))
+                .font(.mng(22, weight: .semibold))
                 .foregroundStyle(Palette.icloud)
                 .frame(width: 46, height: 46)
                 .background(
@@ -62,14 +62,14 @@ struct ICloudDetailView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(Strings.icloudPhotos)
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.mng(17, weight: .semibold))
                     .foregroundStyle(Palette.text)
                 HStack(spacing: 6) {
                     Circle()
                         .fill(dotColor)
                         .frame(width: 8, height: 8)
                     Text(icloud.row.subtitle)
-                        .font(.system(size: 12))
+                        .font(.mng(12))
                         .foregroundStyle(Palette.text3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -98,7 +98,7 @@ struct ICloudDetailView: View {
                 }
                 Text(Strings.retry)
             }
-            .font(.system(size: 14, weight: .semibold))
+            .font(.mng(14, weight: .semibold))
             .foregroundStyle(Palette.accent)
             .frame(maxWidth: .infinity)
             .frame(height: 40)
@@ -149,7 +149,7 @@ struct ICloudDetailView: View {
     private var loginCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(Strings.icloudLoginTitle)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.mng(14, weight: .semibold))
                 .foregroundStyle(Palette.text)
 
             field(
@@ -180,10 +180,10 @@ struct ICloudDetailView: View {
                         ProgressView().controlSize(.small)
                     } else {
                         Image(systemName: "person.crop.circle.badge.checkmark")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.mng(14, weight: .semibold))
                     }
                     Text(Strings.icloudLogin)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.mng(15, weight: .semibold))
                 }
                 .foregroundStyle(Palette.accentInk)
                 .frame(maxWidth: .infinity)
@@ -203,10 +203,10 @@ struct ICloudDetailView: View {
     private var mfaCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(Strings.icloudMFA)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.mng(14, weight: .semibold))
                 .foregroundStyle(Palette.text)
             Text(Strings.icloudMFAHint)
-                .font(.system(size: 12))
+                .font(.mng(12))
                 .foregroundStyle(Palette.text3)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -229,7 +229,7 @@ struct ICloudDetailView: View {
                         ProgressView().controlSize(.small)
                     }
                     Text(Strings.icloudSendMFA)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.mng(15, weight: .semibold))
                 }
                 .foregroundStyle(Palette.accentInk)
                 .frame(maxWidth: .infinity)
@@ -249,7 +249,7 @@ struct ICloudDetailView: View {
     private var settingsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(Strings.icloudRecent)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.mng(13, weight: .semibold))
                 .foregroundStyle(Palette.text2)
 
             Picker(
@@ -271,10 +271,10 @@ struct ICloudDetailView: View {
             )) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(Strings.icloudDeleteAfter)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.mng(14, weight: .semibold))
                         .foregroundStyle(Palette.text)
                     Text(Strings.icloudDeleteAfterHint)
-                        .font(.system(size: 12))
+                        .font(.mng(12))
                         .foregroundStyle(Palette.text3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -285,7 +285,7 @@ struct ICloudDetailView: View {
                 Task { await icloud.save() }
             } label: {
                 Text(Strings.icloudSaveSettings)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.mng(14, weight: .semibold))
                     .foregroundStyle(Palette.accent)
                     .frame(maxWidth: .infinity)
                     .frame(height: 40)
@@ -309,10 +309,10 @@ struct ICloudDetailView: View {
                     ProgressView().controlSize(.small)
                 } else {
                     Image(systemName: "arrow.down.circle")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.mng(14, weight: .semibold))
                 }
                 Text(Strings.icloudStart)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.mng(15, weight: .semibold))
             }
             .foregroundStyle(Palette.accentInk)
             .frame(maxWidth: .infinity)
@@ -331,12 +331,12 @@ struct ICloudDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(ICloudModel.jobStateLabel(job.state))
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.mng(14, weight: .semibold))
                     .foregroundStyle(Palette.text)
                 Spacer()
                 if job.imported > 0 {
                     Text(Strings.icloudImported(job.imported))
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.mng(12, weight: .medium))
                         .foregroundStyle(Palette.text3)
                 }
             }
@@ -356,14 +356,14 @@ struct ICloudDetailView: View {
 
             if !job.message.isEmpty {
                 Text(job.message)
-                    .font(.system(size: 12))
+                    .font(.mng(12))
                     .foregroundStyle(Palette.text3)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             if !job.error.isEmpty {
                 Text(job.error)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.mng(12, weight: .medium))
                     .foregroundStyle(Palette.danger)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -385,12 +385,12 @@ struct ICloudDetailView: View {
             if !job.log.isEmpty {
                 DisclosureGroup(Strings.icloudLog) {
                     Text(job.log)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.mng(11, design: .monospaced))
                         .foregroundStyle(Palette.text3)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .font(.system(size: 12, weight: .semibold))
+                .font(.mng(12, weight: .semibold))
                 .foregroundStyle(Palette.text2)
             }
         }
@@ -405,7 +405,7 @@ struct ICloudDetailView: View {
     ) -> some View {
         Button(action: action) {
             Label(title, systemImage: icon)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.mng(12, weight: .semibold))
                 .foregroundStyle(tint)
                 .padding(.horizontal, 10)
                 .frame(height: 32)
@@ -426,10 +426,10 @@ struct ICloudDetailView: View {
                     ProgressView().controlSize(.small)
                 } else {
                     Image(systemName: "rectangle.portrait.and.arrow.right")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.mng(13, weight: .semibold))
                 }
                 Text(Strings.icloudLogout)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.mng(14, weight: .semibold))
             }
             .foregroundStyle(Palette.danger)
             .frame(maxWidth: .infinity)
@@ -453,7 +453,7 @@ struct ICloudDetailView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.mng(12, weight: .semibold))
                 .foregroundStyle(Palette.text2)
 
             Group {
@@ -489,14 +489,14 @@ struct ICloudDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: icon)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.mng(15, weight: .semibold))
                     .foregroundStyle(tint)
                 Text(title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.mng(14, weight: .semibold))
                     .foregroundStyle(Palette.text)
             }
             Text(body)
-                .font(.system(size: 12))
+                .font(.mng(12))
                 .foregroundStyle(Palette.text3)
                 .fixedSize(horizontal: false, vertical: true)
         }

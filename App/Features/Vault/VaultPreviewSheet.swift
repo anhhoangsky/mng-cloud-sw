@@ -21,7 +21,7 @@ struct VaultPreviewSheet: View {
                 content
                 if !state.previewNote.isEmpty {
                     Text(state.previewNote)
-                        .font(.system(size: 11))
+                        .font(.mng(11))
                         .foregroundStyle(Palette.text4)
                         .padding(.vertical, 8)
                 }
@@ -52,7 +52,7 @@ struct VaultPreviewSheet: View {
             VStack(spacing: 10) {
                 ProgressView()
                 Text(state.previewNote)
-                    .font(.system(size: 12))
+                    .font(.mng(12))
                     .foregroundStyle(Palette.text3)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -72,7 +72,7 @@ struct VaultPreviewSheet: View {
         case .text(let text):
             ScrollView {
                 Text(text)
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.mng(12, design: .monospaced))
                     .foregroundStyle(Palette.text)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -88,10 +88,10 @@ struct VaultPreviewSheet: View {
     private func placeholder(icon: String, title: String) -> some View {
         VStack(spacing: 8) {
             Image(systemName: icon)
-                .font(.system(size: 26, weight: .regular))
+                .font(.mng(26, weight: .regular))
                 .foregroundStyle(Palette.text4)
             Text(title)
-                .font(.system(size: 13))
+                .font(.mng(13))
                 .foregroundStyle(Palette.text3)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)

@@ -24,7 +24,7 @@ struct SearchView: View {
 
                 if let meta = search.metaText {
                     Text(meta)
-                        .font(.system(size: 13))
+                        .font(.mng(13))
                         .foregroundStyle(Palette.text3)
                         .padding(.top, 10)
                         .padding(.bottom, 14)
@@ -48,12 +48,12 @@ struct SearchView: View {
     private var searchField: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 17, weight: .medium))
+                .font(.mng(17, weight: .medium))
                 .foregroundStyle(Palette.text3)
                 .accessibilityHidden(true)
 
             TextField(Strings.searchPlaceholder, text: queryBinding)
-                .font(.system(size: 17))
+                .font(.mng(17))
                 .foregroundStyle(Palette.text)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -71,7 +71,7 @@ struct SearchView: View {
                     fieldFocused = true
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.mng(11, weight: .bold))
                         .foregroundStyle(Palette.text3)
                         .frame(width: 30, height: 30)
                         .background(Palette.fill2, in: Circle())
@@ -122,9 +122,9 @@ struct SearchView: View {
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: chipIcon(filter))
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.mng(12, weight: .semibold))
                 Text(filter.label)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.mng(13, weight: .semibold))
             }
             .foregroundStyle(active ? Palette.bg : Palette.text2)
             .padding(.horizontal, 13)
@@ -179,11 +179,11 @@ struct SearchView: View {
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: hint.icon)
-                            .font(.system(size: 16, weight: .medium))
+                            .font(.mng(16, weight: .medium))
                             .foregroundStyle(Palette.text3)
                             .frame(width: 18)
                         Text(hint.label)
-                            .font(.system(size: 14))
+                            .font(.mng(14))
                             .foregroundStyle(Palette.text)
                         Spacer(minLength: 0)
                     }
@@ -248,17 +248,17 @@ private struct SearchEmptyState: View {
                     .fill(Palette.fill)
                     .frame(width: 68, height: 68)
                 Image(systemName: icon)
-                    .font(.system(size: 28, weight: .regular))
+                    .font(.mng(28, weight: .regular))
                     .foregroundStyle(Palette.text3)
             }
             .padding(.bottom, 6)
 
             Text(title)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.mng(18, weight: .semibold))
                 .foregroundStyle(Palette.text2)
 
             Text(message)
-                .font(.system(size: 13))
+                .font(.mng(13))
                 .foregroundStyle(Palette.text3)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 340)

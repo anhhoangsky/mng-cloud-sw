@@ -18,23 +18,23 @@ struct PersonRenameSheet: View {
                 if let person = albums.personToEdit {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(AlbumCatalog.personTitle(person))
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.mng(17, weight: .semibold))
                             .foregroundStyle(Palette.text)
                             .lineLimit(1)
                         Text(Strings.personRenameSub(
                             itemCount: person.itemCount,
                             faceCount: person.faceCount
                         ))
-                        .font(.system(size: 13))
+                        .font(.mng(13))
                         .foregroundStyle(Palette.text3)
                     }
 
                     VStack(alignment: .leading, spacing: 7) {
                         Text(Strings.personNameLabel)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.mng(12, weight: .semibold))
                             .foregroundStyle(Palette.text3)
                         TextField(Strings.personNamePlaceholder, text: nameBinding)
-                            .font(.system(size: 17))
+                            .font(.mng(17))
                             .foregroundStyle(Palette.text)
                             .textInputAutocapitalization(.words)
                             .autocorrectionDisabled()
@@ -59,7 +59,7 @@ struct PersonRenameSheet: View {
                         dismiss()
                     } label: {
                         Text(Strings.cancel)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.mng(15, weight: .semibold))
                             .foregroundStyle(Palette.text)
                             .frame(maxWidth: .infinity)
                             .frame(height: 46)
@@ -72,7 +72,7 @@ struct PersonRenameSheet: View {
 
                     Button(action: save) {
                         Text(Strings.personNameSave)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.mng(15, weight: .semibold))
                             .foregroundStyle(Palette.accentInk)
                             .frame(maxWidth: .infinity)
                             .frame(height: 46)

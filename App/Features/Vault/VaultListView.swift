@@ -18,7 +18,7 @@ struct VaultListView: View {
             VStack(alignment: .leading, spacing: 18) {
                 if !isCompact {
                     Text(Strings.vaultTitle)
-                        .font(.system(size: 30, weight: .semibold))
+                        .font(.mng(30, weight: .semibold))
                         .tracking(-0.02)
                         .foregroundStyle(Palette.text)
                 }
@@ -78,7 +78,7 @@ struct VaultListView: View {
                 isCreating = true
             } label: {
                 Label(Strings.vaultCreate, systemImage: "plus")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.mng(14, weight: .semibold))
                     .foregroundStyle(Palette.accentInk)
                     .padding(.horizontal, 14)
                     .frame(height: 38)
@@ -93,7 +93,7 @@ struct VaultListView: View {
                 Task { await vault.loadVaults() }
             } label: {
                 Label(Strings.vaultRefresh, systemImage: "arrow.clockwise")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.mng(14, weight: .semibold))
                     .foregroundStyle(Palette.text2)
                     .padding(.horizontal, 14)
                     .frame(height: 38)
@@ -160,7 +160,7 @@ struct VaultListView: View {
     private func row(_ vault: NativeVault) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "lock.fill")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.mng(14, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 29, height: 29)
                 .background(
@@ -173,11 +173,11 @@ struct VaultListView: View {
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(vault.name)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.mng(15, weight: .semibold))
                         .foregroundStyle(Palette.text)
                         .lineLimit(1)
                     Text(meta(vault))
-                        .font(.system(size: 12))
+                        .font(.mng(12))
                         .foregroundStyle(Palette.text3)
                         .lineLimit(1)
                 }
@@ -190,7 +190,7 @@ struct VaultListView: View {
                 deleting = vault
             } label: {
                 Image(systemName: "trash")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.mng(13, weight: .semibold))
                     .foregroundStyle(Palette.danger)
                     .frame(width: 34, height: 34)
             }
@@ -223,10 +223,10 @@ struct VaultListView: View {
     private func noteBar(icon: String, tint: Color, message: String) -> some View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.mng(13, weight: .semibold))
                 .foregroundStyle(tint)
             Text(message)
-                .font(.system(size: 12))
+                .font(.mng(12))
                 .foregroundStyle(Palette.text3)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -236,10 +236,10 @@ struct VaultListView: View {
     private func noticeBar(icon: String, tint: Color, message: String) -> some View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.mng(13, weight: .semibold))
                 .foregroundStyle(tint)
             Text(message)
-                .font(.system(size: 12, weight: .medium))
+                .font(.mng(12, weight: .medium))
                 .foregroundStyle(Palette.text2)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -266,15 +266,15 @@ struct VaultListView: View {
                 ProgressView().controlSize(.small)
             } else {
                 Image(systemName: icon)
-                    .font(.system(size: 26, weight: .regular))
+                    .font(.mng(26, weight: .regular))
                     .foregroundStyle(Palette.text4)
             }
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.mng(14, weight: .semibold))
                 .foregroundStyle(Palette.text)
             if !body.isEmpty {
                 Text(body)
-                    .font(.system(size: 12))
+                    .font(.mng(12))
                     .foregroundStyle(Palette.text3)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)

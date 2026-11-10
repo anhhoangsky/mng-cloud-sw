@@ -26,7 +26,7 @@ struct ThumbnailView: View {
                     .transition(.opacity)
             } else if failed {
                 Image(systemName: "photo")
-                    .font(.system(size: 18, weight: .regular))
+                    .font(.mng(18, weight: .regular))
                     .foregroundStyle(Palette.text4)
             }
         }

@@ -160,13 +160,13 @@ private struct ViewerTopBar: View {
 
             VStack(spacing: 2) {
                 Text(title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.mng(14, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
                 Text(subtitle)
-                    .font(.system(size: 11))
+                    .font(.mng(11))
                     .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -285,10 +285,10 @@ private struct ViewerFooter: View {
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: "livephoto")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.mng(13, weight: .semibold))
 
                 Text(Strings.liveBadge)
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.mng(11, weight: .bold))
                     .tracking(0.55)
             }
             .foregroundStyle(.white)
@@ -349,7 +349,7 @@ private struct ViewerCircleButton: View {
                 }
 
                 Image(systemName: icon)
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.mng(17, weight: .semibold))
                     .foregroundStyle(tint)
             }
             .frame(width: 44, height: 44)

@@ -18,13 +18,13 @@ struct VaultDeleteSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(Strings.vaultDeleteBody(vault.name))
-                        .font(.system(size: 13))
+                        .font(.mng(13))
                         .foregroundStyle(Palette.danger)
                         .fixedSize(horizontal: false, vertical: true)
 
                     VStack(alignment: .leading, spacing: 6) {
                         Text(Strings.vaultPassword)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.mng(12, weight: .semibold))
                             .foregroundStyle(Palette.text2)
 
                         SecureField(
@@ -49,14 +49,14 @@ struct VaultDeleteSheet: View {
 
                     if !state.operationError.isEmpty {
                         Text(state.operationError)
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.mng(12, weight: .medium))
                             .foregroundStyle(Palette.danger)
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
                     HStack(spacing: 10) {
                         Button(Strings.cancel) { dismiss() }
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.mng(15, weight: .semibold))
                             .foregroundStyle(Palette.text2)
                             .frame(maxWidth: .infinity)
                             .frame(height: 48)
@@ -74,10 +74,10 @@ struct VaultDeleteSheet: View {
                                     ProgressView().controlSize(.small)
                                 } else {
                                     Image(systemName: "trash")
-                                        .font(.system(size: 13, weight: .semibold))
+                                        .font(.mng(13, weight: .semibold))
                                 }
                                 Text(state.isWorking ? Strings.vaultDeleting : Strings.delete)
-                                    .font(.system(size: 15, weight: .semibold))
+                                    .font(.mng(15, weight: .semibold))
                             }
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
@@ -93,7 +93,7 @@ struct VaultDeleteSheet: View {
                     }
 
                     Text(Strings.vaultDeleteHint)
-                        .font(.system(size: 11))
+                        .font(.mng(11))
                         .foregroundStyle(Palette.text4)
                         .fixedSize(horizontal: false, vertical: true)
                 }

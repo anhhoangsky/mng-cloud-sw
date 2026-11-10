@@ -57,17 +57,17 @@ struct EditorView: View {
                 VStack {
                     Spacer()
                     Text(Strings.editorLoading)
-                        .font(.system(size: 12))
+                        .font(.mng(12))
                         .foregroundStyle(.white.opacity(0.7))
                     Spacer()
                 }
             case .failed(let message):
                 VStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 24))
+                        .font(.mng(24))
                         .foregroundStyle(.white.opacity(0.7))
                     Text(message)
-                        .font(.system(size: 12))
+                        .font(.mng(12))
                         .foregroundStyle(.white.opacity(0.7))
                         .multilineTextAlignment(.center)
                 }
@@ -163,7 +163,7 @@ struct EditorView: View {
     private var cropPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(Strings.editorGeometry)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.mng(11, weight: .semibold))
                 .tracking(0.06)
                 .foregroundStyle(Palette.text4)
 
@@ -183,7 +183,7 @@ struct EditorView: View {
             }
 
             Text(Strings.editorAspect)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.mng(11, weight: .semibold))
                 .tracking(0.06)
                 .foregroundStyle(Palette.text4)
 
@@ -194,7 +194,7 @@ struct EditorView: View {
                             editor.applyAspect(aspect)
                         } label: {
                             Text(aspect.title)
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(.mng(13, weight: .semibold))
                                 .foregroundStyle(
                                     editor.aspect == aspect
                                         ? Palette.accentInk
@@ -216,7 +216,7 @@ struct EditorView: View {
             }
 
             Text(Strings.editorCropHint)
-                .font(.system(size: 11))
+                .font(.mng(11))
                 .foregroundStyle(Palette.text4)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 16)
@@ -225,7 +225,7 @@ struct EditorView: View {
                 Button(Strings.editorCropReset) {
                     editor.resetCrop()
                 }
-                .font(.system(size: 14, weight: .semibold))
+                .font(.mng(14, weight: .semibold))
                 .foregroundStyle(Palette.text2)
                 .frame(maxWidth: .infinity)
                 .frame(height: 42)
@@ -238,7 +238,7 @@ struct EditorView: View {
                 Button(Strings.editorCropApply) {
                     editor.setCrop(editor.crop)
                 }
-                .font(.system(size: 14, weight: .semibold))
+                .font(.mng(14, weight: .semibold))
                 .foregroundStyle(Palette.accentInk)
                 .frame(maxWidth: .infinity)
                 .frame(height: 42)
@@ -257,7 +257,7 @@ struct EditorView: View {
             ForEach(EditorModel.Adjustment.allCases) { key in
                 HStack(spacing: 10) {
                     Text(key.title)
-                        .font(.system(size: 12))
+                        .font(.mng(12))
                         .foregroundStyle(Palette.text2)
                         .frame(width: 92, alignment: .leading)
 
@@ -271,7 +271,7 @@ struct EditorView: View {
                     )
 
                     Text("\(Int(key.value(in: editor.adjustments)))")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.mng(12, weight: .medium))
                         .foregroundStyle(Palette.text3)
                         .frame(width: 34, alignment: .trailing)
                 }
@@ -281,7 +281,7 @@ struct EditorView: View {
             Button(Strings.editorAdjustReset) {
                 editor.resetAdjustments()
             }
-            .font(.system(size: 13, weight: .semibold))
+            .font(.mng(13, weight: .semibold))
             .foregroundStyle(Palette.accent)
             .padding(.horizontal, 16)
             .padding(.top, 2)
@@ -297,7 +297,7 @@ struct EditorView: View {
                         editor.setFilter(filter)
                     } label: {
                         Text(Strings.editorFilterTitle(filter))
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.mng(13, weight: .semibold))
                             .foregroundStyle(
                                 editor.filter == filter
                                     ? Palette.accentInk
@@ -338,7 +338,7 @@ struct EditorView: View {
 
             HStack(spacing: 10) {
                 Button(Strings.editorCancel) { dismiss() }
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.mng(15, weight: .semibold))
                     .foregroundStyle(Palette.text2)
                     .frame(maxWidth: .infinity)
                     .frame(height: 46)
@@ -356,10 +356,10 @@ struct EditorView: View {
                             ProgressView().controlSize(.small)
                         } else {
                             Image(systemName: "square.and.arrow.down")
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(.mng(13, weight: .semibold))
                         }
                         Text(Strings.editorSave)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.mng(15, weight: .semibold))
                     }
                     .foregroundStyle(Palette.accentInk)
                     .frame(maxWidth: .infinity)
@@ -383,9 +383,9 @@ struct EditorView: View {
         Button(action: action) {
             VStack(spacing: 4) {
                 Image(systemName: icon)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.mng(14, weight: .semibold))
                 Text(title)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.mng(10, weight: .semibold))
             }
             .foregroundStyle(Palette.text2)
             .frame(maxWidth: .infinity)

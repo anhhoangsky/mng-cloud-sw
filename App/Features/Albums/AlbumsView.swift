@@ -357,16 +357,16 @@ private struct AlbumSectionHead: View {
                 } label: {
                     HStack(spacing: 7) {
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.mng(13, weight: .semibold))
                             .foregroundStyle(Palette.text3)
                             .rotationEffect(.degrees(open ? 0 : -90))
                         Text(title)
-                            .font(.system(size: 22, weight: .bold))
+                            .font(.mng(22, weight: .bold))
                             .tracking(-0.02)
                             .foregroundStyle(Palette.text)
                             .lineLimit(1)
                         Text("\(count)")
-                            .font(.system(size: 13))
+                            .font(.mng(13))
                             .foregroundStyle(Palette.textMuted)
                     }
                     .contentShape(Rectangle())
@@ -435,9 +435,9 @@ private struct AlbumSectionHead: View {
     private func pill(icon: String, text: String) -> some View {
         HStack(spacing: 5) {
             Image(systemName: icon)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.mng(10, weight: .semibold))
             Text(text)
-                .font(.system(size: 13, weight: .medium))
+                .font(.mng(13, weight: .medium))
         }
         .foregroundStyle(Palette.text2)
         .padding(.horizontal, 10)
@@ -502,7 +502,7 @@ private struct AlbumPhotoSection: View {
                             }
                         } label: {
                             Text(expanded ? Strings.albumShowLess : Strings.albumShowAll)
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.mng(14, weight: .semibold))
                                 .foregroundStyle(Palette.accent)
                                 .frame(maxWidth: .infinity)
                                 .frame(minHeight: 44)
@@ -583,7 +583,7 @@ private struct AlbumPhotoTile: View {
                     Spacer(minLength: 0)
                     if item.favorite {
                         Image(systemName: "heart.fill")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.mng(11, weight: .semibold))
                             .foregroundStyle(.white)
                     }
                 }
@@ -603,9 +603,9 @@ private struct AlbumPhotoTile: View {
     private func badge(icon: String, text: String) -> some View {
         HStack(spacing: 3) {
             Image(systemName: icon)
-                .font(.system(size: 8, weight: .bold))
+                .font(.mng(8, weight: .bold))
             Text(text)
-                .font(.system(size: 10, weight: .bold))
+                .font(.mng(10, weight: .bold))
         }
         .foregroundStyle(.white)
     }
@@ -636,7 +636,7 @@ private struct SmartAlbumRow: View {
                         )
                     } else {
                         Image(systemName: "rectangle.stack")
-                            .font(.system(size: 20))
+                            .font(.mng(20))
                             .foregroundStyle(Palette.text4)
                     }
                 }
@@ -645,11 +645,11 @@ private struct SmartAlbumRow: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.mng(15, weight: .semibold))
                         .foregroundStyle(Palette.text)
                         .lineLimit(1)
                     Text(Strings.albumItemSub(album.count, sub: album.sub))
-                        .font(.system(size: 12))
+                        .font(.mng(12))
                         .foregroundStyle(Palette.text3)
                         .lineLimit(1)
                 }
@@ -657,7 +657,7 @@ private struct SmartAlbumRow: View {
                 Spacer(minLength: 6)
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.mng(11, weight: .semibold))
                     .foregroundStyle(Palette.text4)
             }
             .padding(11)
@@ -698,7 +698,7 @@ private struct AlbumCard: View {
                                 )
                             } else {
                                 Image(systemName: "photo")
-                                    .font(.system(size: 18))
+                                    .font(.mng(18))
                                     .foregroundStyle(Palette.text4)
                             }
                         }
@@ -709,11 +709,11 @@ private struct AlbumCard: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.mng(15, weight: .semibold))
                         .foregroundStyle(Palette.text)
                         .lineLimit(1)
                     Text(Strings.albumYearSub(album.count))
-                        .font(.system(size: 12))
+                        .font(.mng(12))
                         .foregroundStyle(Palette.text3)
                 }
                 .padding(.horizontal, 11)
@@ -743,7 +743,7 @@ private struct PersonCard: View {
                             ThumbnailView(client: model.client, path: person.cover)
                         } else {
                             Image(systemName: "person.fill")
-                                .font(.system(size: max(20, size * 0.3)))
+                                .font(.mng(max(20, size * 0.3)))
                                 .foregroundStyle(Palette.text4)
                         }
                     }
@@ -754,13 +754,13 @@ private struct PersonCard: View {
                     }
 
                     Text(AlbumCatalog.personTitle(person))
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.mng(13, weight: .medium))
                         .foregroundStyle(Palette.text)
                         .lineLimit(1)
                         .frame(maxWidth: size + 8)
 
                     Text(Strings.albumPhotoCount(person.itemCount))
-                        .font(.system(size: 11))
+                        .font(.mng(11))
                         .foregroundStyle(Palette.text3)
                 }
             }
@@ -770,7 +770,7 @@ private struct PersonCard: View {
                 model.presentPersonEdit(person)
             } label: {
                 Image(systemName: "pencil")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.mng(10, weight: .bold))
                     .foregroundStyle(Palette.text2)
                     .frame(width: 24, height: 24)
                     .background(.ultraThinMaterial, in: Circle())
@@ -812,11 +812,11 @@ private struct PlaceCard: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(place.province.isEmpty ? Strings.albumUnknownProvince : place.province)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.mng(15, weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                     Text(Strings.albumPhotoCount(place.count))
-                        .font(.system(size: 11))
+                        .font(.mng(11))
                         .foregroundStyle(.white.opacity(0.82))
                 }
                 .padding(11)
@@ -847,7 +847,7 @@ private struct DistrictRow: View {
                         ThumbnailView(client: model.client, path: coverPath)
                     } else {
                         Image(systemName: "mappin.and.ellipse")
-                            .font(.system(size: 18))
+                            .font(.mng(18))
                             .foregroundStyle(Palette.text4)
                     }
                 }
@@ -856,11 +856,11 @@ private struct DistrictRow: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(place.district)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.mng(15, weight: .semibold))
                         .foregroundStyle(Palette.text)
                         .lineLimit(1)
                     Text(Strings.albumPlaceSub(province: place.province, count: place.count))
-                        .font(.system(size: 12))
+                        .font(.mng(12))
                         .foregroundStyle(Palette.text3)
                         .lineLimit(1)
                 }
@@ -868,7 +868,7 @@ private struct DistrictRow: View {
                 Spacer(minLength: 6)
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.mng(11, weight: .semibold))
                     .foregroundStyle(Palette.text4)
             }
             .padding(11)
@@ -932,7 +932,7 @@ private struct AIProgressBanner: View {
         HStack(spacing: 12) {
             if let icon {
                 Image(systemName: icon)
-                    .font(.system(size: 21, weight: .semibold))
+                    .font(.mng(21, weight: .semibold))
                     .foregroundStyle(iconColor)
                     .frame(width: 22)
             } else if dot {
@@ -948,11 +948,11 @@ private struct AIProgressBanner: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.mng(14, weight: .semibold))
                     .foregroundStyle(Palette.text)
                     .lineLimit(1)
                 Text(body)
-                    .font(.system(size: 12))
+                    .font(.mng(12))
                     .foregroundStyle(Palette.text3)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -980,7 +980,7 @@ private struct ExploreSkeleton: View {
             .background(Palette.bgGrouped, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             Text(Strings.albumPeople)
-                .font(.system(size: 16, weight: .semibold))
+                .font(.mng(16, weight: .semibold))
                 .foregroundStyle(Palette.text2)
 
             HStack(spacing: 14) {
@@ -997,7 +997,7 @@ private struct ExploreSkeleton: View {
             .clipped()
 
             Text(Strings.albumPlaces)
-                .font(.system(size: 16, weight: .semibold))
+                .font(.mng(16, weight: .semibold))
                 .foregroundStyle(Palette.text2)
 
             LazyVGrid(
@@ -1026,19 +1026,19 @@ private struct AlbumSectionEmpty: View {
     var body: some View {
         VStack(spacing: 5) {
             Image(systemName: icon)
-                .font(.system(size: 24))
+                .font(.mng(24))
                 .foregroundStyle(isError ? Palette.danger : Palette.text4)
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.mng(14, weight: .semibold))
                 .foregroundStyle(isError ? Palette.danger : Palette.text2)
             Text(message)
-                .font(.system(size: 13))
+                .font(.mng(13))
                 .foregroundStyle(Palette.text3)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             if let retry {
                 Button(Strings.retry, action: retry)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.mng(13, weight: .semibold))
                     .foregroundStyle(Palette.accent)
                     .padding(.top, 6)
             }
@@ -1059,15 +1059,15 @@ private struct AlbumPageError: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 18))
+                .font(.mng(18))
                 .foregroundStyle(Palette.danger)
             Text(message)
-                .font(.system(size: 13))
+                .font(.mng(13))
                 .foregroundStyle(Palette.text2)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
             Button(Strings.retry, action: retry)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.mng(13, weight: .semibold))
                 .foregroundStyle(Palette.accent)
                 .buttonStyle(.plain)
         }

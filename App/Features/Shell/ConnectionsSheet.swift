@@ -62,14 +62,14 @@ struct ConnectionsSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text(Strings.connectionsSubtitle)
-                    .font(.system(size: 13))
+                    .font(.mng(13))
                     .foregroundStyle(Palette.text3)
 
                 if model.clouds.isEmpty {
                     HStack(spacing: 10) {
                         ProgressView().controlSize(.small)
                         Text(Strings.connecting)
-                            .font(.system(size: 13))
+                            .font(.mng(13))
                             .foregroundStyle(Palette.text3)
                     }
                     .padding(.vertical, 12)
@@ -87,7 +87,7 @@ struct ConnectionsSheet: View {
                 }
 
                 Text(Strings.connectionsNote)
-                    .font(.system(size: 12))
+                    .font(.mng(12))
                     .foregroundStyle(Palette.text3)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -105,17 +105,17 @@ struct ConnectionsSheet: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: "icloud")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.mng(18, weight: .semibold))
                     .foregroundStyle(Palette.icloud)
                     .frame(width: 34, height: 34)
                     .background(Palette.icloud.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(Strings.icloudPhotos)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.mng(15, weight: .semibold))
                         .foregroundStyle(Palette.text)
                     Text(model.icloud.row.subtitle)
-                        .font(.system(size: 12))
+                        .font(.mng(12))
                         .foregroundStyle(Palette.text3)
                         .lineLimit(2)
                 }
@@ -123,11 +123,11 @@ struct ConnectionsSheet: View {
                 Spacer(minLength: 8)
 
                 Text(model.icloud.row.value)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.mng(12, weight: .semibold))
                     .foregroundStyle(Palette.text3)
 
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.mng(11, weight: .semibold))
                     .foregroundStyle(Palette.text4)
             }
             .padding(12)
@@ -181,7 +181,7 @@ private struct CloudConnectionCard: View {
             Button(action: onSelect) {
                 HStack(spacing: 12) {
                     Image(systemName: "cloud.fill")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.mng(17, weight: .semibold))
                         .foregroundStyle(isActive ? Palette.accent : Palette.text3)
                         .frame(width: 34, height: 34)
                         .background(
@@ -191,12 +191,12 @@ private struct CloudConnectionCard: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(label)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.mng(15, weight: .semibold))
                             .foregroundStyle(Palette.text)
                             .lineLimit(1)
                         if !sub.isEmpty {
                             Text(sub)
-                                .font(.system(size: 12))
+                                .font(.mng(12))
                                 .foregroundStyle(Palette.text3)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
@@ -207,14 +207,14 @@ private struct CloudConnectionCard: View {
 
                     VStack(alignment: .trailing, spacing: 3) {
                         Text("\(MNGFormat.count(cloud.counts.total)) mục")
-                            .font(.system(size: 12))
+                            .font(.mng(12))
                             .foregroundStyle(Palette.text3)
                         HStack(spacing: 5) {
                             Circle()
                                 .fill(health.0.color)
                                 .frame(width: 7, height: 7)
                             Text(health.1)
-                                .font(.system(size: 11))
+                                .font(.mng(11))
                                 .foregroundStyle(Palette.text3)
                                 .lineLimit(1)
                         }
@@ -222,7 +222,7 @@ private struct CloudConnectionCard: View {
 
                     if isActive {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.mng(16, weight: .semibold))
                             .foregroundStyle(Palette.accent)
                     }
                 }
@@ -234,7 +234,7 @@ private struct CloudConnectionCard: View {
             if !cloud.webdav.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 HStack(spacing: 8) {
                     Text(cloud.webdav)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.mng(11, design: .monospaced))
                         .foregroundStyle(Palette.text3)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -243,7 +243,7 @@ private struct CloudConnectionCard: View {
                         UIPasteboard.general.string = cloud.webdav
                         model.notify(Strings.webdavCopied)
                     }
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.mng(12, weight: .semibold))
                     .foregroundStyle(Palette.accent)
                     .buttonStyle(.plain)
                 }
