@@ -109,7 +109,7 @@ Kết quả bàn giao:
 
 | # | Quyết định | Lý do |
 | --- | --- | --- |
-| D1 | **iOS 17.0+**, Xcode 16.4 (Swift 5.10 language mode, sẵn sàng Swift 6) | Có `ScrollPosition`, `Observable`, `NavigationSplitView` ổn định; thiết bị cũ vẫn phủ tốt |
+| D1 | **iOS 17.0+**, Xcode 16.4 (Swift 5 language mode, sẵn sàng Swift 6) | Có `ScrollPosition`, `Observable`, `NavigationSplitView` ổn định; thiết bị cũ vẫn phủ tốt |
 | D2 | **Pure Swift crypto**, không nhúng Rust/UniFFI | Yêu cầu "toàn bộ qua Swift"; KAT làm cổng chặn (mục 9) |
 | D3 | **XcodeGen** sinh project, commit `project.yml`, không commit `.xcodeproj` | Tránh conflict; CI tái lập 100% |
 | D4 | **GitHub Actions macOS** là nơi build/test chính | Máy dev hiện tại là Windows, không có Xcode |
@@ -823,6 +823,11 @@ Việc chính:
 
 Nghiệm thu: `swift test --package-path Packages/MNGCore` xanh trên macOS và
 simulator; 100% KAT; không force-unwrap; không log bí mật.
+
+Trạng thái (2026-11-10): đã port `SecureBytes`, PBKDF2/AES-CBC/AES-GCM,
+`RepoKey`, `VaultKey` + manifest, `SearchFold`; đã viết KAT v2/v3, vault và
+fold tests. Type-check Swift 5.10 bằng Compiler Explorer với stub framework
+Apple đạt; `swift test` thật vẫn chờ CI macOS (repo chưa có remote GitHub).
 
 ### P2 — MNGKit API + Session/Login (1 tuần)
 

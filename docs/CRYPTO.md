@@ -55,8 +55,10 @@ AAD/nonce/tag fails.
 
 ## Swift implementation rules
 
-- Keep key material in `SecureBytes` (raw allocation, `memset_s` on release).
-  Never store keys in `String`.
+- Keep derived key material in `SecureBytes` (private heap buffer, `memset_s`
+  on release). Never store derived keys in `String` or `Data`. Passwords exist
+  as `String` only at the API boundary and are copied to byte buffers for the
+  KDF.
 - PBKDF2 via CommonCrypto `CCKeyDerivationPBKDF`; AES-CBC via `CCCrypt` with
   PKCS#7; AES-GCM via CryptoKit; SHA-1 via `Insecure.SHA1` for block ids only.
 - Compare magic/verifier in constant time; no early return.

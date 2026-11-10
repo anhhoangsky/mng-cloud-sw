@@ -45,6 +45,6 @@ xcodebuild -project MNGCloud.xcodeproj -scheme MNGCloud \
 ## Phase status
 
 - [x] **P0** — scaffold, XcodeGen, CI pipeline (first CI run pending)
-- [ ] P1 — MNGCore crypto + KAT
+- [x] **P1** — MNGCore crypto + KAT (ported; macOS CI run pending)
 - [ ] P2 — MNGKit API + session/login
 - [ ] P3+ — see `PLAN.md`
