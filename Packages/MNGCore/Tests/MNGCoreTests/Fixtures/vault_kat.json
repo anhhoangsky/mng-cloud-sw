@@ -1,0 +1,15 @@
+{
+  "uid": "0123456789abcdef0123456789abcdef",
+  "password": "Mật khẩu kho thử nghiệm",
+  "salt_b64": "AAECAwQFBgcICQoLDA0ODw==",
+  "iterations": 310000,
+  "verifier_b64": "HzBBUmN0hZanuMna+3HPmQ5Ax4hjQ+3POisbN/1i9DVuyH18p/1jY9tMHU8RY1meAJ/CU0onMEtlNx7s9m8jjrAk6Fl/IVVf1rU64t2dhOLTng==",
+  "manifest_b64": "Pk9gcYKTpLXG1+j5ehRFxzyaBZovVytEb3LLjlDtXgDxDKWIp4fy0oB298eDUdr468diaEUZSoSjeJacErQWD4Nj+rBPd8b5QwlSywD6u+/r6TZeFPYwLCwE8sy8LmD9B7dAHx8A2bDJWMhDk/3HMS/YNYvTr04wd1FTH1eTgYwCcgY2YkdloiNa0FpcFXysYJ70HGd7AFLKigPejTsGIc2YZ0VoOn6yMGhFUT5OOG4hqM1N8lFVhpmK83S1gHUrfhNm5MagO6AK3Wa8/9/hg6Eu3ESebzCG5VYCW5DU15KocZgpHHQpVgIcvG+Daw1MM30tCwtoNs/1tiiL6GQ+Q+boRTQg1zDTjDnrCZ5FpRLY1KsX92OEjg9olnQXQr0pEadNShd2kEOaucvUZOywqYsFRLYx8YISAaitIVr8v0hZ70AaUBw8ZNHjhqtcDmW6jpka7n/kp9Z0wbOwvdwgW1zyL6r5E+4AcoN9cx6qpbxbDDEHInCx6ZHiViRDNQniE8m9wXJJLDFpPBAIH/KvQ3Mc5e1+7XNQlKaUBpcaF9ZkkYay/1ksuP6M0yFRETkKoa43sQHcJKuqAzBfei1TMPfBQhqHU2aaxIKEA31mTGMG3Lt/pv3aOJ2ekjGe0U/i/l/CAu4RZffK3Lx6k2VLB0nZdWPBkucQE7JCzmUFC9iZBbISf2DYraQjq+nDfaHdSsoPLzxrhn77gA==",
+  "manifest_json": "{\"version\":1,\"uid\":\"0123456789abcdef0123456789abcdef\",\"name\":\"Kho thử nghiệm\",\"created\":1700000000000,\"updated\":1700000100000,\"folders\":[{\"id\":\"f1\",\"name\":\"Album\",\"parent\":null,\"created\":1700000000000}],\"files\":[{\"id\":\"aabbccddeeff00112233445566778899\",\"name\":\"ghi chú.txt\",\"folder\":\"f1\",\"size\":21,\"mime\":\"text/plain\",\"kind\":\"file\",\"created\":1700000000000,\"added\":1700000000000,\"chunks\":[{\"id\":\"11111111111111111111111111111111\",\"size\":45}],\"thumb\":null,\"thumbMime\":\"\",\"width\":0,\"height\":0,\"duration\":0}]}",
+  "chunk_aad": "mng-vault/v1/0123456789abcdef0123456789abcdef/file/aabbccddeeff00112233445566778899/chunk/0/1",
+  "chunk_plain": "The quick brown fox!",
+  "chunk_b64": "XW5/kKGyw9Tl9gcYuwulO3mNrEHcEPvVfxB6gs3nrmsQeG3xt3BvQz9FdOCtek+L",
+  "thumb_aad": "mng-vault/v1/0123456789abcdef0123456789abcdef/file/aabbccddeeff00112233445566778899/thumb",
+  "thumb_plain": "thumb-bytes",
+  "thumb_b64": "fI2er8DR4vMEFSY3DBm3PmHCECEkdhE+nX3JqmD3e5hcjFeQLsCQ"
+}

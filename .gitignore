@@ -1,0 +1,27 @@
+# Xcode / build
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# XcodeGen output (project.yml is the source of truth)
+MNGCloud.xcodeproj/
+App/Resources/Info.plist
+
+# SwiftPM
+.build/
+.swiftpm/
+Packages/*/.build/
+Packages/*/.swiftpm/
+Packages/*/Package.resolved
+
+# macOS
+.DS_Store
+
+# Secrets / signing (never commit)
+ExportOptions.plist
+*.p12
+*.mobileprovision
+AuthKey_*.p8

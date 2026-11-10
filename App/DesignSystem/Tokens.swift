@@ -1,0 +1,83 @@
+import SwiftUI
+
+/// Design tokens ported from `ui/assets/app.css` (light/dark values).
+enum Palette {
+    static let bg = Color.mng(light: 0xFFFFFF, dark: 0x07090D)
+    static let bgGrouped = Color.mng(light: 0xF2F2F7, dark: 0x0B0F15)
+    static let bgElevated = Color.mng(light: 0xFFFFFF, dark: 0x10151D)
+
+    static let text = Color.mng(light: 0x000000, dark: 0xF2F5F9)
+    static let textMuted = Color.mng(light: 0x6E6E73, dark: 0x9AA7B6)
+
+    static let sep = Color.mng(light: 0x3C3C43, lightAlpha: 0.22, dark: 0xFFFFFF, darkAlpha: 0.12)
+    static let hairline = Color.mng(light: 0x3C3C43, lightAlpha: 0.29, dark: 0xFFFFFF, darkAlpha: 0.09)
+    static let fill = Color.mng(light: 0x787880, lightAlpha: 0.12, dark: 0xFFFFFF, darkAlpha: 0.08)
+
+    static let accent = Color.mng(light: 0x007AFF, dark: 0x7DD3FC)
+    static let accentStrong = Color.mng(light: 0x0066D6, dark: 0x38BDF8)
+    static let accentInk = Color.mng(light: 0xFFFFFF, dark: 0x041018)
+    static let accentSoft = Color.mng(light: 0x007AFF, lightAlpha: 0.12, dark: 0x7DD3FC, darkAlpha: 0.12)
+
+    static let danger = Color.mng(light: 0xFF3B30, dark: 0xFB7185)
+    static let dangerSoft = Color.mng(light: 0xFF3B30, lightAlpha: 0.12, dark: 0xFB7185, darkAlpha: 0.12)
+    static let green = Color.mng(light: 0x34C759, dark: 0x34D399)
+    static let orange = Color.mng(light: 0xFF9500, dark: 0xFBBF24)
+
+    static let brandBlue = Color.mng(light: 0x0082C9, dark: 0x38BDF8)
+    static let seafile = Color.mng(light: 0x0A7C74, dark: 0x2DD4BF)
+    static let icloud = Color.mng(light: 0x1C8BFA, dark: 0x60A5FA)
+}
+
+enum Tokens {
+    enum Radius {
+        static let s: CGFloat = 8
+        static let m: CGFloat = 12
+        static let l: CGFloat = 16
+        static let xl: CGFloat = 28
+    }
+
+    enum Spacing {
+        static let xs: CGFloat = 4
+        static let s: CGFloat = 8
+        static let m: CGFloat = 12
+        static let l: CGFloat = 16
+        static let xl: CGFloat = 24
+    }
+
+    enum Layout {
+        static let sidebarWidth: CGFloat = 264
+        static let tabBarHeight: CGFloat = 68
+    }
+
+    enum Motion {
+        static let ease = Animation.timingCurve(0.32, 0.72, 0, 1, duration: 0.32)
+        static let fade = Animation.easeOut(duration: 0.2)
+    }
+}
+
+extension Color {
+    /// Dynamic color from the legacy light/dark palette.
+    static func mng(
+        light: UInt32,
+        lightAlpha: CGFloat = 1,
+        dark: UInt32,
+        darkAlpha: CGFloat = 1
+    ) -> Color {
+        Color(uiColor: UIColor { traits in
+            let isDark = traits.userInterfaceStyle == .dark
+            return UIColor(
+                hex: isDark ? dark : light,
+                alpha: isDark ? darkAlpha : lightAlpha
+            )
+        })
+    }
+}
+
+private extension UIColor {
+    convenience init(hex: UInt32, alpha: CGFloat) {
+        let red = CGFloat((hex >> 16) & 0xFF) / 255
+        let green = CGFloat((hex >> 8) & 0xFF) / 255
+        let blue = CGFloat(hex & 0xFF) / 255
+        self.init(red: red, green: green, blue: blue, alpha: alpha)
+    }
+}
