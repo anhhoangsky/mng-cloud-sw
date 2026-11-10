@@ -121,7 +121,9 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - The admin row is intentionally absent until P9; storage is read-only, matching
   the web UI.
 - CI run `42858021122` passed all package tests, the unsigned simulator build,
-  the simulator test target and the artifact upload.
+  the simulator test target and the artifact upload. Later runs
+  (`42870517153`, `42874600019`, `42875999023`, `42878324010`) kept it green
+  through the vault, editor, admin and iCloud phases.
 
 ## P7 notes
 
