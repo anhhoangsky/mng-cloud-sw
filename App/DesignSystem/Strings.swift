@@ -95,6 +95,13 @@ enum Strings {
     static let livePhoto = "Live Photo"
     static let videoLivePhoto = "Video · Live Photo"
 
+    // Viewer
+    static let viewerPrevious = "Ảnh trước"
+    static let viewerNext = "Ảnh sau"
+    static let viewerStrip = "Danh sách ảnh"
+    static let liveBadge = "LIVE"
+    static let viewerPlay = "Phát"
+
     // Selection and confirmations
     static let selectionLabel = "Đã chọn"
     static let deselect = "Bỏ chọn"

@@ -168,6 +168,7 @@ final class ShellModel {
             notify(error)
         }
         ThumbCache.shared.clear()
+        PreviewCache.shared.clear()
     }
 
     func clearThumbnails() {
@@ -279,6 +280,7 @@ final class ShellModel {
                 guard let self else { return }
                 await store.expireSession()
                 ThumbCache.shared.clear()
+                PreviewCache.shared.clear()
             }
         case .share(let file):
             if let old = shareFile, old.url != file.url {

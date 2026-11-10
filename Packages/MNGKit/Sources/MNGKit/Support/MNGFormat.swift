@@ -114,6 +114,32 @@ public enum MNGFormat {
         "\(number(value)) mục"
     }
 
+    /// Viewer headline: video `1:23 · 4.5 MB`, photo `1920 × 1080 · 2.1 MB`.
+    ///
+    /// Mirrors `viewer_title_text()` in `shell.rs`; the filename is only shown
+    /// when every detail field is empty.
+    public static func viewerTitle(_ item: Item) -> String {
+        let details: [String]
+        if item.isVideo {
+            details = [duration(item.duration), bytes(item.size)]
+        } else {
+            let dimensions = item.width > 0 && item.height > 0
+                ? resolution(width: item.width, height: item.height) ?? ""
+                : ""
+            details = [dimensions, bytes(item.size)]
+        }
+        let joined = details.filter { !$0.isEmpty }.joined(separator: " · ")
+        return joined.isEmpty ? item.name : joined
+    }
+
+    /// Viewer subtitle: `Seafile · 5 tháng 11, 2026 · 14:09`.
+    ///
+    /// The PWA always renders all three fields, so an unknown timestamp keeps
+    /// the trailing separator (`Seafile · Không rõ ngày · `).
+    public static func viewerSubtitle(_ item: Item, cloud: String) -> String {
+        "\(cloud) · \(itemDate(item)) · \(time(takenAt: item.takenAt))"
+    }
+
     private static func twoDigits(_ value: Int) -> String {
         value < 10 ? "0\(value)" : String(value)
     }

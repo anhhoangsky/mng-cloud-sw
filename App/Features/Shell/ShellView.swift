@@ -40,13 +40,27 @@ struct ShellView: View {
                 .overlay(alignment: .bottom) { regularBottomChrome }
             }
 
+            ZStack {
+                if model.library.viewer.isOpen {
+                    ViewerView(model: model)
+                        .transition(
+                            .asymmetric(
+                                insertion: .opacity.combined(with: .scale(scale: 0.985)),
+                                removal: .opacity.combined(with: .scale(scale: 0.98))
+                            )
+                        )
+                }
+            }
+            .animation(Tokens.Motion.viewer, value: model.library.viewer.isOpen)
+            .zIndex(20)
+
             if let toast = model.toast {
                 ToastBubble(message: toast)
                     .padding(.horizontal, 24)
                     .padding(.bottom, isCompact ? 104 : 34)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .allowsHitTesting(false)
-                    .zIndex(10)
+                    .zIndex(30)
             }
         }
         .animation(Tokens.Motion.fade, value: model.toast)

@@ -13,8 +13,8 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 | Login | card, cloud mark, error copy, CSRF session | 🟡 card + validation + CSRF session, CI pending |
 | App shell | 4 tabs compact / 264 pt sidebar regular, search button | 🟡 ported: floating compact header/tab bar + search circle, 264 pt sidebar + 5 entries, cloud picker, toast; CI/device check pending |
 | Library | Năm / Tháng / Tất cả, Ảnh/Video/Live/Yêu thích, 120-item pages, scroll anchor | 🟡 ported: segmented Năm/Tháng/Tất cả, kind chips, 120-item paging, year/month collage, skeleton/empty/error, pull-to-refresh; no favorites chip in the 0.3.1 shell |
-| Tiles | long-press menu, info sheet, favorite optimistic, delete confirm, selection mode | 🟡 ported: context menu, info sheet (tap opens info until the P4 viewer), optimistic favorite/delete + rollback, selection bar; device presentation order pending |
-| Viewer | filmstrip, swipe, pinch/double-tap zoom, swipe-down dismiss, video Range, Live Photo | ⏳ |
+| Tiles | long-press menu, info sheet, favorite optimistic, delete confirm, selection mode | 🟡 ported: context menu, info sheet, tap opens viewer, optimistic favorite/delete + rollback, selection bar; device presentation order pending |
+| Viewer | filmstrip, swipe, pinch/double-tap zoom, swipe-down dismiss, video Range, Live Photo | 🟡 ported: full-screen stage, lazy auto-centered filmstrip, pinch/double-tap/pan, swipe navigation and dismiss, cookie-authenticated AVPlayer, LIVE companion, HEIC preview fallback, optimistic favorite/info/download/delete; device gesture and seek check pending |
 | Albums | 7 collapsible sections, 9-photo preview, sort/density, cover morph | ⏳ |
 | Search | 280 ms debounce, 5 chips, 4 hints, 300-result cap, return target | ⏳ |
 | Connections | cloud cards, health dot, active check, WebDAV copy, iCloud row | ⏳ |
@@ -45,6 +45,33 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   animation. Both need a real-device check.
 - Deliberate platform differences: share sheet, `UIActivityViewController` temp
   files, SF Symbols, and a native `.contextMenu` in place of the web menu.
+
+## P4 notes
+
+- The viewer is a root overlay above the shell, matching the PWA modal. Its
+  snapshot list is independent of the timeline page, so paging or filtering
+  cannot reorder an open viewer.
+- Viewer title/subtitle copy follows `viewer_title_text()` /
+  `viewer_sub_text()`: dimensions or duration + size, then cloud · date · UTC
+  time. The subtitle intentionally keeps the trailing separator when the
+  timestamp is unknown.
+- Photos use `preview` with the same 360px thumbnail fallback and one delayed
+  retry after 4.5 s. The strip uses 160px thumbnails and centers the active
+  frame on open and navigation.
+- Pinch is clamped to 1–5×, double tap toggles 2.4×, and swipe dismiss only
+  applies at 1×. Vertical and horizontal thresholds match `shell.rs`
+  (`max(stage*0.2, 96)` and `max(stage*0.16, 56)`).
+- Video uses `AVURLAssetHTTPCookiesKey` with the session cookies instead of a
+  custom Range loader; AVFoundation owns Range, buffering and seeking. The
+  thumbnail is the poster, and the player pauses on background.
+- Live Photo stays still until the LIVE pill is pressed, then streams the
+  companion `?live=1` with autoplay. The badge is hidden while the companion
+  plays, and playback stops when the item changes or the viewer closes.
+- Delete removes the row optimistically, advances to the nearest neighbour and
+  closes the viewer when the snapshot empties. A failed delete restores the
+  whole viewer snapshot, matching the PWA backup.
+- Deliberate platform differences: native video controls, SF Symbols, and the
+  share sheet. The P8 edit button is omitted until the editor exists.
 
 ## Visual checks per UI phase
 

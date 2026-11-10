@@ -62,6 +62,7 @@ enum Tokens {
     enum Motion {
         static let ease = Animation.timingCurve(0.32, 0.72, 0, 1, duration: 0.32)
         static let fade = Animation.easeOut(duration: 0.2)
+        static let viewer = Animation.easeOut(duration: 0.24)
     }
 }
 

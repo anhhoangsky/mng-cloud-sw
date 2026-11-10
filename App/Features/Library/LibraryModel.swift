@@ -55,6 +55,10 @@ final class LibraryModel {
     private(set) var isLoadingInfo = false
     private(set) var isDownloading = false
 
+    /// Snapshot list used by the full-screen viewer. It is independent of
+    /// `page`, so paging or filtering can never reorder an open viewer.
+    let viewer = ViewerModel()
+
     /// Filled by `ShellModel` so the library does not depend on bootstrap.
     var cloudLabel: (String) -> String = { $0.isEmpty ? "đám mây" : $0 }
     var onEvent: ((LibraryEvent) -> Void)?
@@ -72,6 +76,19 @@ final class LibraryModel {
         self.defaults = defaults
         let stored = defaults.string(forKey: LibraryLayout.storageKey)
         filters = LibraryFilterState(layout: LibraryLayout(stored: stored))
+
+        viewer.onToggleFavorite = { [weak self] item in
+            self?.toggleFavorite(item)
+        }
+        viewer.onInfo = { [weak self] item in
+            self?.openInfo(item)
+        }
+        viewer.onDownload = { [weak self] item in
+            self?.download(item)
+        }
+        viewer.onDelete = { [weak self] id in
+            self?.requestDelete(ids: [id])
+        }
     }
 
     // MARK: - Loading
@@ -326,6 +343,19 @@ final class LibraryModel {
         requestDelete(ids: selectedItems.map(\.id))
     }
 
+    // MARK: - Viewer
+
+    /// Open the shared viewer with the current timeline page as its snapshot.
+    /// The tile must be part of the page; a detail snapshot falls back to a
+    /// single-item viewer instead of dropping the tap.
+    func openViewer(_ item: Item) {
+        guard !selectionMode else { return }
+        let list = page.items.contains(where: { $0.id == item.id })
+            ? page.items
+            : [item]
+        viewer.open(items: list, id: item.id)
+    }
+
     // MARK: - Favorite
 
     func toggleFavorite(_ item: Item) {
@@ -343,6 +373,7 @@ final class LibraryModel {
 
     private func applyFavorite(ids: Set<Int64>, value: Bool) {
         page.setFavorite(ids: ids, value: value)
+        viewer.setFavorite(ids: ids, value: value)
         if let item = infoItem, ids.contains(item.id) {
             infoItem = item.withFavorite(value)
         }
@@ -417,6 +448,7 @@ final class LibraryModel {
         let unique = Array(Set(ids)).sorted()
         guard !unique.isEmpty else { return }
         let first = page.item(id: unique[0])
+            ?? viewer.items.first(where: { $0.id == unique[0] })
         let label = cloudLabel(first?.cloud ?? cloud)
 
         let prompt: DeletePrompt
@@ -450,9 +482,15 @@ final class LibraryModel {
         guard let prompt = pendingDelete else { return }
         pendingDelete = nil
         exitSelection()
-        let removed = page.remove(ids: Set(prompt.ids))
+        let ids = Set(prompt.ids)
+        let removed = page.remove(ids: ids)
+        let viewerRemoval = viewer.remove(ids: ids)
         Task { [weak self] in
-            await self?.performDelete(ids: prompt.ids, removed: removed)
+            await self?.performDelete(
+                ids: prompt.ids,
+                removed: removed,
+                viewerRemoval: viewerRemoval
+            )
         }
     }
 
@@ -466,7 +504,11 @@ final class LibraryModel {
         }
     }
 
-    private func performDelete(ids: [Int64], removed: [RemovedItem]) async {
+    private func performDelete(
+        ids: [Int64],
+        removed: [RemovedItem],
+        viewerRemoval: ViewerRemoval?
+    ) async {
         var removedCount = 0
         var failed: [Int64] = []
 
@@ -491,6 +533,9 @@ final class LibraryModel {
         } else {
             let failedSet = Set(failed)
             page.restore(removed.filter { failedSet.contains($0.item.id) })
+            if let viewerRemoval {
+                viewer.restore(viewerRemoval, failed: failedSet)
+            }
             onEvent?(.toast(
                 APIMessages.deletePartial(
                     removed: removedCount,

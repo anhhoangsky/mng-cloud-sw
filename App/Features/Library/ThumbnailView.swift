@@ -7,6 +7,9 @@ struct ThumbnailView: View {
     let client: MNGAPIClient
     let path: String
     var contentMode: ContentMode = .fill
+    /// Viewer surfaces sit on black, so they pass a dark placeholder instead of
+    /// the timeline's default fill.
+    var placeholder: Color = Palette.fill
 
     @State private var image: UIImage?
     @State private var failed = false
@@ -14,7 +17,7 @@ struct ThumbnailView: View {
 
     var body: some View {
         ZStack {
-            Palette.fill
+            placeholder
 
             if let image {
                 Image(uiImage: image)

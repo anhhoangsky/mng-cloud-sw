@@ -75,6 +75,59 @@ final class MNGFormatTests: XCTestCase {
         XCTAssertEqual(MNGFormat.time(takenAt: 1_650_000_060), "05:21")
     }
 
+    private func viewerItem(
+        mediaType: String = "photo",
+        width: Int64 = 0,
+        height: Int64 = 0,
+        size: Int64 = 0,
+        duration: Double = 0,
+        takenAt: Int64 = 0
+    ) throws -> Item {
+        let json = """
+        {"id":1,"name":"IMG_0001.HEIC","type":"\(mediaType)","width":\(width),
+         "height":\(height),"size":\(size),"duration":\(duration),
+         "taken_at":\(takenAt),"day":5,"month":11,"year":2026}
+        """
+        return try JSONDecoder().decode(Item.self, from: Data(json.utf8))
+    }
+
+    func testViewerTitleMatchesPWA() throws {
+        XCTAssertEqual(
+            MNGFormat.viewerTitle(try viewerItem(
+                mediaType: "video",
+                size: 1_048_576,
+                duration: 65
+            )),
+            "1:05 · 1.0 MB"
+        )
+        XCTAssertEqual(
+            MNGFormat.viewerTitle(try viewerItem(
+                width: 1920,
+                height: 1080,
+                size: 1_536
+            )),
+            "1920 × 1080 · 1.5 KB"
+        )
+        XCTAssertEqual(
+            MNGFormat.viewerTitle(try viewerItem(size: 0)),
+            "0 B"
+        )
+    }
+
+    func testViewerSubtitleAlwaysKeepsThreeFields() throws {
+        XCTAssertEqual(
+            MNGFormat.viewerSubtitle(
+                try viewerItem(takenAt: 1_650_000_000),
+                cloud: "Seafile"
+            ),
+            "Seafile · 5 tháng 11, 2026 · 05:20"
+        )
+        XCTAssertEqual(
+            MNGFormat.viewerSubtitle(try viewerItem(), cloud: "Seafile"),
+            "Seafile · 5 tháng 11, 2026 · "
+        )
+    }
+
     func testLibraryErrorCopyMatchesPWA() {
         XCTAssertEqual(APIMessages.itemList(.network()), "Không kết nối được máy chủ.")
         XCTAssertEqual(

@@ -906,6 +906,22 @@ Việc chính:
 Nghiệm thu: seek video mượt trên box staging; Live Photo; zoom/pan/đóng;
 filmstrip 100+ ảnh không tụt FPS; rời màn hình dừng tải.
 
+Trạng thái (2026-11-10): đã port `ViewerView` full-screen với top chrome
+(đóng/tiêu đề/URL phụ/favorite/info), stage ảnh, prev/next trên iPad, filmstrip
+lazy 46pt tự căn giữa, footer LIVE/tải xuống/xóa; pinch 1–5×, double-tap 2.4×,
+pan, vuốt ngang chuyển ảnh và vuốt xuống đóng đúng ngưỡng PWA. Ảnh dùng preview
+cache riêng, fallback thumbnail 360 và retry một lần sau 4,5 giây. Video/Live
+Photo dùng `AVPlayer` với cookie phiên qua `AVURLAssetHTTPCookiesKey` (không cần
+scheme `MediaLoader` riêng; AVFoundation tự xử lý Range/seek), poster thumbnail,
+dừng khi background hoặc đóng viewer. Favorite/info/download/delete dùng chung
+`LibraryModel`; xóa optimistic chuyển ảnh kế và đóng khi hết danh sách, rollback
+toàn bộ snapshot viewer khi lỗi. Logic thuần nằm trong `MNGKit`
+(`ViewerCollection`, `ViewerRemoval`, `MNGFormat.viewerTitle/viewerSubtitle`) và
+đã type-check Swift 5.10 trên Compiler Explorer; `swift test`/simulator thật vẫn
+chờ CI macOS (repo chưa có remote GitHub). Kiểm tra trên thiết bị còn chờ:
+pinch/double-tap, căn giữa filmstrip, seek video, Live Photo, thứ tự info sheet
+trên viewer và dừng phát khi vào background.
+
 ### P5 — Albums + Search + Connections (1.5 tuần)
 
 Việc chính:

@@ -16,7 +16,7 @@ struct TileView: View {
                     library.toggleSelection(item.id)
                 }
             } else {
-                library.openInfo(item)
+                library.openViewer(item)
             }
         } label: {
             ZStack(alignment: .topTrailing) {
