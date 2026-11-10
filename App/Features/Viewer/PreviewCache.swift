@@ -27,7 +27,7 @@ final class PreviewCache {
             return await running.value
         }
 
-        let task = Task { [client] in
+        let task = Task<UIImage?, Never> { [client] in
             guard let data = try? await client.mediaData(path: path) else {
                 return nil
             }
