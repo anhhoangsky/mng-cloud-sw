@@ -45,7 +45,7 @@ struct ThumbnailView: View {
         let data = await ThumbCache.shared.data(for: path, client: client)
         guard !Task.isCancelled else { return }
 
-        if let data, let decoded = UIImage(data: data) {
+        if let data, let decoded = Signpost.decode("thumb-decode", { UIImage(data: data) }) {
             image = decoded
             failed = false
         } else {
