@@ -25,6 +25,8 @@ struct ShellView: View {
                     ItemInfoSheet(model: model)
                 case .person:
                     PersonRenameSheet(model: model)
+                case .duplicates:
+                    DuplicatesView(model: model)
                 }
             }
             .alert(

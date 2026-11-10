@@ -59,6 +59,7 @@ enum ShellSheet: String, Identifiable {
     case icloud
     case info
     case person
+    case duplicates
 
     var id: String { rawValue }
 }
@@ -78,6 +79,8 @@ final class ShellModel {
     let search: SearchModel
     let albums: AlbumsModel
     let icloud: ICloudModel
+    let settings: SettingsModel
+    let duplicates: DuplicatesModel
 
     var tab: ShellTab = .library
     var toast: String?
@@ -110,6 +113,8 @@ final class ShellModel {
         search = SearchModel(client: client, cloud: key)
         albums = AlbumsModel(client: client, cloud: key)
         icloud = ICloudModel(client: client)
+        settings = SettingsModel(client: client)
+        duplicates = DuplicatesModel(client: client)
 
         library.cloudLabel = { [weak self] cloud in
             self?.cloudLabel(for: cloud) ?? (cloud.isEmpty ? Strings.cloud.lowercased() : cloud)
@@ -151,6 +156,18 @@ final class ShellModel {
             self?.expireSession()
         }
         icloud.onUnauthorized = { [weak self] in
+            self?.expireSession()
+        }
+        settings.onToast = { [weak self] message in
+            self?.notify(message)
+        }
+        settings.onRefresh = { [weak self] in
+            await self?.refreshBootstrap()
+        }
+        settings.onUnauthorized = { [weak self] in
+            self?.expireSession()
+        }
+        duplicates.onUnauthorized = { [weak self] in
             self?.expireSession()
         }
         albums.onToast = { [weak self] message in
@@ -246,10 +263,6 @@ final class ShellModel {
         }
         ThumbCache.shared.clear()
         PreviewCache.shared.clear()
-    }
-
-    func clearThumbnails() {
-        ThumbCache.shared.clear()
     }
 
     // MARK: - Presentation
@@ -379,6 +392,10 @@ final class ShellModel {
 
     func presentICloud() {
         activeSheet = .icloud
+    }
+
+    func presentDuplicates() {
+        activeSheet = .duplicates
     }
 
     func presentPersonEdit(_ person: Person) {

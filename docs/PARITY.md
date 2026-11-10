@@ -9,17 +9,17 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 
 | Area | Target | Status |
 | --- | --- | --- |
-| Boot | logo, spinner, retry + exact error copy | 🟡 wired to `SessionStore`, CI pending |
-| Login | card, cloud mark, error copy, CSRF session | 🟡 card + validation + CSRF session, CI pending |
-| App shell | 4 tabs compact / 264 pt sidebar regular, search button | 🟡 ported: floating compact header/tab bar + search circle, 264 pt sidebar + 5 entries, cloud picker, toast; CI/device check pending |
-| Library | Năm / Tháng / Tất cả, Ảnh/Video/Live/Yêu thích, 120-item pages, scroll anchor | 🟡 ported: segmented Năm/Tháng/Tất cả, kind chips, 120-item paging, year/month collage, skeleton/empty/error, pull-to-refresh; no favorites chip in the 0.3.1 shell |
+| Boot | logo, spinner, retry + exact error copy | 🟡 wired to `SessionStore`; device check pending |
+| Login | card, cloud mark, error copy, CSRF session | 🟡 card + validation + CSRF session; device check pending |
+| App shell | 4 tabs compact / 264 pt sidebar regular, search button | 🟡 ported: floating compact header/tab bar + search circle, 264 pt sidebar + 5 entries, cloud picker, toast; device check pending |
+| Library | Năm / Tháng / Tất cả, Ảnh/Video/Live/Yêu thích, 120-item pages, scroll anchor | 🟡 ported: segmented Năm/Tháng/Tất cả, kind chips, 120-item paging, year/month collage, skeleton/empty/error, pull-to-refresh; no favorites chip in the 0.3.1 shell; device check pending |
 | Tiles | long-press menu, info sheet, favorite optimistic, delete confirm, selection mode | 🟡 ported: context menu, info sheet, tap opens viewer, optimistic favorite/delete + rollback, selection bar; device presentation order pending |
 | Viewer | filmstrip, swipe, pinch/double-tap zoom, swipe-down dismiss, video Range, Live Photo | 🟡 ported: full-screen stage, lazy auto-centered filmstrip, pinch/double-tap/pan, swipe navigation and dismiss, cookie-authenticated AVPlayer, LIVE companion, HEIC preview fallback, optimistic favorite/info/download/delete; device gesture and seek check pending |
-| Albums | 7 collapsible sections, 9-photo preview, sort/density, cover morph | 🟡 ported: seven sections in PWA order, per-section sort/density, 9-photo preview + expand, AI banner/poll, rename, album drill-down in Library; FLIP cover morph not ported; CI/device check pending |
-| Search | 280 ms debounce, 5 chips, 4 hints, 300-result cap, return target | 🟡 ported: debounce/submit/chip paths, five chips, four album hints, 300 cap, delete-aware meta, Search/Albums return target; CI/device check pending |
-| Connections | cloud cards, health dot, active check, WebDAV copy, iCloud row | 🟡 ported: cloud cards with health dots, active check, WebDAV copy, read-only iCloud status; full iCloud importer at P7; CI/device check pending |
-| Settings | Kết nối / iCloud / Thư viện / Tài khoản / Giới thiệu; test, rescan, retry thumbs, clear temp | 🟡 P3 minimal: account, server/free space, thumbnail-cache clear, version, logout; full actions at P6 |
-| Duplicates | legacy summary, 30 groups per page, open group in viewer | ⏳ |
+| Albums | 7 collapsible sections, 9-photo preview, sort/density, cover morph | 🟡 ported: seven sections in PWA order, per-section sort/density, 9-photo preview + expand, AI banner/poll, rename, album drill-down in Library; FLIP cover morph not ported; device check pending |
+| Search | 280 ms debounce, 5 chips, 4 hints, 300-result cap, return target | 🟡 ported: debounce/submit/chip paths, five chips, four album hints, 300 cap, delete-aware meta, Search/Albums return target; device check pending |
+| Connections | cloud cards, health dot, active check, WebDAV copy, iCloud row | 🟡 ported: cloud cards with health dots, active check, WebDAV copy, read-only iCloud status; full iCloud importer at P7; device check pending |
+| Settings | Kết nối / iCloud / Thư viện / Tài khoản / Giới thiệu; test, rescan, retry thumbs, clear temp | 🟡 ported: cloud probe rows, iCloud status, scan/thumbs/tmp actions, storage, duplicates entry, account/about; device check pending |
+| Duplicates | legacy summary, 30 groups per page, open group in viewer | 🟡 ported: summary + pending-thumbnail note, 30 groups per page, 128 pt grid, group-seeded viewer; device check pending |
 | Vault | native list/unlock/browse/upload/folder/delete/auto-lock + Seafile E2EE read-only | ⏳ |
 | Editor | rotate → flip → crop, adjustments, filters, JPEG/PNG/WebP export | ⏳ |
 | Admin | lazy mount, users, password, activate, admin, delete, scan | ⏳ |
@@ -103,6 +103,23 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   state and says the full importer is deferred.
 - Deliberate platform differences: SF Symbols, native menus/sheets and the
   missing FLIP morph. The morph is a visual-only transition, not a data path.
+
+## P6 notes
+
+- Settings follows the PWA section order and copy. Cloud rows show
+  `username · N mục` plus the last health dot and run `POST /clouds/test` on
+  tap; the server's Vietnamese reason is shown instead of a generic failure.
+- Scan (`cloud=all`), thumbnail retry and temp cleanup each own a busy flag and
+  keep the other rows usable. Every success refreshes `/bootstrap`, so counts,
+  storage and cloud health update in place.
+- The iCloud row refreshes whenever Settings opens and never polls there; the
+  detail sheet still owns the read-only status refresh.
+- Duplicates reloads on every open, shows `hashed/total` and the pending-thumbnail
+  suffix when `hashed < total`, reveals 30 groups at a time and opens the shared
+  viewer seeded with the full group. Delete/favorite from that viewer flow through
+  the same `LibraryModel` mutations and rollback path.
+- The admin row is intentionally absent until P9; storage is read-only, matching
+  the web UI.
 
 ## Visual checks per UI phase
 

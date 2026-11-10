@@ -121,6 +121,17 @@ public enum APIMessages {
         error.status == 0 ? network : albumListFailed
     }
 
+    /// Settings mutations surface the server's Vietnamese reason (queue or
+    /// writer disabled, queue full, upstream failure) instead of hiding it
+    /// behind a generic message, matching `settings_action_error()`.
+    public static func settingsAction(_ error: APIError, fallback: String) -> String {
+        if error.status == 0 {
+            return network
+        }
+        let message = error.message.trimmingCharacters(in: .whitespacesAndNewlines)
+        return message.isEmpty ? fallback : message
+    }
+
     // MARK: - Bulk action toasts
 
     /// Single/multi favorite result. Capitalization matches the PWA.

@@ -828,7 +828,7 @@ simulator; 100% KAT; không force-unwrap; không log bí mật.
 Trạng thái (2026-11-10): đã port `SecureBytes`, PBKDF2/AES-CBC/AES-GCM,
 `RepoKey`, `VaultKey` + manifest, `SearchFold`; đã viết KAT v2/v3, vault và
 fold tests. Type-check Swift 5.10 bằng Compiler Explorer với stub framework
-Apple đạt; `swift test` thật vẫn chờ CI macOS (repo chưa có remote GitHub).
+Apple đạt; CI macOS run 42850116522 (2026-11-10) đã chạy toàn bộ KAT xanh.
 
 ### P2 — MNGKit API + Session/Login (1 tuần)
 
@@ -855,8 +855,8 @@ mutation gửi `X-CSRF-Token`; sai mật khẩu hiển thị đúng câu; không
 Trạng thái (2026-11-10): đã port `APIError`, chuẩn hoá origin và `/api/v1`,
 query builder, DTO đọc, `MNGAPIClient` (cookie + CSRF), `SessionStore`,
 `LoginView`/`BootScreen`. Type-check Swift 5.10 và runtime harness
-(`URLProtocol`) trên Compiler Explorer đạt; `swift test`/simulator thật vẫn
-chờ CI macOS (repo chưa có remote GitHub).
+(`URLProtocol`) trên Compiler Explorer đạt; CI macOS run 42850116522 đã chạy
+92 test MNGKit và build/test simulator xanh.
 
 ### P3 — Shell + Thư viện + tile actions (2 tuần)
 
@@ -886,7 +886,7 @@ Năm/Tháng/Tất cả, chip Ảnh/Video/Live, phân trang 120 mục, collage 4 
 ở P4), menu ngữ cảnh, favorite/delete optimistic + rollback theo chunk 4, chế độ
 Chọn và ZIP qua share sheet. Logic thuần nằm trong `MNGKit` (`LibrarySupport`,
 `MNGFormat`, `ItemMedia`) và đã type-check Swift 5.10 trên Compiler Explorer;
-`swift test`/simulator thật vẫn chờ CI macOS (repo chưa có remote GitHub).
+CI macOS run 42850116522 đã build simulator, chạy test và upload artifact xanh.
 Kiểm tra trên thiết bị còn chờ: thứ tự đóng info sheet → alert xoá, share sheet
 ngay sau khi đóng sheet, và header dính của timeline.
 
@@ -918,8 +918,8 @@ dừng khi background hoặc đóng viewer. Favorite/info/download/delete dùng 
 `LibraryModel`; xóa optimistic chuyển ảnh kế và đóng khi hết danh sách, rollback
 toàn bộ snapshot viewer khi lỗi. Logic thuần nằm trong `MNGKit`
 (`ViewerCollection`, `ViewerRemoval`, `MNGFormat.viewerTitle/viewerSubtitle`) và
-đã type-check Swift 5.10 trên Compiler Explorer; `swift test`/simulator thật vẫn
-chờ CI macOS (repo chưa có remote GitHub). Kiểm tra trên thiết bị còn chờ:
+đã type-check Swift 5.10 trên Compiler Explorer; CI macOS run 42850116522 đã
+build/test simulator xanh. Kiểm tra trên thiết bị còn chờ:
 pinch/double-tap, căn giữa filmstrip, seek video, Live Photo, thứ tự info sheet
 trên viewer và dừng phát khi vào background.
 
@@ -955,7 +955,7 @@ selection/paging tắt; back trả về Albums hoặc Search, tab highlight theo
 `album_return`. Favorite/delete từ Library được đồng bộ sang Search/Albums bằng
 snapshot + rollback. Logic thuần nằm trong `MNGKit/AlbumSupport` kèm
 `AlbumSupportTests`; `mngkit_typecheck`, model harness và app parse đã xanh,
-`swift test`/simulator thật vẫn chờ CI macOS. Chưa port morph FLIP
+CI macOS run 42850116522 đã build/test simulator xanh. Chưa port morph FLIP
 (`matchedGeometryEffect`) giữa album card và lưới Library; vì chưa có animation
 chuyển album nên Reduce Motion không cần xử lý riêng. Kiểm tra thiết bị còn chờ:
 số liệu fixture, `q=20221231`/`q=IMG`, back target, đổi cloud, đổi tên người và
@@ -978,6 +978,18 @@ Việc chính:
 
 Nghiệm thu: với box không bật writer/queue hiển thị đúng câu 503; với queue bật
 tạo đúng 1 request và báo trùng; số tệp tạm đã xoá; free space `13.1 GB`.
+
+Trạng thái (2026-11-10): đã port Settings đầy đủ theo thứ tự PWA (Kết nối →
+iCloud → Thư viện → Công cụ → Tài khoản → Giới thiệu). Mỗi cloud card hiển thị
+`username · N mục`, health dot và tap để `POST /clouds/test`; hàng "Mở máy
+chủ" mở `/seafile/` qua `openURL`. Các action `POST /scans` (`cloud=all`), `/thumbs/retry`,
+`/cache/tmp/clear` có busy riêng từng hàng, giữ nguyên câu lỗi 503/writer của
+server qua `APIMessages.settingsAction`, refresh bootstrap sau khi xong. iCloud
+row refresh mỗi lần mở Settings nhưng không poll. Duplicates sheet đọc
+`/duplicates`, summary `hashed/total`, mở 30 nhóm/trang, grid thumbnail 128 pt,
+mở viewer với đúng danh sách nhóm và giữ nút `Xem thêm N nhóm`. Đã thêm DTO +
+client method + test request/CSRF/decode; CI P6 đang chờ. Chưa có hàng Admin
+(P9) và action "Dung lượng" chỉ đọc.
 
 ### P7 — Vault native + Seafile E2EE (2.5 tuần)
 

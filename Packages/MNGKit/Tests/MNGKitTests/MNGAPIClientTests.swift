@@ -341,6 +341,109 @@ final class MNGAPIClientTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: file.url), Data("movie-bytes".utf8))
     }
 
+    func testSettingsActionsSendCSRFAndDecodeResponses() async throws {
+        let client = makeClient()
+        await client.setCSRF("csrf-settings")
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(
+                request.value(forHTTPHeaderField: "X-CSRF-Token"),
+                "csrf-settings"
+            )
+            switch request.url?.path ?? "" {
+            case "/api/v1/clouds/test":
+                let body = try XCTUnwrap(request.capturedBody)
+                let object = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: body) as? [String: String]
+                )
+                XCTAssertEqual(object["cloud"], "seafile")
+                return try MockURLProtocol.respondJSON(
+                    body: #"{"ok":true,"ms":42,"message":""}"#
+                )(request)
+            case "/api/v1/scans":
+                let body = try XCTUnwrap(request.capturedBody)
+                let object = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: body) as? [String: String]
+                )
+                XCTAssertEqual(object["cloud"], "all")
+                return try MockURLProtocol.respondJSON(body: #"{"queued":true}"#)(request)
+            case "/api/v1/thumbs/retry":
+                return try MockURLProtocol.respondJSON(body: #"{"queued":false}"#)(request)
+            case "/api/v1/cache/tmp/clear":
+                return try MockURLProtocol.respondJSON(body: #"{"removed":12}"#)(request)
+            default:
+                XCTFail("unexpected path \(request.url?.path ?? "nil")")
+                return try MockURLProtocol.respondJSON(body: #"{}"#)(request)
+            }
+        }
+
+        let cloud = try await client.testCloud("seafile")
+        XCTAssertTrue(cloud.ok)
+        XCTAssertEqual(cloud.ms, 42)
+
+        let scan = try await client.scanAll()
+        XCTAssertTrue(scan.queued)
+
+        let thumbs = try await client.retryThumbs()
+        XCTAssertFalse(thumbs.queued)
+
+        let tmp = try await client.clearTmp()
+        XCTAssertEqual(tmp.removed, 12)
+        XCTAssertEqual(MockURLProtocol.requests.count, 4)
+    }
+
+    func testDuplicatesDecodesFlattenedItemsAndStats() async throws {
+        let client = makeClient()
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/v1/duplicates")
+            return try MockURLProtocol.respondJSON(body: """
+            {
+              "groups": [{
+                "items": [
+                  {"id": 42, "name": "IMG_0042.HEIC", "width": 4032, "height": 3024,
+                   "size": 1234, "distance": 3},
+                  {"id": 43, "name": "IMG_0043.HEIC", "distance": 7}
+                ],
+                "similarity": 93,
+                "date": 1650000000
+              }],
+              "stats": {"total": 10, "hashed": 7}
+            }
+            """)(request)
+        }
+
+        let response = try await client.duplicates()
+        XCTAssertEqual(response.stats.total, 10)
+        XCTAssertEqual(response.stats.hashed, 7)
+        let group = try XCTUnwrap(response.groups.first)
+        XCTAssertEqual(group.similarity, 93)
+        XCTAssertEqual(group.items.count, 2)
+        XCTAssertEqual(group.items[0].item.id, 42)
+        XCTAssertEqual(group.items[0].distance, 3)
+        XCTAssertEqual(group.items[1].item.name, "IMG_0043.HEIC")
+    }
+
+    func testSettingsActionErrorKeepsServerReason() {
+        let serverError = APIError(
+            status: 503,
+            code: "queue_unavailable",
+            message: "Hàng đợi tác vụ chưa được bật."
+        )
+        XCTAssertEqual(
+            APIMessages.settingsAction(serverError, fallback: "Không xếp hàng được."),
+            "Hàng đợi tác vụ chưa được bật."
+        )
+        let empty = APIError(status: 500, code: "http_500", message: "  ")
+        XCTAssertEqual(
+            APIMessages.settingsAction(empty, fallback: "Không xếp hàng được."),
+            "Không xếp hàng được."
+        )
+        XCTAssertEqual(
+            APIMessages.settingsAction(.network(), fallback: "Không xếp hàng được."),
+            "Không kết nối được máy chủ."
+        )
+    }
+
     func testArchiveStreamsDownloadAndUsesContentDispositionName() async throws {
         let client = makeClient()
         await client.setCSRF("csrf zip")

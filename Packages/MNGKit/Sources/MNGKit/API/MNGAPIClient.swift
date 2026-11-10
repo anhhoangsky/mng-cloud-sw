@@ -132,6 +132,52 @@ public actor MNGAPIClient {
         return try await perform(request)
     }
 
+    // MARK: - Settings actions
+
+    /// Probe one cloud's WebDAV endpoint from the server.
+    public func testCloud(_ key: String) async throws -> CloudTestResponse {
+        let body = try encode(TestCloudBody(cloud: key))
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/clouds/test",
+            body: body,
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
+    /// Queue a full library scan (`cloud = "all"`), matching `scan_all`.
+    public func scanAll() async throws -> QueuedResponse {
+        let body = try encode(ScanBody(cloud: "all"))
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/scans",
+            body: body,
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
+    /// Queue a retry for items whose thumbnail state is failed.
+    public func retryThumbs() async throws -> QueuedResponse {
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/thumbs/retry",
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
+    /// Ask the server to delete its temporary downloads/cache.
+    public func clearTmp() async throws -> TmpClearResponse {
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/cache/tmp/clear",
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
     // MARK: - Items
 
     public func items(_ filters: ItemFilters) async throws -> ItemsResponse {
@@ -495,6 +541,14 @@ public actor MNGAPIClient {
 
     private struct RenamePersonBody: Encodable {
         let name: String
+    }
+
+    private struct TestCloudBody: Encodable {
+        let cloud: String
+    }
+
+    private struct ScanBody: Encodable {
+        let cloud: String
     }
 
     private struct OkResponse: Decodable {

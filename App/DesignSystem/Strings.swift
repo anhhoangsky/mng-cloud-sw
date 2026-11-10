@@ -152,24 +152,83 @@ enum Strings {
 
     // Settings
     static let settingsSubtitle = "Kết nối, bộ nhớ đệm và tài khoản"
+    static let connectionsSection = "Kết nối"
+    static let librarySection = "Thư viện"
+    static let toolsSection = "Công cụ"
+    static let aboutSection = "Giới thiệu"
     static let accountSection = "Tài khoản"
-    static let serverSection = "Máy chủ"
-    static let storageSection = "Dung lượng"
-    static let versionSection = "Phiên bản"
-    static let displayName = "Tên hiển thị"
-    static let username = "Tên đăng nhập"
-    static let serverAddress = "Địa chỉ máy chủ"
-    static let activeCloudLabel = "Đám mây đang dùng"
-    static let appVersion = "MNG Cloud"
     static let freeSpace = "trống"
-    static let settingsNote = "Thông tin đăng nhập được lưu trên máy chủ, không lưu trong trình duyệt."
+    static let settingsConnectionsNote =
+        "Nhấn vào một đám mây để kiểm tra WebDAV. Thông tin đăng nhập được lưu trên máy chủ, không lưu trong trình duyệt."
+    static let settingsAboutBody = "Giao diện thư viện ảnh lấy cảm hứng từ iOS Photos."
     static let serverOpen = "Mở máy chủ"
     static let serverOpenBody = "Quản lý thư viện, chia sẻ và tệp gốc"
-    static let cacheSection = "Bộ nhớ đệm"
-    static let clearThumbnails = "Xóa bộ nhớ đệm ảnh thu nhỏ"
-    static let thumbnailsCleared = "Đã xóa bộ nhớ đệm ảnh thu nhỏ."
-    static let buildLabel = "Bản dựng"
     static let storageFree = "Dung lượng trống"
+    static let storageServerBody = "Ổ chứa trên máy chủ"
+    static let roleAdmin = "Quản trị viên"
+    static let roleMember = "Thành viên"
+    static let accountLogoutBody = "Kết thúc phiên trên thiết bị này"
+
+    // Settings actions
+    static let vaultRowBody = "Mã hóa đầu cuối · chìa khóa chỉ nằm trong trình duyệt"
+    static let scanRowTitle = "Quét lại thư viện"
+    static let scanRowBody = "Lập chỉ mục ảnh mới từ cả hai đám mây"
+    static let scanBusyBody = "Đang xếp hàng quét…"
+    static let scanQueued = "Đã xếp hàng quét thư viện."
+    static let scanAlreadyQueued = "Lần quét này đã có trong hàng đợi."
+    static let scanFailed = "Không xếp hàng quét được thư viện."
+    static let thumbsRowTitle = "Tạo lại ảnh thu nhỏ lỗi"
+    static let thumbsBusyBody = "Đang xếp hàng tạo lại…"
+    static let thumbsQueued = "Đã xếp hàng tạo lại ảnh thu nhỏ."
+    static let thumbsAlreadyQueued = "Lần tạo lại này đã có trong hàng đợi."
+    static let thumbsFailed = "Không xếp hàng tạo lại ảnh thu nhỏ được."
+    static let tmpRowTitle = "Xóa tệp tạm"
+    static let tmpRowBody = "Giải phóng bộ nhớ đệm tải xuống"
+    static let tmpBusyBody = "Đang dọn tệp tạm…"
+    static let tmpEmpty = "Không có tệp tạm nào để xóa."
+    static let tmpFailed = "Không xóa được tệp tạm."
+    static let testCloudFailed = "Không kiểm tra được kết nối."
+    static let cloudTestGood = "Kết nối tốt."
+    static let cloudTesting = "Đang kiểm tra…"
+    static let duplicatesRowTitle = "Ảnh trùng lặp"
+    static let duplicatesRowBody = "Perceptual Hash · tìm ảnh gần giống nhau"
+
+    static let thumbsRowBody = "mục · thử lại mục lỗi"
+
+    static func thumbsRowSub(_ total: Int64) -> String {
+        "\(MNGFormat.number(total)) \(thumbsRowBody)"
+    }
+
+    static func tmpCleared(_ count: Int64) -> String {
+        "Đã xóa \(MNGFormat.number(count)) tệp tạm."
+    }
+
+    // Duplicates
+    static let duplicatesTitle = "Ảnh trùng lặp"
+    static let duplicatesSubtitle =
+        "Perceptual Hash · ảnh gần giống nhau trong thư viện"
+    static let duplicatesLoadingTitle = "Đang đọc thư viện."
+    static let duplicatesLoadingBody =
+        "Perceptual Hash sẽ được tính cho các ảnh chưa có dấu vết."
+    static let duplicatesErrorTitle = "Không tìm được ảnh trùng lặp"
+    static let duplicatesEmptyTitle = "Không có ảnh trùng lặp"
+    static let duplicatesEmptyBody =
+        "Mọi ảnh đã phân tích đều khác nhau ở ngưỡng hiện tại."
+    static let duplicatesAnalyzedSuffix = " ảnh đã phân tích trên cả hai đám mây · "
+    static let duplicatesGroupSuffix = " nhóm gần giống nhau"
+    static let duplicatesPendingHashes = " · một số ảnh còn chờ tạo thumbnail"
+
+    static func duplicateGroupTitle(_ index: Int) -> String {
+        "Nhóm \(index)"
+    }
+
+    static func duplicateGroupMeta(count: Int, similarity: Int64) -> String {
+        "\(count) ảnh · giống \(max(0, similarity))%"
+    }
+
+    static func duplicateMore(_ count: Int) -> String {
+        "Xem thêm \(MNGFormat.number(Int64(count))) nhóm"
+    }
 
     // Placeholders
     static let albumsSubtitle = "Ảnh gần đây, yêu thích, khuôn mặt và địa điểm"

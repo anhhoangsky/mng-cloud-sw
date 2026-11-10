@@ -67,6 +67,21 @@ enum Tokens {
 }
 
 extension Color {
+    /// Parses the `#rgb`/`#rrggbb` colors the server stores in `CloudCard.color`.
+    static func mngHex(_ string: String) -> Color? {
+        var hex = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        if hex.hasPrefix("#") {
+            hex.removeFirst()
+        }
+        if hex.count == 3 {
+            hex = hex.map { "\($0)\($0)" }.joined()
+        }
+        guard hex.count == 6, let value = UInt32(hex, radix: 16) else {
+            return nil
+        }
+        return Color(uiColor: UIColor(hex: value, alpha: 1))
+    }
+
     /// Dynamic color from the legacy light/dark palette.
     static func mng(
         light: UInt32,
