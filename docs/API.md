@@ -109,9 +109,19 @@ verifies the SHA-1 block id before decrypting.
 | --- | --- |
 | GET | `/api/v1/admin/users` |
 | GET | `/api/v1/admin/users/{id}` |
-| POST | `/api/v1/admin/users…` (create, password, activate, admin, delete, scan) |
+| POST | `/api/v1/admin/users` (create: `username`, `display_name`, `password`, `provision`) |
+| POST | `/api/v1/admin/users/{id}/password` (reset the MNG Cloud password) |
+| POST | `/api/v1/admin/users/{id}/reprovision` (re-provision the cloud accounts) |
+| POST | `/api/v1/admin/users/{id}/update` (`display_name`, `active`, `is_admin`) |
+| POST | `/api/v1/admin/users/{id}/delete` (`delete_cloud_data`) |
+| POST | `/api/v1/admin/users/{id}/scan` |
 | GET | `/api/v1/icloud/status` |
-| POST | `/api/v1/icloud/login`, `.../2fa`, `.../start`, `.../save`, `.../pause`, `.../resume`, `.../cancel`, `.../logout` |
+| POST | `/api/v1/icloud/login` (`apple_id`, `password`) |
+| POST | `/api/v1/icloud/mfa` (`code`, six digits) |
+| POST | `/api/v1/icloud/start` (`recent`, `delete_after`) |
+| POST | `/api/v1/icloud/save` (`apple_id`, `recent`, `delete_after`) |
+| POST | `/api/v1/icloud/control` (`command`: `pause`, `resume` or `cancel`, plus `job_id`) |
+| POST | `/api/v1/icloud/logout` |
 
 Admin routes never widen item ownership; encrypted-library metadata stays
 private even for administrators.
