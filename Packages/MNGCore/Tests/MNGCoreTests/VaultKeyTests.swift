@@ -90,7 +90,12 @@ final class VaultKeyTests: XCTestCase {
     func testDecomposedPasswordIsNormalized() throws {
         let fixture = try TestFixtures.vault()
         let decomposed = fixture.password.decomposedStringWithCanonicalMapping
-        XCTAssertNotEqual(decomposed, fixture.password)
+        // Swift's String equality is canonical equivalence, so compare the
+        // underlying scalars to prove the input really is decomposed.
+        XCTAssertNotEqual(
+            Array(decomposed.unicodeScalars),
+            Array(fixture.password.unicodeScalars)
+        )
 
         let key = try unlocked(fixture, password: decomposed)
         XCTAssertNoThrow(try key.verify(uid: fixture.uid, verifierBase64: fixture.verifierBase64))
