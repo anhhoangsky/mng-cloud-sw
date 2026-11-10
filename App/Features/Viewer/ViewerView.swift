@@ -9,6 +9,7 @@ struct ViewerView: View {
 
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var editingItem: Item?
+    @FocusState private var isFocused: Bool
 
     private var viewer: ViewerModel { model.library.viewer }
     private var isRegular: Bool { sizeClass == .regular }
@@ -36,6 +37,25 @@ struct ViewerView: View {
         }
         .background(Color.black.ignoresSafeArea())
         .animation(Tokens.Motion.viewer, value: viewer.chromeHidden)
+        .focusable()
+        .focused($isFocused)
+        .onAppear {
+            isFocused = true
+        }
+        // Hardware keyboard: the arrow keys walk the library and Escape closes
+        // the viewer, like the web viewer.
+        .onKeyPress(.leftArrow) {
+            viewer.goPrevious()
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            viewer.goNext()
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            close()
+            return .handled
+        }
         .sheet(item: $editingItem) { item in
             EditorView(model: model, item: item)
         }

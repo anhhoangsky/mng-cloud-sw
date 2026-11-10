@@ -52,6 +52,8 @@ struct TileView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(library.isSelected(item.id) ? .isSelected : [])
+        // A light tap when the tile enters or leaves the selection.
+        .sensoryFeedback(.selection, trigger: library.isSelected(item.id))
         .contextMenu {
             if !library.selectionMode {
                 menu
