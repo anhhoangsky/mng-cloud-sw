@@ -1094,6 +1094,15 @@ Việc chính:
 Nghiệm thu: fixture admin; vào app 0 request admin; mở/đóng console đúng 1
 request; xoá user có/không dữ liệu cloud.
 
+P9 (2026-11-11): `MNGKit` đã có đủ route admin (danh sách, tạo, cấp lại mật
+khẩu, cấp lại mật khẩu cloud, cập nhật, xoá, quét). `AdminView` mở từ hàng
+"Quản trị người dùng" trong Settings — hàng này chỉ hiện với admin, và bảng thống
+kê chỉ tải khi mở console nên vào app không phát sinh request admin. Hành động:
+tạo tài khoản (mật khẩu sinh ngẫu nhiên, tuỳ chọn tạo tài khoản cloud), khoá/mở
+khoá, cấp/thu quyền quản trị, quét lại thư viện, cấp lại mật khẩu, cấp lại mật
+khẩu cloud, xoá người dùng (tuỳ chọn xoá dữ liệu cloud). Lỗi 403/409 và các bất
+biến (admin chính, tự xoá, admin cuối) do server trả về và hiện nguyên câu.
+
 ### P10 — iCloud sheet (0.5 tuần)
 
 Việc chính:

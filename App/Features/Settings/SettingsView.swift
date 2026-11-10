@@ -304,6 +304,24 @@ struct SettingsView: View {
                 EmptyView()
             }
 
+            if isAdmin {
+                divider
+
+                Button {
+                    model.presentAdmin()
+                } label: {
+                    SettingsRowLabel(
+                        icon: "shield.fill",
+                        tint: Palette.accent,
+                        title: Strings.adminRowTitle,
+                        subtitle: Strings.adminRowBody
+                    ) {
+                        chevron
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+
             divider
 
             Button {
@@ -329,6 +347,11 @@ struct SettingsView: View {
 
     private var displayName: String {
         model.store.session?.me.label ?? ""
+    }
+
+    /// The administration row only shows for administrators.
+    private var isAdmin: Bool {
+        model.store.session?.me.isAdmin == true
     }
 
     private var accountSubtitle: String {

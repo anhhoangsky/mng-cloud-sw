@@ -360,6 +360,92 @@ enum Strings {
     static let editorLoading = "Đang tải ảnh…"
     static let editorUnsupported = "Ảnh này không chỉnh sửa được."
     static let editorEditAction = "Chỉnh sửa"
+
+    // Administration
+    static let adminTitle = "Quản trị người dùng"
+    static let adminRowTitle = "Quản trị người dùng"
+    static let adminRowBody = "Tạo tài khoản, cấp lại mật khẩu, quản lý dung lượng"
+    static let adminCreate = "Tạo"
+    static let adminCreateTitle = "Tạo người dùng"
+    static let adminUsername = "Tên đăng nhập"
+    static let adminDisplayName = "Tên hiển thị"
+    static let adminPassword = "Mật khẩu"
+    static let adminPasswordPlaceholder = "Ít nhất 8 ký tự"
+    static let adminGeneratePassword = "Tạo mật khẩu ngẫu nhiên"
+    static let adminProvision = "Tạo tài khoản cloud"
+    static let adminProvisionHint =
+        "Gọi admin API của máy chủ, sau đó lưu credential trên máy chủ."
+    static let adminLoading = "Đang tải danh sách người dùng…"
+    static let adminEmpty = "Chưa có người dùng nào."
+    static let adminInactive = "Đã khoá"
+    static let adminResetPassword = "Cấp lại mật khẩu"
+    static let adminReprovision = "Cấp lại mật khẩu cloud"
+    static let adminGrantRole = "Cấp quyền quản trị"
+    static let adminRevokeRole = "Thu quyền quản trị"
+    static let adminLockAccount = "Khoá tài khoản"
+    static let adminUnlockAccount = "Mở khoá tài khoản"
+    static let adminScan = "Quét lại thư viện"
+    static let adminDelete = "Xoá người dùng"
+    static let adminDeleteTitle = "Xoá người dùng?"
+    static let adminDeleteCloudData = "Xoá luôn dữ liệu cloud"
+    static let adminDeleteCloudDataHint =
+        "Xoá cả thư viện ảnh trên máy chủ của người dùng."
+    static let adminConfirm = "Xác nhận"
+    static let adminCreateFailed = "Không tạo được người dùng."
+    static let adminActionFailed = "Không thực hiện được thao tác."
+    static let adminScanFailed = "Không quét được thư viện."
+
+    static func adminCreated(_ username: String) -> String {
+        "Đã tạo \(username)."
+    }
+
+    static func adminPasswordUpdated(_ username: String) -> String {
+        "Đã cập nhật mật khẩu cho \(username)."
+    }
+
+    static func adminReprovisioned(_ username: String) -> String {
+        "Đã cấp lại mật khẩu cloud cho \(username)."
+    }
+
+    static func adminGranted(_ username: String) -> String {
+        "Đã cấp quyền quản trị cho \(username)."
+    }
+
+    static func adminRevoked(_ username: String) -> String {
+        "Đã thu quyền quản trị của \(username)."
+    }
+
+    static func adminUnlocked(_ username: String) -> String {
+        "Đã mở khoá \(username)."
+    }
+
+    static func adminLocked(_ username: String) -> String {
+        "Đã khoá \(username)."
+    }
+
+    static func adminRenamed(_ username: String) -> String {
+        "Đã cập nhật \(username)."
+    }
+
+    static func adminDeleted(_ username: String) -> String {
+        "Đã xoá \(username)."
+    }
+
+    static func adminScanQueued(_ username: String) -> String {
+        "Đã bắt đầu quét thư viện của \(username)."
+    }
+
+    static func adminResetMessage(_ username: String) -> String {
+        "Cấp lại mật khẩu cho \(username)."
+    }
+
+    static func adminReprovisionMessage(_ username: String) -> String {
+        "Cấp lại mật khẩu cho kho của \(username)."
+    }
+
+    static func adminDeleteMessage(_ username: String) -> String {
+        "Xoá người dùng “\(username)”?"
+    }
     static let vaultFileLabel = "Tệp"
     static let vaultImageLabel = "Ảnh"
     static let vaultVideoLabel = "Video"

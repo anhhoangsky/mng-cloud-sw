@@ -60,6 +60,7 @@ enum ShellSheet: String, Identifiable {
     case info
     case person
     case duplicates
+    case admin
 
     var id: String { rawValue }
 }
@@ -83,6 +84,7 @@ final class ShellModel {
     let duplicates: DuplicatesModel
     let vault: VaultModel
     let editor: EditorModel
+    let admin: AdminModel
 
     var tab: ShellTab = .library
     var toast: String?
@@ -122,6 +124,7 @@ final class ShellModel {
         duplicates = DuplicatesModel(client: client)
         vault = VaultModel(client: client)
         editor = EditorModel(client: client)
+        admin = AdminModel(client: client)
 
         library.cloudLabel = { [weak self] cloud in
             self?.cloudLabel(for: cloud) ?? (cloud.isEmpty ? Strings.cloud.lowercased() : cloud)
@@ -195,6 +198,12 @@ final class ShellModel {
             Task { await self.library.reload() }
         }
         editor.onUnauthorized = { [weak self] in
+            self?.expireSession()
+        }
+        admin.onToast = { [weak self] message in
+            self?.notify(message)
+        }
+        admin.onUnauthorized = { [weak self] in
             self?.expireSession()
         }
         albums.onToast = { [weak self] message in
@@ -428,6 +437,12 @@ final class ShellModel {
 
     func presentDuplicates() {
         activeSheet = .duplicates
+    }
+
+    /// Open the administration console. Only administrators can reach it.
+    func presentAdmin() {
+        guard store.session?.me.isAdmin == true else { return }
+        activeSheet = .admin
     }
 
     /// Move library items into the encrypted vault. The request waits until a

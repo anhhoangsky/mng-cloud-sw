@@ -755,6 +755,125 @@ public actor MNGAPIClient {
         return try await perform(request)
     }
 
+    public func adminUser(id: Int64) async throws -> AdminUser {
+        guard id > 0 else {
+            throw APIError(status: 404, code: "not_found", message: "Người dùng không tồn tại.")
+        }
+        let request = try makeRequest(method: .get, path: "/v1/admin/users/\(id)")
+        let response: AdminMutationResponse = try await perform(request)
+        guard let user = response.user else {
+            throw APIError.invalid(status: 0)
+        }
+        return user
+    }
+
+    /// Create a user and optionally provision the cloud accounts.
+    public func createAdminUser(
+        username: String,
+        displayName: String,
+        password: String,
+        provision: Bool
+    ) async throws -> AdminMutationResponse {
+        let body = try encode(
+            CreateAdminUserBody(
+                username: username,
+                displayName: displayName,
+                password: password,
+                provision: provision
+            )
+        )
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/admin/users",
+            body: body,
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
+    /// Reset a user's MNG Cloud password.
+    public func resetAdminUserPassword(
+        id: Int64,
+        password: String
+    ) async throws -> AdminMutationResponse {
+        let body = try encode(AdminPasswordBody(id: id, password: password))
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/admin/users/\(id)/password",
+            body: body,
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
+    /// Re-provision the cloud accounts of a user with a new password.
+    public func reprovisionAdminUser(
+        id: Int64,
+        password: String
+    ) async throws -> AdminMutationResponse {
+        let body = try encode(AdminPasswordBody(id: id, password: password))
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/admin/users/\(id)/reprovision",
+            body: body,
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
+    /// Update the display name, the active flag or the admin flag.
+    public func updateAdminUser(
+        id: Int64,
+        displayName: String?,
+        active: Bool?,
+        isAdmin: Bool?
+    ) async throws -> AdminMutationResponse {
+        let body = try encode(
+            UpdateAdminUserBody(
+                id: id,
+                displayName: displayName,
+                active: active,
+                isAdmin: isAdmin
+            )
+        )
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/admin/users/\(id)/update",
+            body: body,
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
+    /// Delete a user, optionally with the cloud data.
+    public func deleteAdminUser(
+        id: Int64,
+        deleteCloudData: Bool
+    ) async throws -> AdminMutationResponse {
+        let body = try encode(
+            DeleteAdminUserBody(id: id, deleteCloudData: deleteCloudData)
+        )
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/admin/users/\(id)/delete",
+            body: body,
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
+    /// Queue a scan for one user's library.
+    public func scanAdminUser(id: Int64) async throws -> AdminScanResponse {
+        let body = try encode(AdminScanBody(id: id))
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/admin/users/\(id)/scan",
+            body: body,
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
     // MARK: - Request plumbing
 
     private enum Method: String {
@@ -821,6 +940,50 @@ public actor MNGAPIClient {
 
     private struct RenameVaultBody: Encodable {
         let name: String
+    }
+
+    private struct CreateAdminUserBody: Encodable {
+        let username: String
+        let displayName: String
+        let password: String
+        let provision: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case username, password, provision
+            case displayName = "display_name"
+        }
+    }
+
+    private struct AdminPasswordBody: Encodable {
+        let id: Int64
+        let password: String
+    }
+
+    private struct UpdateAdminUserBody: Encodable {
+        let id: Int64
+        let displayName: String?
+        let active: Bool?
+        let isAdmin: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case id, active
+            case displayName = "display_name"
+            case isAdmin = "is_admin"
+        }
+    }
+
+    private struct DeleteAdminUserBody: Encodable {
+        let id: Int64
+        let deleteCloudData: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case deleteCloudData = "delete_cloud_data"
+        }
+    }
+
+    private struct AdminScanBody: Encodable {
+        let id: Int64
     }
 
     private struct OkResponse: Decodable {

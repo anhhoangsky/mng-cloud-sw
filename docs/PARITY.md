@@ -170,6 +170,21 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - Difference: the web crop overlay has four draggable corners; the app drags
   the whole rectangle and applies one of the six ratios.
 
+## P9 notes
+
+- The administration console is reachable from the Settings row
+  "Quản trị người dùng", which only appears for administrators. The list is
+  loaded when the console opens, so launching the app never calls the admin
+  API.
+- Every mutation maps to one server route: create, reset the MNG Cloud
+  password, re-provision the cloud accounts, update the display name / active /
+  admin flag, delete (with or without the cloud data) and queue a scan.
+- The web console generates a random password and offers it for copying; the
+  app generates one locally (16 readable characters from the system CSPRNG) and
+  shows it in the create sheet.
+- Server invariants (primary admin, deleting yourself, the last admin) and the
+  403/409 answers are surfaced with the server's own sentence.
+
 ## Visual checks per UI phase
 
 - iPhone SE (compact, 375 pt), iPhone 15/16 (393 pt), iPad 11" portrait and

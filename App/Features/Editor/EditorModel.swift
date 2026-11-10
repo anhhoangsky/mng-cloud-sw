@@ -362,7 +362,7 @@ final class EditorModel {
         if mime == "image/png" {
             return .png
         }
-        if mime == "image/webp" {
+        if mime == "image/webp", EditorExportFormat.webp.isEncodable {
             return .webp
         }
         return .jpeg

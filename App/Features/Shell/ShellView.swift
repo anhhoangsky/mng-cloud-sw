@@ -28,6 +28,8 @@ struct ShellView: View {
                     PersonRenameSheet(model: model)
                 case .duplicates:
                     DuplicatesView(model: model)
+                case .admin:
+                    AdminView(model: model)
                 }
             }
             .alert(

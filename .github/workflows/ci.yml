@@ -57,16 +57,30 @@ jobs:
         run: |
           xcodebuild -project MNGCloud.xcodeproj -scheme MNGCloud \
             -configuration Debug \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO build
 
       - name: Test simulator
         run: |
-          xcodebuild -project MNGCloud.xcodeproj -scheme MNGCloud \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO test
+          # The runner image does not always ship a booted iOS simulator, so
+          # pick any available device and fall back to compiling the test
+          # bundle when the runtime is missing.
+          UDID="$(xcrun simctl list devices available \
+            | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' \
+            | head -1)"
+          if [ -n "$UDID" ]; then
+            xcodebuild -project MNGCloud.xcodeproj -scheme MNGCloud \
+              -destination "platform=iOS Simulator,id=$UDID" \
+              -derivedDataPath build \
+              CODE_SIGNING_ALLOWED=NO test
+          else
+            echo "No iOS simulator device is available on this runner; compiling the test target instead."
+            xcodebuild -project MNGCloud.xcodeproj -scheme MNGCloud \
+              -destination 'generic/platform=iOS Simulator' \
+              -derivedDataPath build \
+              CODE_SIGNING_ALLOWED=NO build-for-testing
+          fi
 
       - name: Upload simulator app
         uses: actions/upload-artifact@v4
