@@ -3,6 +3,7 @@ import FoundationNetworking
 #endif
 import Foundation
 import XCTest
+@testable import MNGKit
 
 /// Deterministic URLProtocol used by the MNGKit tests. No real network traffic
 /// ever leaves the test process.

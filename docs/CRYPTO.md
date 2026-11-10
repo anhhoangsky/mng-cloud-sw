@@ -59,8 +59,10 @@ AAD/nonce/tag fails.
   on release). Never store derived keys in `String` or `Data`. Passwords exist
   as `String` only at the API boundary and are copied to byte buffers for the
   KDF.
-- PBKDF2 via CommonCrypto `CCKeyDerivationPBKDF`; AES-CBC via `CCCrypt` with
-  PKCS#7; AES-GCM via CryptoKit; SHA-1 via `Insecure.SHA1` for block ids only.
+- PBKDF2 via CommonCrypto `CCKeyDerivationPBKDF`; AES-CBC via `CCCrypt`
+  without its padding option, with PKCS#7 added and validated in Swift so
+  bad padding fails closed like Rust; AES-GCM via CryptoKit; SHA-1 via
+  `Insecure.SHA1` for block ids only.
 - Compare magic/verifier in constant time; no early return.
 - Never log passwords, keys, plaintext or block contents. Log error codes only.
 - Clear password buffers immediately after derivation; previews write to the

@@ -681,7 +681,8 @@ Yêu cầu test: unlock bằng `vault_kat.json` → verifier khớp; decrypt
 - So sánh magic/verifier bằng `CryptoKit` constant-time hoặc
   `timingsafe_bcmp`-tương đương tự viết (XOR tích luỹ, không early-return).
 - PBKDF2: CommonCrypto `CCKeyDerivationPBKDF` (nhanh, ổn định); AES-CBC:
-  CommonCrypto `CCCrypt` với `kCCOptionPKCS7Padding`; AES-GCM: CryptoKit.
+  CommonCrypto `CCCrypt` không bật padding, PKCS#7 được thêm và kiểm tra thủ
+  công để từ chối padding sai như Rust; AES-GCM: CryptoKit.
 - Hash: `CryptoKit.Insecure.SHA1` (chỉ để tương thích block id, không dùng
   cho bảo mật mới).
 - Không log mật khẩu/key/plaintext; log lỗi chỉ mã lỗi.
