@@ -156,6 +156,20 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   vault: the encrypted copy is stored first and only then is the original
   deleted, exactly like the web client.
 
+## P8 notes
+
+- The editor reuses the web editor's copy: the three tabs (Cắt, Chỉnh màu, Bộ
+  lọc), the rotate/flip group, the six crop ratios, the nine sliders, the six
+  filters and the two save modes.
+- The pixel pipeline is the ported `mng-edit` crate, so the preview and the
+  exported file use the same order (rotate → flip → crop) and the same
+  adjustment math. The container follows the source: PNG stays PNG, WebP stays
+  WebP, everything else becomes JPEG at quality 92.
+- The source is decoded locally with ImageIO and the EXIF orientation applied,
+  so HEIC works without the server's HEIC-only `edit-source` route.
+- Difference: the web crop overlay has four draggable corners; the app drags
+  the whole rectangle and applies one of the six ratios.
+
 ## Visual checks per UI phase
 
 - iPhone SE (compact, 375 pt), iPhone 15/16 (393 pt), iPad 11" portrait and

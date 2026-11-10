@@ -1,4 +1,5 @@
 import Foundation
+import MNGEdit
 import MNGKit
 
 /// Vietnamese copy, ported 1:1 from `ui/` and the PWA shell. Every user-facing
@@ -316,6 +317,49 @@ enum Strings {
     static let vaultPreviewUnsupported = "Trình duyệt không xem trước được định dạng này."
     static let vaultPreviewFailed = "Không mở được tệp"
     static let vaultDecryptFailed = "Không giải mã được tệp."
+
+    // Image editor
+    static let editorTitle = "Chỉnh sửa ảnh"
+    static let editorCropTab = "Cắt"
+    static let editorAdjustTab = "Chỉnh màu"
+    static let editorFilterTab = "Bộ lọc"
+    static let editorGeometry = "Xoay và lật"
+    static let editorRotateLeft = "Trái"
+    static let editorRotateRight = "Phải"
+    static let editorFlipH = "Ngang"
+    static let editorFlipV = "Dọc"
+    static let editorAspect = "Tỉ lệ khung"
+    static let editorAspectFree = "Tự do"
+    static let editorCropHint =
+        "Kéo khung hoặc các góc để chọn vùng cắt, sau đó bấm Áp dụng."
+    static let editorCropReset = "Đặt lại"
+    static let editorCropApply = "Áp dụng vùng cắt"
+    static let editorAdjustReset = "Đặt lại thông số"
+    static let editorBrightness = "Độ sáng"
+    static let editorContrast = "Tương phản"
+    static let editorSaturation = "Độ bão hòa"
+    static let editorExposure = "Phơi sáng"
+    static let editorWarmth = "Độ ấm"
+    static let editorTint = "Sắc độ"
+    static let editorHighlights = "Vùng sáng"
+    static let editorShadows = "Vùng tối"
+    static let editorVignette = "Viền mờ"
+    static let editorFilterOriginal = "Nguyên bản"
+    static let editorFilterVivid = "Rực rỡ"
+    static let editorFilterWarm = "Ấm áp"
+    static let editorFilterCool = "Mát lạnh"
+    static let editorFilterMono = "Đen trắng"
+    static let editorFilterFade = "Mờ ảo"
+    static let editorSaveMode = "Cách lưu"
+    static let editorModeOverwrite = "Ghi đè ảnh gốc"
+    static let editorModeCopy = "Lưu thành bản sao"
+    static let editorCancel = "Hủy"
+    static let editorSave = "Lưu ảnh"
+    static let editorSaved = "Đã lưu ảnh."
+    static let editorSaveFailed = "Không lưu được ảnh."
+    static let editorLoading = "Đang tải ảnh…"
+    static let editorUnsupported = "Ảnh này không chỉnh sửa được."
+    static let editorEditAction = "Chỉnh sửa"
     static let vaultFileLabel = "Tệp"
     static let vaultImageLabel = "Ảnh"
     static let vaultVideoLabel = "Video"
@@ -380,6 +424,18 @@ enum Strings {
 
     static func vaultFileMetaPath(_ path: String, _ bytes: Int64) -> String {
         "\(path) • \(MNGFormat.bytes(bytes))"
+    }
+
+    /// Title of one editor filter chip.
+    static func editorFilterTitle(_ filter: EditorFilter) -> String {
+        switch filter {
+        case .original: return editorFilterOriginal
+        case .vivid: return editorFilterVivid
+        case .warm: return editorFilterWarm
+        case .cool: return editorFilterCool
+        case .mono: return editorFilterMono
+        case .fade: return editorFilterFade
+        }
     }
 
     // Albums

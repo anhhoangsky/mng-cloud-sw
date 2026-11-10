@@ -8,6 +8,7 @@ struct ViewerView: View {
     let model: ShellModel
 
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var editingItem: Item?
 
     private var viewer: ViewerModel { model.library.viewer }
     private var isRegular: Bool { sizeClass == .regular }
@@ -35,6 +36,9 @@ struct ViewerView: View {
         }
         .background(Color.black.ignoresSafeArea())
         .animation(Tokens.Motion.viewer, value: viewer.chromeHidden)
+        .sheet(item: $editingItem) { item in
+            EditorView(model: model, item: item)
+        }
     }
 
     private func topBar(_ item: Item) -> some View {
@@ -48,10 +52,17 @@ struct ViewerView: View {
             chromeHidden: viewer.chromeHidden,
             onClose: close,
             onFavorite: viewer.toggleFavorite,
-            onInfo: viewer.openInfo
+            onInfo: viewer.openInfo,
+            canEdit: canEdit(item),
+            onEdit: { editingItem = item }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .zIndex(6)
+    }
+
+    /// The web viewer only offers the editor for photos the server can edit.
+    private func canEdit(_ item: Item) -> Bool {
+        !item.edit.isEmpty && !item.isVideo
     }
 
     @ViewBuilder
@@ -114,6 +125,8 @@ private struct ViewerTopBar: View {
     let onClose: () -> Void
     let onFavorite: () -> Void
     let onInfo: () -> Void
+    var canEdit = false
+    var onEdit: () -> Void = {}
 
     private let favoriteColor = Color(red: 1, green: 55.0 / 255.0, blue: 95.0 / 255.0)
 
@@ -154,6 +167,14 @@ private struct ViewerTopBar: View {
                     label: Strings.info,
                     action: onInfo
                 )
+
+                if canEdit {
+                    ViewerCircleButton(
+                        icon: "pencil",
+                        label: Strings.editorEditAction,
+                        action: onEdit
+                    )
+                }
             }
         }
         .padding(.horizontal, 12)

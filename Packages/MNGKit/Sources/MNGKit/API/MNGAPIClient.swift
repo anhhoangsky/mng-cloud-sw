@@ -225,6 +225,52 @@ public actor MNGAPIClient {
         return try await perform(request)
     }
 
+    /// Upload an edited image back to the item as `multipart/form-data`.
+    ///
+    /// `mode` is `overwrite` (replace the original) or `copy` (keep the
+    /// original and store the edit next to it).
+    public func saveEdit(
+        id: Int64,
+        data: Data,
+        filename: String,
+        mime: String,
+        mode: String
+    ) async throws -> EditResponse {
+        guard id > 0 else {
+            throw APIError(status: 404, code: "not_found", message: "Ảnh không tồn tại.")
+        }
+        let boundary = "----MNGEdit\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let safeName = filename.replacingOccurrences(of: "\"", with: "")
+        var body = Data()
+        body.append(Data("--\(boundary)\r\n".utf8))
+        body.append(
+            Data(
+                "Content-Disposition: form-data; name=\"file\"; filename=\"\(safeName)\"\r\n"
+                    .utf8
+            )
+        )
+        body.append(Data("Content-Type: \(mime)\r\n\r\n".utf8))
+        body.append(data)
+        body.append(Data("\r\n".utf8))
+        body.append(Data("--\(boundary)\r\n".utf8))
+        body.append(Data("Content-Disposition: form-data; name=\"mode\"\r\n\r\n".utf8))
+        body.append(Data("\(mode)\r\n".utf8))
+        body.append(Data("--\(boundary)--\r\n".utf8))
+
+        var request = try makeRequest(
+            method: .post,
+            path: "/v1/items/\(id)/edit",
+            csrf: true
+        )
+        request.setValue(
+            "multipart/form-data; boundary=\(boundary)",
+            forHTTPHeaderField: "Content-Type"
+        )
+        request.httpBody = body
+        let response: EditResponse = try await perform(request)
+        return response
+    }
+
     /// Download an authenticated media path, used by thumbnails and previews.
     public func mediaData(path: String) async throws -> Data {
         guard path.hasPrefix("/"), !path.hasPrefix("//") else {
@@ -395,7 +441,6 @@ public actor MNGAPIClient {
     }
 
     // MARK: - Native vaults
-
     public func nativeVaults() async throws -> NativeVaultsResponse {
         let request = try makeRequest(method: .get, path: "/v1/vaults")
         return try await perform(request)

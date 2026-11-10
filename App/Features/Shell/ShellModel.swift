@@ -82,6 +82,7 @@ final class ShellModel {
     let settings: SettingsModel
     let duplicates: DuplicatesModel
     let vault: VaultModel
+    let editor: EditorModel
 
     var tab: ShellTab = .library
     var toast: String?
@@ -120,6 +121,7 @@ final class ShellModel {
         settings = SettingsModel(client: client)
         duplicates = DuplicatesModel(client: client)
         vault = VaultModel(client: client)
+        editor = EditorModel(client: client)
 
         library.cloudLabel = { [weak self] cloud in
             self?.cloudLabel(for: cloud) ?? (cloud.isEmpty ? Strings.cloud.lowercased() : cloud)
@@ -184,6 +186,16 @@ final class ShellModel {
         vault.onVaultMoveDone = { [weak self] in
             guard let self else { return }
             Task { await self.library.reload() }
+        }
+        editor.onToast = { [weak self] message in
+            self?.notify(message)
+        }
+        editor.onSaved = { [weak self] in
+            guard let self else { return }
+            Task { await self.library.reload() }
+        }
+        editor.onUnauthorized = { [weak self] in
+            self?.expireSession()
         }
         albums.onToast = { [weak self] message in
             self?.notify(message)

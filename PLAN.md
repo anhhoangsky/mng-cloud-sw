@@ -1070,8 +1070,16 @@ P8.1 (2026-11-11): đã port `crates/mng-edit` sang package `MNGEdit` — `Edito
 clamp ±100, giới hạn 20.000 px cạnh và 120 triệu điểm ảnh), `EditorCrop`,
 `EditorAdjustments`, `EditorFilter`, `EditorExportFormat` và bộ mã hoá JPEG/PNG
 qua ImageIO (WebP chỉ khi nền tảng hỗ trợ, nếu không báo lỗi rõ). 11 unit test
-được port từ Rust. Còn lại P8.2: UI editor trong app (nút Chỉnh sửa ở viewer,
-khung cắt, thanh trượt, filter, xuất) và `POST /items/{id}/edit` multipart.
+được port từ Rust.
+
+P8.2 (2026-11-11): nút "Chỉnh sửa" trong viewer (chỉ ảnh, không video) mở
+`EditorView` với đúng copy web editor: 3 tab Cắt/Chỉnh màu/Bộ lọc, nhóm "Xoay
+và lật" (Trái/Phải/Ngang/Dọc), 6 tỉ lệ khung, 9 thanh trượt, 6 filter, 2 cách
+lưu (ghi đè ảnh gốc / lưu thành bản sao). Ảnh gốc tải qua media route, giải mã
+bằng ImageIO (có áp dụng EXIF orientation), preview render ngoài main actor, xuất
+JPEG/PNG/WebP theo container gốc rồi `POST /items/{id}/edit` multipart (CSRF
+header). Còn lại: kéo 4 góc khung cắt (hiện chỉ kéo khung và chọn tỉ lệ) và
+kiểm tra trên thiết bị.
 
 ### P9 — Admin (1 tuần)
 

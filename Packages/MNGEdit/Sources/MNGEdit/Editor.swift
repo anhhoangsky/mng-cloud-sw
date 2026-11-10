@@ -19,7 +19,7 @@ public enum MNGEditError: Error, Equatable {
 }
 
 /// Normalized crop rectangle (0…1 of the oriented display).
-public struct EditorCrop: Equatable {
+public struct EditorCrop: Equatable, Sendable {
     public var x: Float
     public var y: Float
     public var width: Float
@@ -50,7 +50,7 @@ public struct EditorCrop: Equatable {
 }
 
 /// Pixel rectangle selected by the normalized crop.
-public struct EditorCropPixels: Equatable {
+public struct EditorCropPixels: Equatable, Sendable {
     public var x: UInt32
     public var y: UInt32
     public var width: UInt32
@@ -65,7 +65,7 @@ public struct EditorCropPixels: Equatable {
 }
 
 /// The nine sliders of the editor. Every value is clamped to ±100.
-public struct EditorAdjustments: Codable, Equatable {
+public struct EditorAdjustments: Codable, Equatable, Sendable {
     public var brightness: Float
     public var contrast: Float
     public var saturation: Float
@@ -167,7 +167,7 @@ public struct EditorAdjustments: Codable, Equatable {
 }
 
 /// The six one-tap filters.
-public enum EditorFilter: String, Equatable, CaseIterable {
+public enum EditorFilter: String, Equatable, CaseIterable, Sendable {
     case original
     case vivid
     case warm
@@ -189,7 +189,7 @@ public enum EditorFilter: String, Equatable, CaseIterable {
 }
 
 /// The export containers.
-public enum EditorExportFormat: String, Equatable, CaseIterable {
+public enum EditorExportFormat: String, Equatable, CaseIterable, Sendable {
     case jpeg
     case png
     case webp
@@ -225,7 +225,7 @@ public enum EditorExportFormat: String, Equatable, CaseIterable {
 /// Geometry is applied in this order: rotate, flip, crop. The crop rectangle is
 /// normalized to the oriented display, which keeps a selection stable between
 /// the preview and the full-resolution export.
-public struct Editor {
+public struct Editor: Sendable {
     public private(set) var width: UInt32
     public private(set) var height: UInt32
     private var source: [UInt8]

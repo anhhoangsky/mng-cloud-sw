@@ -475,6 +475,42 @@ final class MNGAPIClientTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: archive.url), Data([0x50, 0x4B]))
     }
 
+    func testSaveEditSendsMultipartWithCSRF() async throws {
+        let client = makeClient()
+        await client.setCSRF("csrf-edit")
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/api/v1/items/42/edit")
+            XCTAssertEqual(
+                request.value(forHTTPHeaderField: "X-CSRF-Token"),
+                "csrf-edit"
+            )
+            let contentType = try XCTUnwrap(
+                request.value(forHTTPHeaderField: "Content-Type")
+            )
+            XCTAssertTrue(contentType.hasPrefix("multipart/form-data; boundary="))
+            let body = String(decoding: try XCTUnwrap(request.capturedBody), as: UTF8.self)
+            XCTAssertTrue(body.contains("name=\"file\"; filename=\"edit.jpg\""))
+            XCTAssertTrue(body.contains("Content-Type: image/jpeg"))
+            XCTAssertTrue(body.contains("name=\"mode\""))
+            XCTAssertTrue(body.contains("overwrite"))
+            return try MockURLProtocol.respondJSON(
+                body: #"{"ok":true,"mode":"overwrite","id":42,"message":"Đã lưu ảnh."}"#
+            )(request)
+        }
+
+        let response = try await client.saveEdit(
+            id: 42,
+            data: Data([0x01, 0x02]),
+            filename: "edit.jpg",
+            mime: "image/jpeg",
+            mode: "overwrite"
+        )
+        XCTAssertTrue(response.ok)
+        XCTAssertEqual(response.id, 42)
+        XCTAssertEqual(response.mode, "overwrite")
+    }
+
     func testVaultRoutesSendCSRFAndDecodeResponses() async throws {
         let client = makeClient()
         await client.setCSRF("csrf-vault")
