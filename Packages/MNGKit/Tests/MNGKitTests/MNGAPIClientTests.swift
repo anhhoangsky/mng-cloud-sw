@@ -511,6 +511,83 @@ final class MNGAPIClientTests: XCTestCase {
         XCTAssertEqual(response.mode, "overwrite")
     }
 
+    func testICloudRoutesSendCSRFAndDecode() async throws {
+        let client = makeClient()
+        await client.setCSRF("csrf-icloud")
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(
+                request.value(forHTTPHeaderField: "X-CSRF-Token"),
+                "csrf-icloud"
+            )
+            switch request.url?.path ?? "" {
+            case "/api/v1/icloud/login":
+                let body = try XCTUnwrap(request.capturedBody)
+                let object = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: body) as? [String: Any]
+                )
+                XCTAssertEqual(object["apple_id"] as? String, "apple@example.com")
+                return try MockURLProtocol.respondJSON(
+                    body: #"{"ok":true,"job":{"id":"j1","state":"awaiting_mfa"}}"#
+                )(request)
+            case "/api/v1/icloud/mfa":
+                return try MockURLProtocol.respondJSON(
+                    body: #"{"ok":true,"message":"Đã gửi mã 2FA."}"#
+                )(request)
+            case "/api/v1/icloud/start":
+                return try MockURLProtocol.respondJSON(
+                    body: #"{"ok":true,"job":{"id":"j1","state":"queued"}}"#
+                )(request)
+            case "/api/v1/icloud/save":
+                return try MockURLProtocol.respondJSON(
+                    body: #"{"ok":true,"settings":{"recent":200,"delete_after":false,"import_path":"/x"}}"#
+                )(request)
+            case "/api/v1/icloud/control":
+                let body = try XCTUnwrap(request.capturedBody)
+                let object = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: body) as? [String: Any]
+                )
+                XCTAssertEqual(object["command"] as? String, "pause")
+                XCTAssertEqual(object["job_id"] as? String, "j1")
+                return try MockURLProtocol.respondJSON(
+                    body: #"{"ok":true,"job":{"id":"j1","state":"paused"}}"#
+                )(request)
+            case "/api/v1/icloud/logout":
+                return try MockURLProtocol.respondJSON(
+                    body: #"{"ok":true,"removed":2}"#
+                )(request)
+            default:
+                XCTFail("unexpected path \(request.url?.path ?? "nil")")
+                return try MockURLProtocol.respondJSON(body: #"{}"#)(request)
+            }
+        }
+
+        let login = try await client.icloudLogin(
+            appleID: "apple@example.com",
+            password: "secret"
+        )
+        XCTAssertEqual(login.job?.state, "awaiting_mfa")
+
+        let mfa = try await client.icloudMFA(code: "123456")
+        XCTAssertTrue(mfa.ok)
+
+        let start = try await client.icloudStart(recent: 200, deleteAfter: false)
+        XCTAssertEqual(start.job?.state, "queued")
+
+        let save = try await client.icloudSave(
+            appleID: "apple@example.com",
+            recent: 200,
+            deleteAfter: false
+        )
+        XCTAssertEqual(save.settings.recent, 200)
+
+        let control = try await client.icloudControl(command: "pause", jobID: "j1")
+        XCTAssertEqual(control.job?.state, "paused")
+
+        let logout = try await client.icloudLogout()
+        XCTAssertEqual(logout.removed, 2)
+    }
+
     func testVaultRoutesSendCSRFAndDecodeResponses() async throws {
         let client = makeClient()
         await client.setCSRF("csrf-vault")

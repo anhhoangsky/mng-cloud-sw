@@ -410,10 +410,10 @@ private struct CropOverlay: View {
     var body: some View {
         GeometryReader { geometry in
             let rect = CGRect(
-                x: crop.x * geometry.size.width,
-                y: crop.y * geometry.size.height,
-                width: crop.width * geometry.size.width,
-                height: crop.height * geometry.size.height
+                x: CGFloat(crop.x) * geometry.size.width,
+                y: CGFloat(crop.y) * geometry.size.height,
+                width: CGFloat(crop.width) * geometry.size.width,
+                height: CGFloat(crop.height) * geometry.size.height
             )
 
             Rectangle()
@@ -429,8 +429,12 @@ private struct CropOverlay: View {
                             if origin == nil {
                                 origin = start
                             }
-                            let dx = value.translation.width / max(geometry.size.width, 1)
-                            let dy = value.translation.height / max(geometry.size.height, 1)
+                            let dx = Float(
+                                value.translation.width / max(geometry.size.width, 1)
+                            )
+                            let dy = Float(
+                                value.translation.height / max(geometry.size.height, 1)
+                            )
                             var next = start
                             next.x = min(max(start.x + dx, 0), 1 - start.width)
                             next.y = min(max(start.y + dy, 0), 1 - start.height)

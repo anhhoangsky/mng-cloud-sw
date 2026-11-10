@@ -1116,6 +1116,15 @@ Việc chính:
 Nghiệm thu: box không có endpoint → đúng trạng thái, không giả connected;
 không poll khi sheet đóng.
 
+P10 (2026-11-11): sheet iCloud nay là trình nhập đầy đủ — đăng nhập Apple
+ID + mật khẩu, nhập mã 2FA 6 số, lưu thiết lập (số ảnh gần đây 50/200/500/1000
+và xoá sau khi nhập), bắt đầu tải, theo dõi job (trạng thái, tiến trình, log),
+tạm dừng/tiếp tục/huỷ và đăng xuất. Poll 2,2 giây chỉ khi job đang chạy và dừng
+khi sheet đóng; mỗi hành động có sequence-guard nên thao tác cũ không ghi đè kết
+quả mới. 404/405/501 → "Máy chủ này chưa cung cấp trình tải iCloud" kèm gợi ý
+cấu hình; lỗi mạng → "Không kiểm tra được iCloud". `MNGKit` đã có đủ route
+login/mfa/start/save/control/logout kèm test.
+
 ### P11 — Parity extras, hiệu năng, phát hành (2 tuần)
 
 Việc chính:

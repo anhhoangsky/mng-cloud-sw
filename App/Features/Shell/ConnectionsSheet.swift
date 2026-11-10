@@ -28,7 +28,7 @@ struct ConnectionsSheet: View {
                 case .connections:
                     connections
                 case .icloud:
-                    ICloudDetail(model: model)
+                    ICloudDetailView(model: model)
                 }
             }
             .background(Palette.bgGrouped)
@@ -274,126 +274,6 @@ private enum PaletteDot {
         case .none: Palette.text4
         case .ok: Palette.green
         case .bad: Palette.danger
-        }
-    }
-}
-
-/// Read-only iCloud page. The importer controls are intentionally deferred to
-/// P7; this only reports the server's real status.
-private struct ICloudDetail: View {
-    let model: ShellModel
-
-    private var row: ICloudModel.Row { model.icloud.row }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "icloud.fill")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(Palette.icloud)
-                        .frame(width: 46, height: 46)
-                        .background(Palette.icloud.opacity(0.12), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(Strings.icloudPhotos)
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(Palette.text)
-                        HStack(spacing: 6) {
-                            dot
-                            Text(row.subtitle)
-                                .font(.system(size: 12))
-                                .foregroundStyle(Palette.text3)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-
-                infoCard {
-                    infoRow(Strings.icloudStatusLabel, value: row.value)
-                    if !model.icloud.appleID.isEmpty {
-                        Divider().overlay(Palette.hairline)
-                        infoRow(Strings.icloudAppleID, value: model.icloud.appleID)
-                    }
-                }
-
-                Text(Strings.icloudNote)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Palette.text3)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text(Strings.icloudDeferred)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Palette.text2)
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Palette.fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                Button {
-                    Task { await model.icloud.load() }
-                } label: {
-                    HStack(spacing: 7) {
-                        if model.icloud.isLoading {
-                            ProgressView().controlSize(.small)
-                        }
-                        Text(Strings.retry)
-                    }
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Palette.accent)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 40)
-                    .background(Palette.accentSoft, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .disabled(model.icloud.isLoading)
-            }
-            .padding(16)
-        }
-        .task {
-            await model.icloud.load()
-        }
-    }
-
-    private var dot: some View {
-        Circle()
-            .fill(dotColor)
-            .frame(width: 8, height: 8)
-    }
-
-    private var dotColor: Color {
-        switch row.dot {
-        case .none: Palette.text4
-        case .ok: Palette.green
-        case .warn: Palette.orange
-        case .bad: Palette.danger
-        }
-    }
-
-    private func infoCard<Content: View>(
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            content()
-        }
-        .padding(12)
-        .background(Palette.bgElevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Palette.hairline, lineWidth: 0.5)
-        }
-    }
-
-    private func infoRow(_ label: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(label)
-                .font(.system(size: 13))
-                .foregroundStyle(Palette.text3)
-            Spacer(minLength: 8)
-            Text(value)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Palette.text2)
-                .multilineTextAlignment(.trailing)
         }
     }
 }

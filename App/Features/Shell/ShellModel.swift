@@ -168,6 +168,9 @@ final class ShellModel {
         icloud.onUnauthorized = { [weak self] in
             self?.expireSession()
         }
+        icloud.onToast = { [weak self] message in
+            self?.notify(message)
+        }
         settings.onToast = { [weak self] message in
             self?.notify(message)
         }

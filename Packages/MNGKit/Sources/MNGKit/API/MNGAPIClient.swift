@@ -440,6 +440,99 @@ public actor MNGAPIClient {
         return try await perform(request)
     }
 
+    /// Start the Apple ID login. The server answers with the auth job.
+    public func icloudLogin(
+        appleID: String,
+        password: String
+    ) async throws -> IcloudJobResponse {
+        let body = try encode(
+            IcloudLoginBody(appleID: appleID, password: password)
+        )
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/icloud/login",
+            body: body,
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
+    /// Answer the two-factor prompt.
+    public func icloudMFA(code: String) async throws -> IcloudMessageResponse {
+        let body = try encode(IcloudMFABody(code: code))
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/icloud/mfa",
+            body: body,
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
+    /// Queue the import job.
+    public func icloudStart(
+        recent: Int64,
+        deleteAfter: Bool
+    ) async throws -> IcloudJobResponse {
+        let body = try encode(
+            IcloudStartBody(recent: recent, deleteAfter: deleteAfter)
+        )
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/icloud/start",
+            body: body,
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
+    /// Store the importer settings (Apple ID, recent limit, delete-after).
+    public func icloudSave(
+        appleID: String,
+        recent: Int64,
+        deleteAfter: Bool
+    ) async throws -> IcloudSaveResponse {
+        let body = try encode(
+            IcloudSaveBody(
+                appleID: appleID,
+                recent: recent,
+                deleteAfter: deleteAfter
+            )
+        )
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/icloud/save",
+            body: body,
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
+    /// Pause, resume or cancel a running job.
+    public func icloudControl(
+        command: String,
+        jobID: String
+    ) async throws -> IcloudJobResponse {
+        let body = try encode(IcloudControlBody(command: command, jobID: jobID))
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/icloud/control",
+            body: body,
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
+    /// Forget the stored Apple ID session on the server.
+    public func icloudLogout() async throws -> IcloudLogoutResponse {
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/icloud/logout",
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
     // MARK: - Native vaults
     public func nativeVaults() async throws -> NativeVaultsResponse {
         let request = try makeRequest(method: .get, path: "/v1/vaults")
@@ -984,6 +1077,52 @@ public actor MNGAPIClient {
 
     private struct AdminScanBody: Encodable {
         let id: Int64
+    }
+
+    private struct IcloudLoginBody: Encodable {
+        let appleID: String
+        let password: String
+
+        enum CodingKeys: String, CodingKey {
+            case appleID = "apple_id"
+            case password
+        }
+    }
+
+    private struct IcloudMFABody: Encodable {
+        let code: String
+    }
+
+    private struct IcloudStartBody: Encodable {
+        let recent: Int64
+        let deleteAfter: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case recent
+            case deleteAfter = "delete_after"
+        }
+    }
+
+    private struct IcloudSaveBody: Encodable {
+        let appleID: String
+        let recent: Int64
+        let deleteAfter: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case recent
+            case appleID = "apple_id"
+            case deleteAfter = "delete_after"
+        }
+    }
+
+    private struct IcloudControlBody: Encodable {
+        let command: String
+        let jobID: String
+
+        enum CodingKeys: String, CodingKey {
+            case command
+            case jobID = "job_id"
+        }
     }
 
     private struct OkResponse: Decodable {

@@ -185,6 +185,20 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - Server invariants (primary admin, deleting yourself, the last admin) and the
   403/409 answers are surfaced with the server's own sentence.
 
+## P10 notes
+
+- The iCloud sheet is the full importer: Apple ID sign-in, the six-digit 2FA
+  prompt, the settings (how many recent photos, delete after the import), the
+  start button, the job card (state, progress, log) with pause/resume/cancel
+  and the sign-out action.
+- Polling runs every 2.2 seconds, exactly like the web client, and only while
+  a job is active; closing the sheet stops it.
+- A server without the importer (404/405/501) shows the honest "máy chủ này chưa
+  cung cấp trình tải iCloud" message with the hint that an administrator has
+  to configure `icloudpd`; a network error shows "không kiểm tra được iCloud".
+- The password never leaves the device: it is only sent to the server's login
+  route and cleared from the form right after the request.
+
 ## Visual checks per UI phase
 
 - iPhone SE (compact, 375 pt), iPhone 15/16 (393 pt), iPad 11" portrait and
