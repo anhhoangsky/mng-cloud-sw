@@ -102,7 +102,9 @@ final class LibrarySupportTests: XCTestCase {
         state.showAllYears()
         state.selectLayout(.months)
         state.open(year: 2024)
-        XCTAssertEqual(state.summary, "Năm 2024")
+        // `filter_summary()` only names a date when year and month are both
+        // set, so the year drill-down leaves just the kind chip.
+        XCTAssertEqual(state.summary, "Video")
 
         state.clearFilters()
         XCTAssertNil(state.summary)
@@ -202,7 +204,9 @@ final class LibrarySupportTests: XCTestCase {
             RemovedItem(index: 0, item: try item(id: 1)),
         ])
         XCTAssertEqual(page.items.map(\.id), [1, 2])
-        XCTAssertEqual(page.total, 2)
+        // Only the row that was actually absent is counted, mirroring the
+        // PWA's `items_total += restored`; the duplicate id is not restored.
+        XCTAssertEqual(page.total, 4)
     }
 
     func testFavoriteMutation() throws {

@@ -14,6 +14,42 @@ struct ShellView: View {
     private var isCompact: Bool { sizeClass == .compact }
 
     var body: some View {
+        shell
+            .sheet(item: $model.activeSheet) { sheet in
+                switch sheet {
+                case .connections:
+                    ConnectionsSheet(model: model)
+                case .icloud:
+                    ConnectionsSheet(model: model, initial: .icloud)
+                case .info:
+                    ItemInfoSheet(model: model)
+                case .person:
+                    PersonRenameSheet(model: model)
+                }
+            }
+            .alert(
+                model.library.pendingDelete?.title ?? "",
+                isPresented: deleteBinding,
+                presenting: model.library.pendingDelete
+            ) { prompt in
+                Button(Strings.cancel, role: .cancel) {
+                    model.library.cancelDelete()
+                }
+                Button(prompt.confirmLabel, role: .destructive) {
+                    model.library.confirmDelete()
+                }
+            } message: { prompt in
+                Text(prompt.message)
+            }
+            .task {
+                await model.start()
+            }
+    }
+
+    /// Root layout. The share sheet is attached here and the modal sheet in
+    /// `body`, so each presentation hangs off its own view: stacked `.sheet`
+    /// modifiers on a single view can collapse into one presentation.
+    private var shell: some View {
         ZStack(alignment: .bottom) {
             Palette.bgGrouped.ignoresSafeArea()
 
@@ -64,38 +100,9 @@ struct ShellView: View {
             }
         }
         .animation(Tokens.Motion.fade, value: model.toast)
-        .sheet(item: $model.activeSheet) { sheet in
-            switch sheet {
-            case .connections:
-                ConnectionsSheet(model: model)
-            case .icloud:
-                ConnectionsSheet(model: model, initial: .icloud)
-            case .info:
-                ItemInfoSheet(model: model)
-            case .person:
-                PersonRenameSheet(model: model)
-            }
-        }
         .sheet(item: shareBinding) { file in
             ActivityView(url: file.url)
                 .ignoresSafeArea()
-        }
-        .alert(
-            model.library.pendingDelete?.title ?? "",
-            isPresented: deleteBinding,
-            presenting: model.library.pendingDelete
-        ) { prompt in
-            Button(Strings.cancel, role: .cancel) {
-                model.library.cancelDelete()
-            }
-            Button(prompt.confirmLabel, role: .destructive) {
-                model.library.confirmDelete()
-            }
-        } message: { prompt in
-            Text(prompt.message)
-        }
-        .task {
-            await model.start()
         }
     }
 

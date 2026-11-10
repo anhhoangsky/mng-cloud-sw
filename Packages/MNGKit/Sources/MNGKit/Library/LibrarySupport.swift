@@ -111,12 +111,14 @@ public struct LibraryFilterState: Equatable, Sendable {
     }
 
     /// The PWA's filter summary chip: `Tháng 11 2026 · Video`.
+    ///
+    /// `filter_summary()` in `shell.rs` only names the date when both the year
+    /// and the month filter are set. The months drill-down is identified by its
+    /// own "Tất cả các năm" control, so a year alone contributes nothing.
     public var summary: String? {
         var parts: [String] = []
         if let year, let month {
             parts.append("Tháng \(month) \(year)")
-        } else if let year {
-            parts.append("Năm \(year)")
         }
         switch kind {
         case .all:
