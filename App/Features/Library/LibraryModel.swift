@@ -8,6 +8,13 @@ enum LibraryEvent {
     case share(DownloadedFile)
 }
 
+/// Where the mobile Back button returns after an album drill-down, matching
+/// the PWA's `album_return` signal.
+enum AlbumReturn: String, Equatable, Sendable {
+    case albums
+    case search
+}
+
 struct DeletePrompt: Identifiable {
     let id = UUID()
     let ids: [Int64]
@@ -51,6 +58,12 @@ final class LibraryModel {
     private(set) var selection: Set<Int64> = []
     private(set) var pendingDelete: DeletePrompt?
 
+    /// Non-nil while the Library tab is showing an album drill-down. The
+    /// timeline keeps rendering the normal page/grid, but selection, paging
+    /// and the Library toolbar are disabled.
+    private(set) var activeAlbum: AlbumFilter?
+    private(set) var albumReturn: AlbumReturn = .albums
+
     private(set) var infoItem: Item?
     private(set) var isLoadingInfo = false
     private(set) var isDownloading = false
@@ -62,6 +75,20 @@ final class LibraryModel {
     /// Filled by `ShellModel` so the library does not depend on bootstrap.
     var cloudLabel: (String) -> String = { $0.isEmpty ? "đám mây" : $0 }
     var onEvent: ((LibraryEvent) -> Void)?
+
+    /// Favorite patches fan out to Search and Albums. The map carries full
+    /// snapshots for the changed ids so the favorites section can be seeded.
+    var onFavoritePatched: ((Set<Int64>, Bool, [Int64: Item]) -> Void)?
+
+    /// Tokenized delete callbacks: Search and Albums snapshot only the rows
+    /// they own, and a later rollback restores exactly those rows.
+    var onDeleteRemoved: ((UUID, Set<Int64>) -> Void)?
+    var onDeleteRestored: ((UUID, Set<Int64>) -> Void)?
+    var onDeleteSettled: ((UUID) -> Void)?
+
+    /// The info sheet is presented by the root shell so it also works from
+    /// Search and Albums result tiles.
+    var onPresentInfo: (() -> Void)?
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var requestSeq = 0
@@ -86,8 +113,8 @@ final class LibraryModel {
         viewer.onDownload = { [weak self] item in
             self?.download(item)
         }
-        viewer.onDelete = { [weak self] id in
-            self?.requestDelete(ids: [id])
+        viewer.onDelete = { [weak self] item in
+            self?.requestDelete(items: [item])
         }
     }
 
@@ -122,7 +149,7 @@ final class LibraryModel {
     private func loadTimeline(seq: Int) async {
         do {
             let response = try await client.items(
-                filters.itemFilters(cloud: cloud, offset: 0)
+                requestFilters(offset: 0)
             )
             guard seq == requestSeq else { return }
             page.replace(with: response)
@@ -182,7 +209,8 @@ final class LibraryModel {
     }
 
     func loadOlderIfNeeded() async {
-        guard filters.isTimeline,
+        guard activeAlbum == nil,
+              filters.isTimeline,
               page.hasMore,
               !olderExhausted,
               olderState != .loading,
@@ -192,12 +220,12 @@ final class LibraryModel {
     }
 
     func loadOlder() async {
-        guard filters.isTimeline, page.hasMore, olderState != .loading else { return }
+        guard activeAlbum == nil, filters.isTimeline, page.hasMore, olderState != .loading else { return }
         let seq = requestSeq
         olderState = .loading
         do {
             let response = try await client.items(
-                filters.itemFilters(cloud: cloud, offset: page.count)
+                requestFilters(offset: page.count)
             )
             guard seq == requestSeq else { return }
             if response.items.isEmpty {
@@ -220,8 +248,56 @@ final class LibraryModel {
 
     // MARK: - Filters
 
+    var isAlbumOpen: Bool { activeAlbum != nil }
+
+    /// Enter an album drill-down. State changes are synchronous so the shell
+    /// can switch tabs without a frame of stale timeline content; the caller
+    /// follows with `reload()`.
+    func beginAlbum(_ album: AlbumFilter, returnTo: AlbumReturn) {
+        exitSelection()
+        activeAlbum = album
+        albumReturn = returnTo
+        // `openAlbum()` clears the kind chip: an album opened while "Video"
+        // was selected would otherwise silently show no photos.
+        filters.kind = .all
+        filters.year = album.year
+        filters.month = nil
+        filters.layout = .all
+        page = LibraryPage()
+        years = []
+        months = []
+        olderState = .idle
+        olderExhausted = false
+        loadState = .loading
+    }
+
+    /// Leave the album without networking. Returns the tab that should become
+    /// active; the caller reloads the library grid afterwards.
+    @discardableResult
+    func closeAlbum() -> AlbumReturn? {
+        guard activeAlbum != nil else { return nil }
+        let target = albumReturn
+        exitSelection()
+        activeAlbum = nil
+        filters.showAllYears()
+        filters.layout = .all
+        page = LibraryPage()
+        months = []
+        return target
+    }
+
+    /// The album filter wins over the timeline filters and pins people/place
+    /// albums to every cloud, like `item_cloud_filter()`.
+    private func requestFilters(offset: Int, limit: Int? = nil) -> ItemFilters {
+        if let activeAlbum {
+            return activeAlbum.itemFilters(cloud: cloud, offset: offset, limit: limit)
+        }
+        return filters.itemFilters(cloud: cloud, offset: offset, limit: limit)
+    }
+
     func selectLayout(_ layout: LibraryLayout) async {
         exitSelection()
+        activeAlbum = nil
         filters.selectLayout(layout)
         defaults.set(layout.rawValue, forKey: LibraryLayout.storageKey)
         page = LibraryPage()
@@ -241,6 +317,7 @@ final class LibraryModel {
 
     func open(year: Int) async {
         exitSelection()
+        activeAlbum = nil
         filters.open(year: year)
         page = LibraryPage()
         months = []
@@ -249,6 +326,7 @@ final class LibraryModel {
 
     func open(year: Int, month: Int) async {
         exitSelection()
+        activeAlbum = nil
         filters.open(year: year, month: month)
         page = LibraryPage()
         await reload()
@@ -263,6 +341,7 @@ final class LibraryModel {
 
     func clearFilters() async {
         exitSelection()
+        activeAlbum = nil
         filters.clearFilters()
         page = LibraryPage()
         await reload()
@@ -293,7 +372,10 @@ final class LibraryModel {
     // MARK: - Selection
 
     var canSelect: Bool {
-        filters.isTimeline && !filters.hasDateFilter && !page.items.isEmpty
+        activeAlbum == nil
+            && filters.isTimeline
+            && !filters.hasDateFilter
+            && !page.items.isEmpty
     }
 
     var selectedItems: [Item] {
@@ -356,6 +438,13 @@ final class LibraryModel {
         viewer.open(items: list, id: item.id)
     }
 
+    /// Albums photo grids already sorted their list; seed the viewer with that
+    /// exact order so previous/next stay inside the section the person opened.
+    func openViewer(items: [Item], id: Int64) {
+        guard !selectionMode else { return }
+        viewer.open(items: items, id: id)
+    }
+
     // MARK: - Favorite
 
     func toggleFavorite(_ item: Item) {
@@ -377,6 +466,19 @@ final class LibraryModel {
         if let item = infoItem, ids.contains(item.id) {
             infoItem = item.withFavorite(value)
         }
+        // Snapshot the changed rows after the flip; the favorites section uses
+        // these full items to insert a row that its first snapshot missed.
+        var known: [Int64: Item] = [:]
+        for item in page.items where ids.contains(item.id) {
+            known[item.id] = item
+        }
+        for item in viewer.items where ids.contains(item.id) {
+            known[item.id] = item
+        }
+        if let infoItem, ids.contains(infoItem.id) {
+            known[infoItem.id] = infoItem
+        }
+        onFavoritePatched?(ids, value, known)
     }
 
     private func performFavorite(ids: [Int64], value: Bool) async {
@@ -444,11 +546,26 @@ final class LibraryModel {
 
     // MARK: - Delete
 
+    func requestDelete(items: [Item]) {
+        var source: [Int64: Item] = [:]
+        for item in items {
+            source[item.id] = item
+        }
+        requestDelete(ids: items.map(\.id), source: source)
+    }
+
     func requestDelete(ids: [Int64]) {
+        requestDelete(ids: ids, source: [:])
+    }
+
+    /// `source` carries rows that are not part of the library page or viewer
+    /// (Search results and the Albums photo sections).
+    private func requestDelete(ids: [Int64], source: [Int64: Item]) {
         let unique = Array(Set(ids)).sorted()
-        guard !unique.isEmpty else { return }
-        let first = page.item(id: unique[0])
-            ?? viewer.items.first(where: { $0.id == unique[0] })
+        guard let firstID = unique.first else { return }
+        let first = source[firstID]
+            ?? page.item(id: firstID)
+            ?? viewer.items.first(where: { $0.id == firstID })
         let label = cloudLabel(first?.cloud ?? cloud)
 
         let prompt: DeletePrompt
@@ -482,11 +599,14 @@ final class LibraryModel {
         guard let prompt = pendingDelete else { return }
         pendingDelete = nil
         exitSelection()
+        let token = UUID()
         let ids = Set(prompt.ids)
         let removed = page.remove(ids: ids)
         let viewerRemoval = viewer.remove(ids: ids)
+        onDeleteRemoved?(token, ids)
         Task { [weak self] in
             await self?.performDelete(
+                token: token,
                 ids: prompt.ids,
                 removed: removed,
                 viewerRemoval: viewerRemoval
@@ -496,15 +616,16 @@ final class LibraryModel {
 
     func deleteFromInfo(_ item: Item) {
         dismissInfo()
-        // Let the sheet finish dismissing before LibraryView presents the
+        // Let the sheet finish dismissing before the root shell presents the
         // confirmation alert underneath it.
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 320_000_000)
-            self?.requestDelete(ids: [item.id])
+            self?.requestDelete(items: [item])
         }
     }
 
     private func performDelete(
+        token: UUID,
         ids: [Int64],
         removed: [RemovedItem],
         viewerRemoval: ViewerRemoval?
@@ -520,6 +641,7 @@ final class LibraryModel {
                     removedCount += 1
                 case .failure(let error):
                     if error.status == 401 {
+                        onDeleteSettled?(token)
                         onEvent?(.unauthorized)
                         return
                     }
@@ -536,6 +658,7 @@ final class LibraryModel {
             if let viewerRemoval {
                 viewer.restore(viewerRemoval, failed: failedSet)
             }
+            onDeleteRestored?(token, failedSet)
             onEvent?(.toast(
                 APIMessages.deletePartial(
                     removed: removedCount,
@@ -544,6 +667,7 @@ final class LibraryModel {
                 )
             ))
         }
+        onDeleteSettled?(token)
     }
 
     private func deleteChunk(
@@ -630,6 +754,7 @@ final class LibraryModel {
     func openInfo(_ item: Item) {
         infoItem = item
         isLoadingInfo = true
+        onPresentInfo?()
         Task { [weak self] in
             guard let self else { return }
             do {

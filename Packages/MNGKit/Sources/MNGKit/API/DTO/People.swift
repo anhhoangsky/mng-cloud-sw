@@ -2,8 +2,8 @@ import Foundation
 
 public struct Person: Decodable, Equatable, Sendable, Identifiable {
     public let id: Int64
-    public let name: String
-    public let label: String
+    public var name: String
+    public var label: String
     public let faceCount: Int64
     public let itemCount: Int64
     public let coverFaceID: Int64
@@ -43,7 +43,7 @@ public struct PeopleResponse: Decodable, Equatable, Sendable {
     }
 }
 
-public struct PlaceProvince: Decodable, Equatable, Sendable {
+public struct PlaceProvince: Decodable, Equatable, Hashable, Sendable {
     public let province: String
     public let count: Int64
     public let coverID: Int64
@@ -61,7 +61,7 @@ public struct PlaceProvince: Decodable, Equatable, Sendable {
     }
 }
 
-public struct PlaceDistrict: Decodable, Equatable, Sendable {
+public struct PlaceDistrict: Decodable, Equatable, Hashable, Sendable {
     public let province: String
     public let district: String
     public let count: Int64
@@ -81,9 +81,17 @@ public struct PlaceDistrict: Decodable, Equatable, Sendable {
     }
 }
 
+/// `POST /people/{id}/rename` payload lives in `Admin.swift` next to the
+/// other admin response shapes.
+
 public struct PlacesResponse: Decodable, Equatable, Sendable {
     public let provinces: [PlaceProvince]
     public let districts: [PlaceDistrict]
+
+    public init(provinces: [PlaceProvince] = [], districts: [PlaceDistrict] = []) {
+        self.provinces = provinces
+        self.districts = districts
+    }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)

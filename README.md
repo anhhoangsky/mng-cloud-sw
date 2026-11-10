@@ -49,4 +49,5 @@ xcodebuild -project MNGCloud.xcodeproj -scheme MNGCloud \
 - [x] **P2** — MNGKit API + session/login (ported; macOS CI run pending)
 - [x] **P3** — shell + library + tile actions (ported; macOS CI run pending)
 - [x] **P4** — viewer, zoom/swipe, video and Live Photo (ported; macOS CI run pending)
-- [ ] P5+ — see `PLAN.md`
+- [x] **P5** — albums, search and connections (ported; macOS CI run pending)
+- [ ] P6+ — see `PLAN.md`

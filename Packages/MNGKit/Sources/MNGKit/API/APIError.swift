@@ -73,6 +73,7 @@ public enum APIMessages {
     public static let itemListFailed = "Không tải được danh sách ảnh và video."
     public static let olderPageFailed = "Không tải thêm được ảnh cũ."
     public static let bootstrapFailed = "Không tải được thông tin thư viện."
+    public static let albumListFailed = "Không tải được album."
 
     /// Login card copy.
     public static func login(_ error: APIError) -> String {
@@ -113,6 +114,11 @@ public enum APIMessages {
     /// Bootstrap error, matching `bootstrap_error()`.
     public static func bootstrap(_ error: APIError) -> String {
         error.status == 0 ? network : bootstrapFailed
+    }
+
+    /// Album card/photo-section error, matching `album_error()`.
+    public static func album(_ error: APIError) -> String {
+        error.status == 0 ? network : albumListFailed
     }
 
     // MARK: - Bulk action toasts

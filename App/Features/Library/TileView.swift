@@ -6,6 +6,9 @@ import SwiftUI
 struct TileView: View {
     let model: ShellModel
     let item: Item
+    /// Search seeds the viewer with its own result list; Library keeps using
+    /// the current timeline page.
+    var onOpen: (() -> Void)? = nil
 
     private var library: LibraryModel { model.library }
 
@@ -15,6 +18,8 @@ struct TileView: View {
                 withAnimation(Tokens.Motion.fade) {
                     library.toggleSelection(item.id)
                 }
+            } else if let onOpen {
+                onOpen()
             } else {
                 library.openViewer(item)
             }
@@ -140,7 +145,7 @@ struct TileView: View {
         Divider()
 
         Button(role: .destructive) {
-            library.requestDelete(ids: [item.id])
+            library.requestDelete(items: [item])
         } label: {
             Label(Strings.delete, systemImage: "trash")
         }

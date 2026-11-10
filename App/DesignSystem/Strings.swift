@@ -1,4 +1,5 @@
 import Foundation
+import MNGKit
 
 /// Vietnamese copy, ported 1:1 from `ui/` and the PWA shell. Every user-facing
 /// string lives here so parity reviews can diff one file.
@@ -176,6 +177,128 @@ enum Strings {
     static let vaultSubtitle = "Mã hóa đầu cuối, chìa khóa chỉ ở thiết bị"
     static let comingSoon = "Tính năng đang được xây dựng."
     static let comingSoonHint = "Phần này sẽ có ở giai đoạn tiếp theo."
+
+    // Albums
+    static let albumFallback = "Album"
+    static let albumSelected = "Bộ sưu tập đã chọn"
+    static let albumRecent = "Ảnh gần đây"
+    static let albumFavorites = "Ảnh yêu thích"
+    static let albumCollections = "Bộ sưu tập"
+    static let albumYears = "Năm"
+    static let albumPeople = "Mọi người"
+    static let albumPlaces = "Địa điểm"
+    static let albumDistricts = "Quận, huyện"
+    static let albumEmptyTitle = "Album này chưa có ảnh"
+    static let albumRecentEmpty = "Chưa có ảnh"
+    static let albumRecentEmptyBody = "Quét thư viện để bắt đầu."
+    static let albumFavoritesEmpty = "Chưa có ảnh yêu thích"
+    static let albumFavoritesEmptyBody = "Nhấn giữ một ảnh và chọn Yêu thích để thêm vào đây."
+    static let albumCollectionsEmpty =
+        "Chưa có bộ sưu tập. Ảnh video, Live Photo và ảnh chụp màn hình sẽ xuất hiện ở đây."
+    static let albumYearsEmpty = "Chưa có năm nào được lập chỉ mục."
+    static let albumPeopleEmpty =
+        "Chưa nhận diện được người nào. AI sẽ tự cập nhật khi tìm thấy khuôn mặt rõ nét."
+    static let albumPlacesEmpty = "Chưa có địa điểm. Ảnh có GPS sẽ được nhận diện tỉnh thành."
+    static let albumDistrictsEmpty = "Chưa có quận huyện nào được nhận diện."
+    static let albumShowAll = "Xem tất cả"
+    static let albumShowLess = "Thu gọn"
+    static let albumSortLabel = "Sắp xếp"
+    static let albumGridLabel = "Kiểu lưới"
+    static let albumUnknownProvince = "Không rõ tỉnh"
+    static let albumErrorTitle = "Không tải được album"
+    static let aiConnectingTitle = "Đang kết nối AI."
+    static let aiConnectingBody = "Sắp xếp khuôn mặt và địa điểm trong thư viện."
+    static let aiDoneTitle = "AI đã phân tích xong"
+    static let aiRunningTitle = "AI đang phân tích nền"
+    static let aiPausedTitle = "AI đang tạm dừng"
+
+    static func albumItemSub(_ count: Int64, sub: String) -> String {
+        let trimmed = sub.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty
+            ? "\(MNGFormat.number(count)) mục"
+            : "\(MNGFormat.number(count)) mục · \(trimmed)"
+    }
+
+    static func albumYearSub(_ count: Int64) -> String {
+        "\(MNGFormat.number(count)) mục"
+    }
+
+    static func albumPhotoCount(_ count: Int64) -> String {
+        "\(MNGFormat.number(count)) ảnh"
+    }
+
+    static func albumPlaceSub(province: String, count: Int64) -> String {
+        let name = province.trimmingCharacters(in: .whitespacesAndNewlines)
+        let label = name.isEmpty ? albumUnknownProvince : name
+        return "\(label) · \(MNGFormat.number(count)) ảnh"
+    }
+
+    static func aiDoneBody(_ count: Int64) -> String {
+        "\(MNGFormat.number(count)) ảnh đã được nhận diện khuôn mặt và địa chỉ."
+    }
+
+    static func aiPendingBody(faces: Int64, places: Int64) -> String {
+        "\(MNGFormat.number(faces)) ảnh chờ nhận diện · \(MNGFormat.number(places)) ảnh chờ định vị"
+    }
+
+    static func personRenameSub(itemCount: Int64, faceCount: Int64) -> String {
+        "\(MNGFormat.number(itemCount)) ảnh · \(MNGFormat.number(faceCount)) khuôn mặt"
+    }
+
+    // Person rename
+    static let personRenameTitle = "Đổi tên người"
+    static let personNameLabel = "Tên"
+    static let personNamePlaceholder = "Ví dụ: Mẹ, Hà, Minh…"
+    static let personNameSave = "Lưu tên"
+    static let personNameCleared = "Đã bỏ tên."
+    static let personNameSaved = "Đã lưu tên."
+
+    // Search
+    static let searchPlaceholder = "Tìm ảnh, video…"
+    static let searchFieldLabel = "Tìm ảnh và video"
+    static let searchClear = "Xóa tìm kiếm"
+    static let searchFiltersLabel = "Lọc kết quả"
+    static let searchErrorTitle = "Lỗi tìm kiếm"
+    static let searchEmptyTitle = "Không tìm thấy"
+    static let searchEmptyBody = "Thử tên tệp khác hoặc chọn bộ lọc khác."
+
+    static func searchMeta(total: Int64, query: String) -> String {
+        "\(MNGFormat.number(total)) kết quả cho \"\(query)\""
+    }
+
+    // Connections
+    static let connectionsTitle = "Thư viện đám mây"
+    static let connectionsSubtitle = "Thư viện trên máy chủ được kết nối tự động bằng WebDAV."
+    static let connectionsNote =
+        "MNG Cloud đọc trực tiếp từ máy chủ bằng tài khoản ứng dụng lưu trên máy chủ. Không cần đăng nhập lại dịch vụ này."
+    static let icloudSection = "iCloud"
+    static let icloudPhotos = "iCloud Photos"
+    static let icloudNote =
+        "iCloud dùng API không chính thức. Ảnh sẽ được tải về máy chủ rồi nhập vào máy chủ."
+    static let icloudStatusLabel = "Trạng thái"
+    static let icloudAppleID = "Apple ID"
+    static let icloudUnknown = "Chưa kết nối · dùng API không chính thức"
+    static let icloudNotConfigured = "Máy chủ chưa cấu hình trình tải iCloud"
+    static let icloudConnected = "Đã kết nối · sẵn sàng tải ảnh"
+    static let icloudDisconnected = "Chưa kết nối · đăng nhập Apple ID"
+    static let icloudUnsupported = "Máy chủ chưa hỗ trợ trình tải iCloud"
+    static let icloudUnavailable = "Không kiểm tra được iCloud"
+    static let icloudStatusUnknown = "Thiết lập"
+    static let icloudStatusNotConfigured = "Chưa cấu hình"
+    static let icloudStatusConnected = "Đã kết nối"
+    static let icloudStatusUnsupported = "Chưa hỗ trợ"
+    static let icloudStatusUnavailable = "Không khả dụng"
+    static let icloudDeferred = "Trình nhập iCloud đầy đủ sẽ có ở giai đoạn sau."
+    static let webdavCopy = "Sao chép"
+    static let webdavCopied = "Đã sao chép liên kết WebDAV."
+    static let webdavCopyFailed = "Không thể sao chép liên kết."
+    static let cloudHealthGood = "Kết nối tốt"
+    static let cloudHealthBad = "Không phản hồi"
+    static let cloudHealthUnknown = "Chưa kiểm tra"
+
+    static func cloudHealth(ms: Int64) -> String {
+        "\(cloudHealthGood) · \(max(0, ms)) ms"
+    }
 
     // Errors (server parity)
     static let networkError = "Không kết nối được máy chủ."

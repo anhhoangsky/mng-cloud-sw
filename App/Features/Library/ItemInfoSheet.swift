@@ -124,6 +124,7 @@ struct ItemInfoSheet: View {
 
             Button {
                 library.deleteFromInfo(item)
+                dismiss()
             } label: {
                 actionLabel(
                     Strings.deleteFrom(cloud: model.cloudLabel(for: item.cloud)),

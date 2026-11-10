@@ -318,6 +318,22 @@ public actor MNGAPIClient {
         return try await perform(request)
     }
 
+    /// Rename or clear one face cluster. The PWA sends an empty name to
+    /// restore the generated `Người {id}` label.
+    public func renamePerson(id: Int64, name: String) async throws -> PersonRenameResponse {
+        guard id > 0 else {
+            throw APIError(status: 404, code: "not_found", message: "Người không tồn tại.")
+        }
+        let body = try encode(RenamePersonBody(name: name))
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/people/\(id)/rename",
+            body: body,
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
     /// The PWA always scans the whole library, like the legacy
     /// `openDuplicates()` which pins `cloud = 'all'`.
     public func duplicates() async throws -> DuplicatesResponse {
@@ -475,6 +491,10 @@ public actor MNGAPIClient {
 
     private struct FavoriteBody: Encodable {
         let value: Bool
+    }
+
+    private struct RenamePersonBody: Encodable {
+        let name: String
     }
 
     private struct OkResponse: Decodable {

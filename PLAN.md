@@ -942,6 +942,24 @@ Nghiệm thu: số liệu khớp fixture (87 people, 8 provinces, 15 districts �
 snapshot test); tìm `q=20221231` 1 kết quả, `q=IMG` 300/1.814; dark/light;
 không gọi admin users khi vào app.
 
+Trạng thái (2026-11-10): đã port tab Albums với 7 section gập/mở đúng thứ tự,
+preview 9 ảnh + `Xem tất cả`/`Thu gọn`, sort/density riêng từng section, lưới
+ảnh/người/địa điểm theo `app.css`, banner AI + poll 20 giây theo signature 5 bộ
+đếm, skeleton/empty/error và đổi tên người optimistic + rollback. Search có
+debounce 280 ms, 5 chip, 4 gợi ý, cap 300, meta `n kết quả cho "q"` (chuyển sang
+số dòng đã tải sau khi xoá) và mở album với tab quay lại đúng. Connections thay
+cloud picker cũ: card cloud + health + sao chép WebDAV, hàng iCloud chỉ đọc
+(importer đầy đủ để P7). Album mở ngay trong tab Library với toolbar/footer/
+selection/paging tắt; back trả về Albums hoặc Search, tab highlight theo
+`album_return`. Favorite/delete từ Library được đồng bộ sang Search/Albums bằng
+snapshot + rollback. Logic thuần nằm trong `MNGKit/AlbumSupport` kèm
+`AlbumSupportTests`; `mngkit_typecheck`, model harness và app parse đã xanh,
+`swift test`/simulator thật vẫn chờ CI macOS. Chưa port morph FLIP
+(`matchedGeometryEffect`) giữa album card và lưới Library; vì chưa có animation
+chuyển album nên Reduce Motion không cần xử lý riêng. Kiểm tra thiết bị còn chờ:
+số liệu fixture, `q=20221231`/`q=IMG`, back target, đổi cloud, đổi tên người và
+info/xoá từ Search/Albums.
+
 ### P6 — Settings + actions + Duplicates (1 tuần)
 
 Việc chính:

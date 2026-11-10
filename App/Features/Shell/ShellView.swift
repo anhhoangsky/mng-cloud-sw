@@ -64,12 +64,35 @@ struct ShellView: View {
             }
         }
         .animation(Tokens.Motion.fade, value: model.toast)
-        .sheet(isPresented: $model.isCloudPickerPresented) {
-            CloudPickerSheet(model: model)
+        .sheet(item: $model.activeSheet) { sheet in
+            switch sheet {
+            case .connections:
+                ConnectionsSheet(model: model)
+            case .icloud:
+                ConnectionsSheet(model: model, initial: .icloud)
+            case .info:
+                ItemInfoSheet(model: model)
+            case .person:
+                PersonRenameSheet(model: model)
+            }
         }
         .sheet(item: shareBinding) { file in
             ActivityView(url: file.url)
                 .ignoresSafeArea()
+        }
+        .alert(
+            model.library.pendingDelete?.title ?? "",
+            isPresented: deleteBinding,
+            presenting: model.library.pendingDelete
+        ) { prompt in
+            Button(Strings.cancel, role: .cancel) {
+                model.library.cancelDelete()
+            }
+            Button(prompt.confirmLabel, role: .destructive) {
+                model.library.confirmDelete()
+            }
+        } message: { prompt in
+            Text(prompt.message)
         }
         .task {
             await model.start()
@@ -81,9 +104,13 @@ struct ShellView: View {
         switch model.tab {
         case .library:
             LibraryView(model: model)
+        case .albums:
+            AlbumsView(model: model)
+        case .search:
+            SearchView(model: model)
         case .settings:
             SettingsView(model: model)
-        case .albums, .search, .vault:
+        case .vault:
             PlaceholderPage(tab: model.tab)
         }
     }
@@ -123,6 +150,17 @@ struct ShellView: View {
             }
         )
     }
+
+    private var deleteBinding: Binding<Bool> {
+        Binding(
+            get: { model.library.pendingDelete != nil },
+            set: { presented in
+                if !presented {
+                    model.library.cancelDelete()
+                }
+            }
+        )
+    }
 }
 
 // MARK: - Compact chrome
@@ -131,7 +169,7 @@ private struct CompactShellHeader: View {
     let model: ShellModel
 
     private var showsBack: Bool {
-        model.tab == .library && model.library.filters.hasDateFilter
+        model.canGoBack
     }
 
     private var showsSelect: Bool {
@@ -144,13 +182,16 @@ private struct CompactShellHeader: View {
         HStack(alignment: .center, spacing: 10) {
             if showsBack {
                 Button {
-                    Task { await model.library.goBack() }
+                    Task { await model.goBack() }
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Palette.text2)
                         .frame(width: 36, height: 36)
                         .background(Palette.fill, in: Circle())
+                        .overlay {
+                            Circle().stroke(Palette.hairline, lineWidth: 0.5)
+                        }
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Strings.back)
@@ -159,14 +200,14 @@ private struct CompactShellHeader: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(model.title)
                     .font(.system(size: 36, weight: .semibold))
-                    .tracking(-0.03)
+                    .tracking(-0.035)
                     .foregroundStyle(Palette.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
 
                 if !model.library.selectionMode {
                     Text(model.subtitle)
-                        .font(.system(size: 13))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(Palette.text3)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -186,7 +227,7 @@ private struct CompactShellHeader: View {
             }
 
             Button {
-                model.isCloudPickerPresented = true
+                model.presentConnections()
             } label: {
                 Image(systemName: "cloud.fill")
                     .font(.system(size: 15, weight: .semibold))
@@ -213,6 +254,7 @@ private struct CompactTabBar: View {
         HStack(spacing: 8) {
             HStack(spacing: 0) {
                 ForEach(ShellTab.tabBarTabs) { tab in
+                    let active = model.isTabActive(tab)
                     Button {
                         model.selectTab(tab)
                     } label: {
@@ -223,13 +265,13 @@ private struct CompactTabBar: View {
                                 .font(.system(size: 10, weight: .semibold))
                                 .lineLimit(1)
                         }
-                        .foregroundStyle(model.tab == tab ? Palette.accent : Palette.text3)
+                        .foregroundStyle(active ? Palette.accent : Palette.text3)
                         .frame(maxWidth: .infinity)
                         .frame(height: 50)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityAddTraits(model.tab == tab ? .isSelected : [])
+                    .accessibilityAddTraits(active ? .isSelected : [])
                 }
             }
             .padding(5)
@@ -239,12 +281,13 @@ private struct CompactTabBar: View {
             }
             .shadow(color: .black.opacity(0.16), radius: 18, y: 8)
 
+            let searchActive = model.isTabActive(.search)
             Button {
                 model.selectTab(.search)
             } label: {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 21, weight: .medium))
-                    .foregroundStyle(model.tab == .search ? Palette.accent : Palette.text2)
+                    .foregroundStyle(searchActive ? Palette.accent : Palette.text2)
                     .frame(width: 60, height: 60)
                     .background(.ultraThinMaterial, in: Circle())
                     .overlay {
@@ -254,6 +297,7 @@ private struct CompactTabBar: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Strings.navSearch)
+            .accessibilityAddTraits(searchActive ? .isSelected : [])
         }
     }
 }
@@ -282,6 +326,7 @@ private struct ShellSidebar: View {
             .padding(.bottom, 22)
 
             ForEach(ShellTab.sidebarTabs) { tab in
+                let active = model.isTabActive(tab)
                 Button {
                     model.selectTab(tab)
                 } label: {
@@ -293,17 +338,17 @@ private struct ShellSidebar: View {
                             .font(.system(size: 14, weight: .medium))
                         Spacer(minLength: 0)
                     }
-                    .foregroundStyle(model.tab == tab ? Palette.accent : Palette.text2)
+                    .foregroundStyle(active ? Palette.accent : Palette.text2)
                     .padding(.horizontal, 10)
                     .frame(height: 40)
                     .background(
-                        model.tab == tab ? Palette.accentSoft : Color.clear,
+                        active ? Palette.accentSoft : Color.clear,
                         in: RoundedRectangle(cornerRadius: 10, style: .continuous)
                     )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityAddTraits(model.tab == tab ? .isSelected : [])
+                .accessibilityAddTraits(active ? .isSelected : [])
             }
 
             Spacer(minLength: 16)
@@ -326,7 +371,7 @@ private struct ShellSidebar: View {
 
     private var cloudCard: some View {
         Button {
-            model.isCloudPickerPresented = true
+            model.presentConnections()
         } label: {
             VStack(alignment: .leading, spacing: 9) {
                 HStack(spacing: 10) {
@@ -394,77 +439,5 @@ struct ToastBubble: View {
             .background(Palette.text, in: Capsule())
             .shadow(color: .black.opacity(0.24), radius: 16, y: 8)
             .accessibilityAddTraits(.isStaticText)
-    }
-}
-
-private struct CloudPickerSheet: View {
-    let model: ShellModel
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                if model.clouds.isEmpty {
-                    Text(Strings.connecting)
-                        .foregroundStyle(Palette.text3)
-                } else {
-                    Section {
-                        ForEach(model.clouds, id: \.key) { cloud in
-                            Button {
-                                Task {
-                                    await model.switchCloud(cloud.key)
-                                    dismiss()
-                                }
-                            } label: {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "cloud.fill")
-                                        .font(.system(size: 16, weight: .semibold))
-                                        .foregroundStyle(
-                                            cloud.key == model.activeCloud
-                                                ? Palette.accent
-                                                : Palette.text3
-                                        )
-                                        .frame(width: 26)
-
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(cloud.label.isEmpty ? cloud.key : cloud.label)
-                                            .font(.system(size: 15, weight: .semibold))
-                                            .foregroundStyle(Palette.text)
-                                        Text(model.cloudSubtitle(for: cloud))
-                                            .font(.system(size: 12))
-                                            .foregroundStyle(Palette.text3)
-                                    }
-
-                                    Spacer(minLength: 8)
-
-                                    Text(MNGFormat.count(cloud.counts.total))
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(Palette.text3)
-
-                                    if cloud.key == model.activeCloud {
-                                        Image(systemName: "checkmark")
-                                            .font(.system(size: 13, weight: .semibold))
-                                            .foregroundStyle(Palette.accent)
-                                    }
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-            .scrollContentBackground(.hidden)
-            .background(Palette.bgGrouped)
-            .navigationTitle(Strings.switchCloud)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(Strings.close) { dismiss() }
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
     }
 }

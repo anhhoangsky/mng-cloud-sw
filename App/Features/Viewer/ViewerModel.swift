@@ -17,7 +17,7 @@ final class ViewerModel {
     var onToggleFavorite: ((Item) -> Void)?
     var onInfo: ((Item) -> Void)?
     var onDownload: ((Item) -> Void)?
-    var onDelete: ((Int64) -> Void)?
+    var onDelete: ((Item) -> Void)?
 
     var isOpen: Bool { collection != nil }
     var current: Item? { collection?.current }
@@ -83,8 +83,8 @@ final class ViewerModel {
     }
 
     func deleteCurrent() {
-        guard let id = current?.id else { return }
-        onDelete?(id)
+        guard let item = current else { return }
+        onDelete?(item)
     }
 
     func setFavorite(ids: Set<Int64>, value: Bool) {

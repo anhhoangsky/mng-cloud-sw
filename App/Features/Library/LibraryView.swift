@@ -14,14 +14,16 @@ struct LibraryView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                LibraryToolbar(model: model)
-                    .padding(.horizontal, isCompact ? 16 : 0)
-                    .padding(.top, isCompact ? 6 : 0)
-                    .padding(.bottom, 16)
+                if !library.isAlbumOpen {
+                    LibraryToolbar(model: model)
+                        .padding(.horizontal, isCompact ? 16 : 0)
+                        .padding(.top, isCompact ? 6 : 0)
+                        .padding(.bottom, 16)
+                }
 
                 bodyContent
 
-                if library.loadState == .ready {
+                if library.loadState == .ready, !library.isAlbumOpen {
                     olderFooter
                 }
             }
@@ -35,45 +37,6 @@ struct LibraryView: View {
             await library.reload()
         }
         .background(Palette.bg.ignoresSafeArea())
-        .sheet(item: infoBinding) { _ in
-            ItemInfoSheet(model: model)
-        }
-        .alert(
-            library.pendingDelete?.title ?? "",
-            isPresented: deleteBinding,
-            presenting: library.pendingDelete
-        ) { prompt in
-            Button(Strings.cancel, role: .cancel) {
-                library.cancelDelete()
-            }
-            Button(prompt.confirmLabel, role: .destructive) {
-                library.confirmDelete()
-            }
-        } message: { prompt in
-            Text(prompt.message)
-        }
-    }
-
-    private var infoBinding: Binding<Item?> {
-        Binding(
-            get: { library.infoItem },
-            set: { next in
-                if next == nil {
-                    library.dismissInfo()
-                }
-            }
-        )
-    }
-
-    private var deleteBinding: Binding<Bool> {
-        Binding(
-            get: { library.pendingDelete != nil },
-            set: { presented in
-                if !presented {
-                    library.cancelDelete()
-                }
-            }
-        )
     }
 
     // MARK: - Body states
@@ -118,7 +81,13 @@ struct LibraryView: View {
     private var emptyState: some View {
         switch library.filters.layout {
         case .all:
-            if library.filters.summary != nil {
+            if library.isAlbumOpen {
+                LibraryEmptyState(
+                    icon: "photo.on.rectangle.angled",
+                    title: Strings.albumEmptyTitle,
+                    message: Strings.emptyItemsBody
+                )
+            } else if library.filters.summary != nil {
                 LibraryEmptyState(
                     icon: "line.3.horizontal.decrease.circle",
                     title: Strings.emptyFilteredTitle,
