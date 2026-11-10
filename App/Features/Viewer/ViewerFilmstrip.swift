@@ -90,7 +90,7 @@ struct ViewerFilmstrip: View {
 
             if item.isVideo {
                 Image(systemName: "play.fill")
-                    .font(.mng(7, weight: .bold))
+                    .font(Font.mng(7, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 14, height: 14)
                     .background(.black.opacity(0.62), in: Circle())

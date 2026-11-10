@@ -204,7 +204,7 @@ private struct CompactShellHeader: View {
                     Task { await model.goBack() }
                 } label: {
                     Image(systemName: "chevron.left")
-                        .font(.mng(15, weight: .semibold))
+                        .font(Font.mng(15, weight: .semibold))
                         .foregroundStyle(Palette.text2)
                         .frame(width: 36, height: 36)
                         .background(Palette.fill, in: Circle())
@@ -218,7 +218,7 @@ private struct CompactShellHeader: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(model.title)
-                    .font(.mng(36, weight: .semibold))
+                    .font(Font.mng(36, weight: .semibold))
                     .tracking(-0.035)
                     .foregroundStyle(Palette.text)
                     .lineLimit(1)
@@ -226,7 +226,7 @@ private struct CompactShellHeader: View {
 
                 if !model.library.selectionMode {
                     Text(model.subtitle)
-                        .font(.mng(13, weight: .medium))
+                        .font(Font.mng(13, weight: .medium))
                         .foregroundStyle(Palette.text3)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -238,7 +238,7 @@ private struct CompactShellHeader: View {
                 Button(Strings.select) {
                     model.library.enterSelection()
                 }
-                .font(.mng(13, weight: .semibold))
+                .font(Font.mng(13, weight: .semibold))
                 .foregroundStyle(Palette.accent)
                 .padding(.horizontal, 4)
                 .frame(minHeight: 36)
@@ -249,7 +249,7 @@ private struct CompactShellHeader: View {
                 model.presentConnections()
             } label: {
                 Image(systemName: "cloud.fill")
-                    .font(.mng(15, weight: .semibold))
+                    .font(Font.mng(15, weight: .semibold))
                     .foregroundStyle(Palette.accent)
                     .frame(width: 36, height: 36)
                     .background(Palette.accentSoft, in: Circle())
@@ -279,9 +279,9 @@ private struct CompactTabBar: View {
                     } label: {
                         VStack(spacing: 2) {
                             Image(systemName: tab.icon)
-                                .font(.mng(21, weight: .medium))
+                                .font(Font.mng(21, weight: .medium))
                             Text(tab.tabLabel)
-                                .font(.mng(10, weight: .semibold))
+                                .font(Font.mng(10, weight: .semibold))
                                 .lineLimit(1)
                         }
                         .foregroundStyle(active ? Palette.accent : Palette.text3)
@@ -305,7 +305,7 @@ private struct CompactTabBar: View {
                 model.selectTab(.search)
             } label: {
                 Image(systemName: "magnifyingglass")
-                    .font(.mng(21, weight: .medium))
+                    .font(Font.mng(21, weight: .medium))
                     .foregroundStyle(searchActive ? Palette.accent : Palette.text2)
                     .frame(width: 60, height: 60)
                     .background(.ultraThinMaterial, in: Circle())
@@ -332,11 +332,11 @@ private struct ShellSidebar: View {
                 AppMark(size: 38)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(Strings.appName)
-                        .font(.mng(16, weight: .semibold))
+                        .font(Font.mng(16, weight: .semibold))
                         .tracking(-0.015)
                         .foregroundStyle(Palette.text)
                     Text(Strings.brandSubtitle)
-                        .font(.mng(11))
+                        .font(Font.mng(11))
                         .foregroundStyle(Palette.text3)
                 }
             }
@@ -351,10 +351,10 @@ private struct ShellSidebar: View {
                 } label: {
                     HStack(spacing: 12) {
                         Image(systemName: tab.icon)
-                            .font(.mng(17, weight: .medium))
+                            .font(Font.mng(17, weight: .medium))
                             .frame(width: 22)
                         Text(tab.label)
-                            .font(.mng(14, weight: .medium))
+                            .font(Font.mng(14, weight: .medium))
                         Spacer(minLength: 0)
                     }
                     .foregroundStyle(active ? Palette.accent : Palette.text2)
@@ -376,7 +376,7 @@ private struct ShellSidebar: View {
                 .padding(.bottom, 10)
 
             Text(model.sidebarFoot)
-                .font(.mng(11))
+                .font(Font.mng(11))
                 .foregroundStyle(Palette.text4)
                 .lineLimit(1)
                 .padding(.horizontal, 8)
@@ -399,17 +399,17 @@ private struct ShellSidebar: View {
                             .fill(Palette.accentSoft)
                             .frame(width: 30, height: 30)
                         Image(systemName: "cloud.fill")
-                            .font(.mng(14, weight: .semibold))
+                            .font(Font.mng(14, weight: .semibold))
                             .foregroundStyle(Palette.accent)
                     }
 
                     VStack(alignment: .leading, spacing: 1) {
                         Text(model.activeCloudLabel)
-                            .font(.mng(13, weight: .semibold))
+                            .font(Font.mng(13, weight: .semibold))
                             .foregroundStyle(Palette.text)
                             .lineLimit(1)
                         Text(model.cloudSubtitleText)
-                            .font(.mng(11))
+                            .font(Font.mng(11))
                             .foregroundStyle(Palette.text3)
                             .lineLimit(1)
                     }
@@ -417,7 +417,7 @@ private struct ShellSidebar: View {
                     Spacer(minLength: 0)
 
                     Image(systemName: "chevron.right")
-                        .font(.mng(11, weight: .semibold))
+                        .font(Font.mng(11, weight: .semibold))
                         .foregroundStyle(Palette.text4)
                 }
 
@@ -428,7 +428,7 @@ private struct ShellSidebar: View {
                         Text(free)
                     }
                 }
-                .font(.mng(11))
+                .font(Font.mng(11))
                 .foregroundStyle(Palette.text3)
             }
             .padding(11)
@@ -450,7 +450,7 @@ struct ToastBubble: View {
 
     var body: some View {
         Text(message)
-            .font(.mng(13, weight: .medium))
+            .font(Font.mng(13, weight: .medium))
             .foregroundStyle(Palette.bg)
             .multilineTextAlignment(.center)
             .padding(.horizontal, 16)

@@ -156,7 +156,7 @@ struct VaultBrowseView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "lock.fill")
-                    .font(.mng(15, weight: .semibold))
+                    .font(Font.mng(15, weight: .semibold))
                     .foregroundStyle(Palette.accent)
                     .frame(width: 32, height: 32)
                     .background(
@@ -166,7 +166,7 @@ struct VaultBrowseView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(displayName)
-                        .font(.mng(17, weight: .semibold))
+                        .font(Font.mng(17, weight: .semibold))
                         .foregroundStyle(Palette.text)
                         .lineLimit(1)
                     Text(
@@ -175,7 +175,7 @@ struct VaultBrowseView: View {
                             bytes: state.totalBytes
                         )
                     )
-                    .font(.mng(12))
+                    .font(Font.mng(12))
                     .foregroundStyle(Palette.text3)
                     .lineLimit(1)
                 }
@@ -188,7 +188,7 @@ struct VaultBrowseView: View {
                     isCreatingFolder = true
                 } label: {
                     Label(Strings.vaultFolder, systemImage: "folder.badge.plus")
-                        .font(.mng(13, weight: .semibold))
+                        .font(Font.mng(13, weight: .semibold))
                         .foregroundStyle(Palette.accent)
                         .padding(.horizontal, 12)
                         .frame(height: 34)
@@ -213,7 +213,7 @@ struct VaultBrowseView: View {
                     }
                 } label: {
                     Label(Strings.vaultUpload, systemImage: "square.and.arrow.up")
-                        .font(.mng(13, weight: .semibold))
+                        .font(Font.mng(13, weight: .semibold))
                         .foregroundStyle(Palette.accent)
                         .padding(.horizontal, 12)
                         .frame(height: 34)
@@ -228,7 +228,7 @@ struct VaultBrowseView: View {
                     state.lock()
                 } label: {
                     Label(Strings.vaultLock, systemImage: "lock")
-                        .font(.mng(13, weight: .semibold))
+                        .font(Font.mng(13, weight: .semibold))
                         .foregroundStyle(Palette.text2)
                         .padding(.horizontal, 12)
                         .frame(height: 34)
@@ -261,7 +261,7 @@ struct VaultBrowseView: View {
             .frame(height: 4)
 
             Text(Strings.vaultUploadingProgress)
-                .font(.mng(12))
+                .font(Font.mng(12))
                 .foregroundStyle(Palette.text3)
         }
         .padding(12)
@@ -278,7 +278,7 @@ struct VaultBrowseView: View {
     private var searchField: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.mng(13, weight: .semibold))
+                .font(Font.mng(13, weight: .semibold))
                 .foregroundStyle(Palette.text3)
 
             TextField(
@@ -297,7 +297,7 @@ struct VaultBrowseView: View {
                     state.updateSearch("")
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.mng(13))
+                        .font(Font.mng(13))
                         .foregroundStyle(Palette.text4)
                 }
                 .buttonStyle(.plain)
@@ -328,7 +328,7 @@ struct VaultBrowseView: View {
                 ForEach(state.folderTrail.indices, id: \.self) { index in
                     let entry = state.folderTrail[index]
                     Image(systemName: "chevron.right")
-                        .font(.mng(10, weight: .semibold))
+                        .font(Font.mng(10, weight: .semibold))
                         .foregroundStyle(Palette.text4)
                     crumb(
                         title: entry.name,
@@ -345,7 +345,7 @@ struct VaultBrowseView: View {
     private func crumb(title: String, isCurrent: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.mng(13, weight: isCurrent ? .semibold : .medium))
+                .font(Font.mng(13, weight: isCurrent ? .semibold : .medium))
                 .foregroundStyle(isCurrent ? Palette.text : Palette.accent)
                 .lineLimit(1)
         }
@@ -389,7 +389,7 @@ struct VaultBrowseView: View {
     private func folderTile(_ entry: VaultFolder) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "folder.fill")
-                .font(.mng(15, weight: .semibold))
+                .font(Font.mng(15, weight: .semibold))
                 .foregroundStyle(Palette.accent)
                 .frame(width: 34, height: 34)
                 .background(
@@ -399,7 +399,7 @@ struct VaultBrowseView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(entry.name)
-                    .font(.mng(14, weight: .semibold))
+                    .font(Font.mng(14, weight: .semibold))
                     .foregroundStyle(Palette.text)
                     .lineLimit(1)
 
@@ -408,7 +408,7 @@ struct VaultBrowseView: View {
                         ? Strings.vaultFolderCount(state.fileCount(in: entry.id))
                         : Strings.vaultFolderPath(state.folderPath(entry.parent))
                 )
-                .font(.mng(11))
+                .font(Font.mng(11))
                 .foregroundStyle(Palette.text3)
                 .lineLimit(1)
             }
@@ -444,7 +444,7 @@ struct VaultBrowseView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(file.name)
-                    .font(.mng(14, weight: .semibold))
+                    .font(Font.mng(14, weight: .semibold))
                     .foregroundStyle(Palette.text)
                     .lineLimit(1)
 
@@ -456,7 +456,7 @@ struct VaultBrowseView: View {
                             file.size
                         )
                 )
-                .font(.mng(11))
+                .font(Font.mng(11))
                 .foregroundStyle(Palette.text3)
                 .lineLimit(1)
             }
@@ -556,10 +556,10 @@ struct VaultBrowseView: View {
     private func bar(icon: String, tint: Color, message: String) -> some View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: icon)
-                .font(.mng(13, weight: .semibold))
+                .font(Font.mng(13, weight: .semibold))
                 .foregroundStyle(tint)
             Text(message)
-                .font(.mng(12, weight: .medium))
+                .font(Font.mng(12, weight: .medium))
                 .foregroundStyle(Palette.text2)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -578,13 +578,13 @@ struct VaultBrowseView: View {
     private func emptyState(icon: String, title: String, body: String) -> some View {
         VStack(spacing: 8) {
             Image(systemName: icon)
-                .font(.mng(26, weight: .regular))
+                .font(Font.mng(26, weight: .regular))
                 .foregroundStyle(Palette.text4)
             Text(title)
-                .font(.mng(14, weight: .semibold))
+                .font(Font.mng(14, weight: .semibold))
                 .foregroundStyle(Palette.text)
             Text(body)
-                .font(.mng(12))
+                .font(Font.mng(12))
                 .foregroundStyle(Palette.text3)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -612,7 +612,7 @@ private struct VaultThumbnail: View {
                     .aspectRatio(contentMode: .fill)
             } else {
                 Image(systemName: icon)
-                    .font(.mng(15, weight: .semibold))
+                    .font(Font.mng(15, weight: .semibold))
                     .foregroundStyle(Palette.text2)
             }
         }

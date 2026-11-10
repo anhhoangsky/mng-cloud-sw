@@ -19,7 +19,7 @@ struct VaultRenameSheet: View {
                 VStack(alignment: .leading, spacing: 14) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(Strings.vaultName)
-                            .font(.mng(12, weight: .semibold))
+                            .font(Font.mng(12, weight: .semibold))
                             .foregroundStyle(Palette.text2)
 
                         TextField(
@@ -45,7 +45,7 @@ struct VaultRenameSheet: View {
 
                     if !state.operationError.isEmpty {
                         Text(state.operationError)
-                            .font(.mng(12, weight: .medium))
+                            .font(Font.mng(12, weight: .medium))
                             .foregroundStyle(Palette.danger)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -58,10 +58,10 @@ struct VaultRenameSheet: View {
                                 ProgressView().controlSize(.small)
                             } else {
                                 Image(systemName: "pencil")
-                                    .font(.mng(14, weight: .semibold))
+                                    .font(Font.mng(14, weight: .semibold))
                             }
                             Text(Strings.vaultRename)
-                                .font(.mng(15, weight: .semibold))
+                                .font(Font.mng(15, weight: .semibold))
                         }
                         .foregroundStyle(Palette.accentInk)
                         .frame(maxWidth: .infinity)

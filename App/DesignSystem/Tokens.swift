@@ -99,6 +99,45 @@ extension Color {
     }
 }
 
+extension Font {
+    /// A fixed-size font that still follows the user's Dynamic Type setting.
+    ///
+    /// The web client uses pixel sizes, so the app keeps them but scales them
+    /// with the system text size. The growth is capped at 1.6× so the big
+    /// headlines stay usable at the accessibility sizes.
+    static func mng(
+        _ size: CGFloat,
+        weight: Weight = .regular,
+        design: Design? = nil
+    ) -> Font {
+        let base: UIFont
+        if design == .monospaced {
+            base = UIFont.monospacedSystemFont(
+                ofSize: size,
+                weight: mngUIWeight(weight)
+            )
+        } else {
+            base = UIFont.systemFont(ofSize: size, weight: mngUIWeight(weight))
+        }
+        let factor = min(max(UIFontMetrics.default.scaledValue(for: 1), 1), 1.6)
+        return Font(base.withSize(size * factor))
+    }
+
+    private static func mngUIWeight(_ weight: Weight) -> UIFont.Weight {
+        switch weight {
+        case .ultraLight: return .ultraLight
+        case .thin: return .thin
+        case .light: return .light
+        case .medium: return .medium
+        case .semibold: return .semibold
+        case .bold: return .bold
+        case .heavy: return .heavy
+        case .black: return .black
+        default: return .regular
+        }
+    }
+}
+
 private extension UIColor {
     convenience init(hex: UInt32, alpha: CGFloat) {
         let red = CGFloat((hex >> 16) & 0xFF) / 255

@@ -9,7 +9,7 @@ struct SelectionBar: View {
     var body: some View {
         HStack(spacing: 2) {
             Text(Strings.selectedCount(library.selection.count))
-                .font(.mng(13, weight: .semibold))
+                .font(Font.mng(13, weight: .semibold))
                 .foregroundStyle(Palette.text)
                 .fixedSize()
                 .padding(.leading, 8)
@@ -65,7 +65,7 @@ struct SelectionBar: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.mng(18, weight: .medium))
+                .font(Font.mng(18, weight: .medium))
                 .foregroundStyle(tint)
                 .frame(width: 38, height: 38)
                 .contentShape(Circle())

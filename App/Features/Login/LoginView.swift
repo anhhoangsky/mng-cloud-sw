@@ -37,7 +37,7 @@ struct LoginView: View {
                 .padding(.top, Tokens.Spacing.xs)
 
             Text(Strings.appName)
-                .font(.mng(28, weight: .semibold))
+                .font(Font.mng(28, weight: .semibold))
                 .foregroundStyle(Palette.text)
 
             Text(Strings.loginSubtitle)

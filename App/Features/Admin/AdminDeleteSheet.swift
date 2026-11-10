@@ -16,17 +16,17 @@ struct AdminDeleteSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(Strings.adminDeleteMessage(user.username))
-                        .font(.mng(13))
+                        .font(Font.mng(13))
                         .foregroundStyle(Palette.danger)
                         .fixedSize(horizontal: false, vertical: true)
 
                     Toggle(isOn: $deleteCloudData) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(Strings.adminDeleteCloudData)
-                                .font(.mng(14, weight: .semibold))
+                                .font(Font.mng(14, weight: .semibold))
                                 .foregroundStyle(Palette.text)
                             Text(Strings.adminDeleteCloudDataHint)
-                                .font(.mng(12))
+                                .font(Font.mng(12))
                                 .foregroundStyle(Palette.text3)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -35,14 +35,14 @@ struct AdminDeleteSheet: View {
 
                     if !admin.error.isEmpty {
                         Text(admin.error)
-                            .font(.mng(12, weight: .medium))
+                            .font(Font.mng(12, weight: .medium))
                             .foregroundStyle(Palette.danger)
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
                     HStack(spacing: 10) {
                         Button(Strings.cancel) { dismiss() }
-                            .font(.mng(15, weight: .semibold))
+                            .font(Font.mng(15, weight: .semibold))
                             .foregroundStyle(Palette.text2)
                             .frame(maxWidth: .infinity)
                             .frame(height: 48)
@@ -60,10 +60,10 @@ struct AdminDeleteSheet: View {
                                     ProgressView().controlSize(.small)
                                 } else {
                                     Image(systemName: "trash")
-                                        .font(.mng(13, weight: .semibold))
+                                        .font(Font.mng(13, weight: .semibold))
                                 }
                                 Text(Strings.adminDelete)
-                                    .font(.mng(15, weight: .semibold))
+                                    .font(Font.mng(15, weight: .semibold))
                             }
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)

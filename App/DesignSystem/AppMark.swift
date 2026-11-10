@@ -10,7 +10,7 @@ struct AppMark: View {
                 .fill(Palette.accentSoft)
                 .frame(width: size, height: size)
             Image(systemName: "cloud.fill")
-                .font(.mng(size * 0.45, weight: .medium))
+                .font(Font.mng(size * 0.45, weight: .medium))
                 .foregroundStyle(Palette.accent)
         }
         .overlay {

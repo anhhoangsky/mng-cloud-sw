@@ -25,7 +25,7 @@ struct VaultCreateSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     Text(Strings.vaultCreateBody)
-                        .font(.mng(12))
+                        .font(Font.mng(12))
                         .foregroundStyle(Palette.text3)
                         .fixedSize(horizontal: false, vertical: true)
 
@@ -55,7 +55,7 @@ struct VaultCreateSheet: View {
 
                     if !state.unlockError.isEmpty {
                         Text(state.unlockError)
-                            .font(.mng(12, weight: .medium))
+                            .font(Font.mng(12, weight: .medium))
                             .foregroundStyle(Palette.danger)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -68,10 +68,10 @@ struct VaultCreateSheet: View {
                                 ProgressView().controlSize(.small)
                             } else {
                                 Image(systemName: "plus")
-                                    .font(.mng(14, weight: .semibold))
+                                    .font(Font.mng(14, weight: .semibold))
                             }
                             Text(state.isUnlocking ? Strings.vaultCreating : Strings.vaultCreate)
-                                .font(.mng(15, weight: .semibold))
+                                .font(Font.mng(15, weight: .semibold))
                         }
                         .foregroundStyle(Palette.accentInk)
                         .frame(maxWidth: .infinity)
@@ -86,7 +86,7 @@ struct VaultCreateSheet: View {
                     .opacity(state.isUnlocking ? 0.7 : 1)
 
                     Text(Strings.vaultCreateHint)
-                        .font(.mng(11))
+                        .font(Font.mng(11))
                         .foregroundStyle(Palette.text4)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -114,7 +114,7 @@ struct VaultCreateSheet: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.mng(12, weight: .semibold))
+                .font(Font.mng(12, weight: .semibold))
                 .foregroundStyle(Palette.text2)
 
             Group {

@@ -161,7 +161,7 @@ struct ViewerVideo: View {
             )
 
             Image(systemName: "play.fill")
-                .font(.mng(22, weight: .semibold))
+                .font(Font.mng(22, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 64, height: 64)
                 .background(.black.opacity(0.42), in: Circle())

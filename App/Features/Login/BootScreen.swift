@@ -19,7 +19,7 @@ struct BootScreen: View {
                 AppMark(size: 84)
 
                 Text(Strings.appName)
-                    .font(.mng(22, weight: .semibold))
+                    .font(Font.mng(22, weight: .semibold))
                     .foregroundStyle(Palette.text)
 
                 content

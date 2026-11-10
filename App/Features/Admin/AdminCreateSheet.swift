@@ -43,7 +43,7 @@ struct AdminCreateSheet: View {
                         password = AdminPassword.generate()
                     } label: {
                         Label(Strings.adminGeneratePassword, systemImage: "arrow.triangle.2.circlepath")
-                            .font(.mng(13, weight: .semibold))
+                            .font(Font.mng(13, weight: .semibold))
                             .foregroundStyle(Palette.accent)
                     }
                     .buttonStyle(.plain)
@@ -51,10 +51,10 @@ struct AdminCreateSheet: View {
                     Toggle(isOn: $provision) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(Strings.adminProvision)
-                                .font(.mng(14, weight: .semibold))
+                                .font(Font.mng(14, weight: .semibold))
                                 .foregroundStyle(Palette.text)
                             Text(Strings.adminProvisionHint)
-                                .font(.mng(12))
+                                .font(Font.mng(12))
                                 .foregroundStyle(Palette.text3)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -63,7 +63,7 @@ struct AdminCreateSheet: View {
 
                     if !admin.error.isEmpty {
                         Text(admin.error)
-                            .font(.mng(12, weight: .medium))
+                            .font(Font.mng(12, weight: .medium))
                             .foregroundStyle(Palette.danger)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -76,10 +76,10 @@ struct AdminCreateSheet: View {
                                 ProgressView().controlSize(.small)
                             } else {
                                 Image(systemName: "person.badge.plus")
-                                    .font(.mng(14, weight: .semibold))
+                                    .font(Font.mng(14, weight: .semibold))
                             }
                             Text(Strings.adminCreate)
-                                .font(.mng(15, weight: .semibold))
+                                .font(Font.mng(15, weight: .semibold))
                         }
                         .foregroundStyle(Palette.accentInk)
                         .frame(maxWidth: .infinity)
@@ -116,7 +116,7 @@ struct AdminCreateSheet: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.mng(12, weight: .semibold))
+                .font(Font.mng(12, weight: .semibold))
                 .foregroundStyle(Palette.text2)
 
             Group {

@@ -74,7 +74,7 @@ struct TileView: View {
                 Spacer(minLength: 0)
                 if item.favorite {
                     Image(systemName: "heart.fill")
-                        .font(.mng(12, weight: .semibold))
+                        .font(Font.mng(12, weight: .semibold))
                         .foregroundStyle(.white)
                 }
             }
@@ -88,9 +88,9 @@ struct TileView: View {
     private func badge(icon: String, text: String) -> some View {
         HStack(spacing: 3) {
             Image(systemName: icon)
-                .font(.mng(8, weight: .bold))
+                .font(Font.mng(8, weight: .bold))
             Text(text)
-                .font(.mng(10, weight: .bold))
+                .font(Font.mng(10, weight: .bold))
         }
         .foregroundStyle(.white)
     }
@@ -107,7 +107,7 @@ struct TileView: View {
                 .stroke(.white, lineWidth: 2)
             if library.isSelected(item.id) {
                 Image(systemName: "checkmark")
-                    .font(.mng(11, weight: .bold))
+                    .font(Font.mng(11, weight: .bold))
                     .foregroundStyle(.white)
             }
         }

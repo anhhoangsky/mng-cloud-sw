@@ -17,7 +17,7 @@ struct BucketCard: View {
 
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(title)
-                        .font(.mng(22, weight: .semibold))
+                        .font(Font.mng(22, weight: .semibold))
                         .tracking(-0.02)
                         .foregroundStyle(Palette.text)
                         .lineLimit(1)
@@ -26,7 +26,7 @@ struct BucketCard: View {
                     Spacer(minLength: 8)
 
                     Text(MNGFormat.count(count))
-                        .font(.mng(12))
+                        .font(Font.mng(12))
                         .foregroundStyle(Palette.text3)
                         .lineLimit(1)
                 }
@@ -84,7 +84,7 @@ struct CollageView: View {
             ZStack {
                 Palette.fill2
                 Image(systemName: "photo")
-                    .font(.mng(20, weight: .regular))
+                    .font(Font.mng(20, weight: .regular))
                     .foregroundStyle(Palette.text4)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

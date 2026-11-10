@@ -19,7 +19,7 @@ struct DuplicatesView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(Strings.duplicatesSubtitle)
-                        .font(.mng(13))
+                        .font(Font.mng(13))
                         .foregroundStyle(Palette.text3)
                         .fixedSize(horizontal: false, vertical: true)
 
@@ -80,7 +80,7 @@ struct DuplicatesView: View {
                         duplicates.expand()
                     } label: {
                         Text(Strings.duplicateMore(duplicates.remaining))
-                            .font(.mng(13, weight: .semibold))
+                            .font(Font.mng(13, weight: .semibold))
                             .foregroundStyle(Palette.accent)
                             .frame(maxWidth: .infinity)
                             .frame(height: 42)
@@ -115,7 +115,7 @@ struct DuplicatesView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text(Strings.duplicateGroupTitle(index))
-                    .font(.mng(14, weight: .semibold))
+                    .font(Font.mng(14, weight: .semibold))
                     .foregroundStyle(Palette.text)
                 Spacer(minLength: 8)
                 Text(
@@ -124,7 +124,7 @@ struct DuplicatesView: View {
                         similarity: group.similarity
                     )
                 )
-                .font(.mng(12))
+                .font(Font.mng(12))
                 .foregroundStyle(Palette.text3)
             }
             .padding(.horizontal, 2)
@@ -167,7 +167,7 @@ struct DuplicatesView: View {
                     }
 
                 Text(meta(item))
-                    .font(.mng(11))
+                    .font(Font.mng(11))
                     .foregroundStyle(Palette.text3)
                     .lineLimit(1)
             }
@@ -198,14 +198,14 @@ struct DuplicatesView: View {
     private func emptyState(icon: String, title: String, body: String) -> some View {
         VStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.mng(28, weight: .regular))
+                .font(Font.mng(28, weight: .regular))
                 .foregroundStyle(Palette.text4)
                 .padding(.bottom, 2)
             Text(title)
-                .font(.mng(14, weight: .semibold))
+                .font(Font.mng(14, weight: .semibold))
                 .foregroundStyle(Palette.text)
             Text(body)
-                .font(.mng(12))
+                .font(Font.mng(12))
                 .foregroundStyle(Palette.text3)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
