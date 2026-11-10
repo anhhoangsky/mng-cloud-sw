@@ -1,4 +1,8 @@
 import Foundation
+#if canImport(CoreGraphics) && canImport(ImageIO)
+import CoreGraphics
+import ImageIO
+#endif
 
 /// Limits mirrored from the server's `save_edit` route.
 public enum EditorLimits {
