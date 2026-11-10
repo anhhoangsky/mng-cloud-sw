@@ -1065,6 +1065,14 @@ Việc chính:
 Nghiệm thu: ảnh xoay đúng EXIF; so sánh mắt thường với PWA; lưu xong cập nhật
 danh sách; huỷ giữa chừng không hỏng dữ liệu.
 
+P8.1 (2026-11-11): đã port `crates/mng-edit` sang package `MNGEdit` — `Editor`
+(giữ nguyên thứ tự xoay → lật → cắt, lấy mẫu bilinear, 9 slider, 6 filter,
+clamp ±100, giới hạn 20.000 px cạnh và 120 triệu điểm ảnh), `EditorCrop`,
+`EditorAdjustments`, `EditorFilter`, `EditorExportFormat` và bộ mã hoá JPEG/PNG
+qua ImageIO (WebP chỉ khi nền tảng hỗ trợ, nếu không báo lỗi rõ). 11 unit test
+được port từ Rust. Còn lại P8.2: UI editor trong app (nút Chỉnh sửa ở viewer,
+khung cắt, thanh trượt, filter, xuất) và `POST /items/{id}/edit` multipart.
+
 ### P9 — Admin (1 tuần)
 
 Việc chính:

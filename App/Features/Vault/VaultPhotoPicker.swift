@@ -72,7 +72,7 @@ struct VaultPhotoPicker: UIViewControllerRepresentable {
                         .appendingPathComponent(UUID().uuidString)
                         .appendingPathExtension(ext)
                     if (try? FileManager.default.copyItem(at: url, to: target)) != nil {
-                        DispatchQueue.main.async { [onPick] in
+                        DispatchQueue.main.async { [onPick = self.onPick] in
                             onPick(
                                 Picked(
                                     name: name,
@@ -89,7 +89,7 @@ struct VaultPhotoPicker: UIViewControllerRepresentable {
                 // in-memory bytes.
                 provider.loadDataRepresentation(forTypeIdentifier: identifier) { data, _ in
                     guard let data else { return }
-                    DispatchQueue.main.async { [onPick] in
+                    DispatchQueue.main.async { [onPick = self.onPick] in
                         onPick(
                             Picked(
                                 name: name,
