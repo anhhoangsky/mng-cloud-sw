@@ -21,13 +21,10 @@ enum Strings {
     static let loginOpening = "Đang mở…"
     static let loginFootServer = "Kết nối trực tiếp với máy chủ của bạn."
     static let loginFootPrivacy = "Không có dữ liệu nào được gửi tới bên thứ ba."
-    static let sessionReady = "Đã đăng nhập"
-    static let sessionReadyHint = "Phiên đăng nhập đã sẵn sàng. Thư viện sẽ được mở ở bước tiếp theo."
     static let logout = "Đăng xuất"
     static let signingOut = "Đang đăng xuất…"
     static let close = "Đóng"
     static let cancel = "Hủy"
-    static let save = "Lưu"
 
     // Navigation
     static let brandSubtitle = "Thư viện riêng"
@@ -37,8 +34,6 @@ enum Strings {
     static let navVault = "Kho mã hóa"
     static let navVaultTab = "Kho"
     static let navSettings = "Cài đặt"
-    static let navAdmin = "Quản trị"
-    static let navMain = "Điều hướng chính"
     static let back = "Quay lại"
 
     // Library toolbar and layouts
@@ -50,11 +45,8 @@ enum Strings {
     static let filterPhotos = "Ảnh"
     static let filterVideos = "Video"
     static let filterLive = "Live"
-    static let filterFavorites = "Yêu thích"
-    static let filtersLabel = "Bộ lọc"
     static let clearFilters = "Bỏ bộ lọc"
     static let select = "Chọn"
-    static let selectPhotos = "Chọn ảnh"
     static let allYears = "Tất cả các năm"
     static let kindPhoto = "Ảnh"
     static let kindVideo = "Video"
@@ -105,12 +97,10 @@ enum Strings {
     static let viewerPlay = "Phát"
 
     // Selection and confirmations
-    static let selectionLabel = "Đã chọn"
     static let deselect = "Bỏ chọn"
     static let preparingZip = "Đang chuẩn bị tập ZIP."
     static let downloadFailed = "Không tải xuống được."
     static let zipFailed = "Không tạo được tập ZIP."
-    static let unknownDate = "Không rõ ngày"
 
     static func selectedCount(_ count: Int) -> String {
         "\(count) đã chọn"
@@ -147,7 +137,6 @@ enum Strings {
     static let switchCloud = "Chuyển đám mây"
     static let cloud = "Đám mây"
     static let serverFallback = "Máy chủ"
-    static let webdavAccount = "WebDAV"
     static let connecting = "Đang kết nối…"
     static let viewingCloud = "Đang xem"
 
@@ -235,8 +224,6 @@ enum Strings {
     static let albumsSubtitle = "Ảnh gần đây, yêu thích, khuôn mặt và địa điểm"
     static let searchSubtitle = "Theo tên tệp, album hoặc loại"
     static let vaultSubtitle = "Mã hóa đầu cuối, chìa khóa chỉ ở thiết bị"
-    static let comingSoon = "Tính năng đang được xây dựng."
-    static let comingSoonHint = "Phần này sẽ có ở giai đoạn tiếp theo."
 
     // Native vault
     static let vaultTitle = "Kho mã hóa"
@@ -268,7 +255,6 @@ enum Strings {
     static let vaultInvalidSalt = "Muối mã hóa không hợp lệ."
     static let vaultInvalidVerifier = "Mã xác thực của kho không hợp lệ."
     static let vaultInvalidMetadata = "Siêu dữ liệu kho không hợp lệ."
-    static let vaultManifestInvalid = "Chỉ mục mã hóa không hợp lệ hoặc đã bị thay đổi."
     static let vaultNoIndexTitle = "Kho này chưa có chỉ mục mã hóa."
     static let vaultNoIndexBody = "Chủ kho cần tạo chỉ mục trước khi kho có thể mở khóa."
     static let vaultBackToList = "Danh sách kho"
@@ -309,13 +295,10 @@ enum Strings {
     static let vaultFileUnreadable = "Không đọc được tệp."
     static let vaultUploadPhotos = "Chọn ảnh"
     static let vaultUploadFiles = "Chọn tệp"
-    static let vaultUploading = "Đang mã hóa"
     static let vaultUploadingProgress = "Đang tải lên — {done}/{total} khối"
     static let vaultPreviewTitle = "Xem trước"
-    static let vaultPreviewFile = "Tệp"
     static let vaultPreviewNote = "Đã giải mã trong ứng dụng này"
     static let vaultPreviewUnsupported = "Trình duyệt không xem trước được định dạng này."
-    static let vaultPreviewFailed = "Không mở được tệp"
     static let vaultDecryptFailed = "Không giải mã được tệp."
 
     // Image editor
@@ -449,9 +432,7 @@ enum Strings {
     static let vaultFileLabel = "Tệp"
     static let vaultImageLabel = "Ảnh"
     static let vaultVideoLabel = "Video"
-    static let vaultUnlockFailedTitle = "Không mở khóa được kho"
     static let vaultStale = "Kho đã thay đổi ở phiên khác. Hãy thử lại."
-    static let vaultLockedNotice = "Kho đã khoá. Nhập mật khẩu để tiếp tục."
     static let vaultDeleted = "Đã xoá kho mã hóa."
     static let vaultFileDeleted = "Đã xoá tệp khỏi chỉ mục."
     static let vaultFolderDeleted = "Đã xoá thư mục khỏi chỉ mục."
@@ -619,9 +600,6 @@ enum Strings {
         "MNG Cloud đọc trực tiếp từ máy chủ bằng tài khoản ứng dụng lưu trên máy chủ. Không cần đăng nhập lại dịch vụ này."
     static let icloudSection = "iCloud"
     static let icloudPhotos = "iCloud Photos"
-    static let icloudNote =
-        "iCloud dùng API không chính thức. Ảnh sẽ được tải về máy chủ rồi nhập vào máy chủ."
-    static let icloudStatusLabel = "Trạng thái"
     static let icloudAppleID = "Apple ID"
     static let icloudUnknown = "Chưa kết nối · dùng API không chính thức"
     static let icloudNotConfigured = "Máy chủ chưa cấu hình trình tải iCloud"
@@ -634,7 +612,6 @@ enum Strings {
     static let icloudStatusConnected = "Đã kết nối"
     static let icloudStatusUnsupported = "Chưa hỗ trợ"
     static let icloudStatusUnavailable = "Không khả dụng"
-    static let icloudDeferred = "Trình nhập iCloud đầy đủ sẽ có ở giai đoạn sau."
     static let icloudUnsupportedServer = "Máy chủ này chưa cung cấp trình tải iCloud."
     static let icloudUnsupportedHint =
         "Máy chủ chưa bật trình tải iCloud. Quản trị viện cần cấu hình icloudpd trước khi đăng nhập."
@@ -683,7 +660,6 @@ enum Strings {
     }
     static let webdavCopy = "Sao chép"
     static let webdavCopied = "Đã sao chép liên kết WebDAV."
-    static let webdavCopyFailed = "Không thể sao chép liên kết."
     static let cloudHealthGood = "Kết nối tốt"
     static let cloudHealthBad = "Không phản hồi"
     static let cloudHealthUnknown = "Chưa kiểm tra"
@@ -692,10 +668,4 @@ enum Strings {
         "\(cloudHealthGood) · \(max(0, ms)) ms"
     }
 
-    // Errors (server parity)
-    static let networkError = "Không kết nối được máy chủ."
-    static let serverNotReady = "Máy chủ chưa sẵn sàng. Vui lòng thử lại."
-    static let invalidResponse = "Máy chủ trả về dữ liệu không hợp lệ."
-    static let unsupported = "Chưa hỗ trợ trên máy chủ này"
-    static let unavailable = "Không khả dụng"
 }
