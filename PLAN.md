@@ -784,7 +784,7 @@ Không dịch máy; giữ đúng dấu tiếng Việt và cách viết số `1.9
 | P4 | Viewer (ảnh/video/live, zoom, filmstrip) | 1.5 tuần |
 | P5 | Albums + Search + Connections | 1.5 tuần |
 | P6 | Settings + actions + Duplicates | 1 tuần |
-| P7 | Vault native + Seafile E2EE | 2.5 tuần |
+| P7 | Vault native (trình duyệt E2EE Seafile đã bị PWA gỡ) | 2.5 tuần |
 | P8 | Editor ảnh | 1 tuần |
 | P9 | Admin | 1 tuần |
 | P10 | iCloud sheet | 0.5 tuần |
