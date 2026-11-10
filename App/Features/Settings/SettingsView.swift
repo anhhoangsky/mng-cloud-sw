@@ -63,7 +63,7 @@ struct SettingsView: View {
             }
 
             Button {
-                if let url = URL(string: model.server.origin) {
+                if let url = URL(string: model.server.origin + "/seafile/") {
                     openURL(url)
                 }
             } label: {
