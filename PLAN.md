@@ -1143,10 +1143,12 @@ Nghiệm thu: TestFlight build cài được; không crash trong 30 phút duyệ
 viện; bộ screenshot parity đủ; hiệu năng cuộn 60 fps trên thiết bị thật.
 
 P11 (2026-11-11, phần đầu): bàn phím cứng trong viewer (←/→ đổi ảnh, Escape
-đóng) và phản hồi xúc giác khi chọn ô. Multi-select, ZIP, share, pull-to-refresh
-và các trạng thái lỗi đã có từ P3–P6. Còn lại: Dynamic Type đầy đủ (hiện
-dùng cỡ chữ cố định), Reduce Motion trong zoom, marquee iPad, prefetch thumbnail,
-`os_signpost`, và bộ ảnh/phát hành TestFlight.
+đóng), phản hồi xúc giác khi chọn ô, `os_signpost` đo thời gian decode ảnh, và
+Dynamic Type: mọi cỡ chữ cố định của PWA nay đi qua `Font.mng(...)` nên nhân
+với hệ số Dynamic Type (giới hạn 1,6× để tiêu đề lớn không vỡ layout).
+Multi-select, ZIP, share, pull-to-refresh và các trạng thái lỗi đã có từ P3–P6.
+Còn lại: Reduce Motion trong zoom, marquee iPad, prefetch thumbnail, ảnh/phát
+hành TestFlight.
 
 ---
 

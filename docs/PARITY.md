@@ -199,6 +199,18 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - The password never leaves the device: it is only sent to the server's login
   route and cleared from the form right after the request.
 
+## P11 notes
+
+- The fixed pixel sizes of the web client are kept, but every text style goes
+  through `Font.mng(...)`, which scales it with the user's Dynamic Type
+  setting (capped at 1.6× so the big headlines survive the accessibility
+  sizes).
+- The viewer answers the hardware keyboard: ← and → walk the library and
+  Escape closes it.
+- Tiles give a light haptic when they enter or leave the selection.
+- `os_signpost` marks the thumbnail decode so the device profiling in Xcode
+  shows where the time goes.
+
 ## Visual checks per UI phase
 
 - iPhone SE (compact, 375 pt), iPhone 15/16 (393 pt), iPad 11" portrait and
