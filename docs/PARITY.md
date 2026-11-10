@@ -17,13 +17,13 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 | Viewer | filmstrip, swipe, pinch/double-tap zoom, swipe-down dismiss, video Range, Live Photo | 🟡 ported: full-screen stage, lazy auto-centered filmstrip, pinch/double-tap/pan, swipe navigation and dismiss, cookie-authenticated AVPlayer, LIVE companion, HEIC preview fallback, optimistic favorite/info/download/delete; device gesture and seek check pending |
 | Albums | 7 collapsible sections, 9-photo preview, sort/density, cover morph | 🟡 ported: seven sections in PWA order, per-section sort/density, 9-photo preview + expand, AI banner/poll, rename, album drill-down in Library; FLIP cover morph not ported; device check pending |
 | Search | 280 ms debounce, 5 chips, 4 hints, 300-result cap, return target | 🟡 ported: debounce/submit/chip paths, five chips, four album hints, 300 cap, delete-aware meta, Search/Albums return target; device check pending |
-| Connections | cloud cards, health dot, active check, WebDAV copy, iCloud row | 🟡 ported: cloud cards with health dots, active check, WebDAV copy, read-only iCloud status; full iCloud importer at P7; device check pending |
+| Connections | cloud cards, health dot, active check, WebDAV copy, iCloud row | 🟡 ported: cloud cards with health dots, active check, WebDAV copy and the full iCloud importer sheet; device check pending |
 | Settings | Kết nối / iCloud / Thư viện / Tài khoản / Giới thiệu; test, rescan, retry thumbs, clear temp | 🟡 ported: cloud probe rows, iCloud status, scan/thumbs/tmp actions, storage, duplicates entry, account/about; device check pending |
 | Duplicates | legacy summary, 30 groups per page, open group in viewer | 🟡 ported: summary + pending-thumbnail note, 30 groups per page, 128 pt grid, group-seeded viewer; device check pending |
-| Vault | native list/unlock/browse/upload/folder/delete/auto-lock + Seafile E2EE read-only | ⏳ |
-| Editor | rotate → flip → crop, adjustments, filters, JPEG/PNG/WebP export | ⏳ |
-| Admin | lazy mount, users, password, activate, admin, delete, scan | ⏳ |
-| iCloud | honest status, 2.2 s job poll, login/2FA/start/save/pause/cancel/logout | ⏳ |
+| Vault | native list/unlock/browse/upload/folder/delete/auto-lock + Seafile E2EE read-only | 🟡 ported: vault list, unlock, browser with folders/search, 4 MiB chunked upload, encrypted preview, rename, delete, library → vault move, 15-minute auto-lock; the Seafile E2EE browser was removed from the web app; device check pending |
+| Editor | rotate → flip → crop, adjustments, filters, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, three tabs, nine sliders, six filters, six crop ratios, two save modes, multipart upload; the four draggable crop corners are missing; device check pending |
+| Admin | lazy mount, users, password, activate, admin, delete, scan | 🟡 ported: Settings row for admins only, lazy list, create/reset/reprovision/update/delete/scan; device check pending |
+| iCloud | honest status, 2.2 s job poll, login/2FA/start/save/pause/cancel/logout | 🟡 ported: full importer sheet with the 2.2 s poll that stops with the sheet; device check pending |
 | PWA-only surfaces | service worker, Trusted Types, extension | ➖ |
 | ZIP multi-select | POST form, 100 items / 2 GiB cap, share sheet | 🟡 ported: chunked streaming to a temp file, 100-id guard, share sheet; 2 GiB remains a server limit |
 | Marquee | iPad pointer selection only | ⏳ |
