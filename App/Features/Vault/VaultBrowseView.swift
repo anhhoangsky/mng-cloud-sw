@@ -1,7 +1,5 @@
 import MNGCore
 import MNGKit
-import Photos
-import PhotosUI
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
@@ -16,7 +14,7 @@ struct VaultBrowseView: View {
     @State private var isCreatingFolder = false
     @State private var pendingDelete: PendingDelete?
     @State private var isPickingFile = false
-    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var isPickingPhoto = false
     @State private var previewTarget: PreviewTarget?
 
     /// `VaultFile` is not `Identifiable`, so the sheet uses a tiny wrapper.
@@ -114,16 +112,18 @@ struct VaultBrowseView: View {
             }
             .ignoresSafeArea()
         }
+        .sheet(isPresented: $isPickingPhoto) {
+            VaultPhotoPicker { picked in
+                isPickingPhoto = false
+                upload(picked)
+            }
+            .ignoresSafeArea()
+        }
         .sheet(item: $previewTarget) { target in
             VaultPreviewSheet(model: model)
                 .onAppear {
                     Task { await state.openPreview(target.file) }
                 }
-        }
-        .onChange(of: photoItems) { _, items in
-            guard let item = items.first else { return }
-            photoItems = []
-            Task { await uploadPhoto(item) }
         }
         .alert(
             Strings.vaultDeleteTitle,
@@ -206,25 +206,13 @@ struct VaultBrowseView: View {
                     } label: {
                         Label(Strings.vaultUploadFiles, systemImage: "folder")
                     }
+                    Button {
+                        isPickingPhoto = true
+                    } label: {
+                        Label(Strings.vaultUploadPhotos, systemImage: "photo")
+                    }
                 } label: {
                     Label(Strings.vaultUpload, systemImage: "square.and.arrow.up")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Palette.accent)
-                        .padding(.horizontal, 12)
-                        .frame(height: 34)
-                        .background(
-                            Palette.accentSoft,
-                            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        )
-                }
-                .disabled(state.isWorking)
-
-                PhotosPicker(
-                    selection: $photoItems,
-                    maxSelectionCount: 1,
-                    matching: .images
-                ) {
-                    Label(Strings.vaultUploadPhotos, systemImage: "photo")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Palette.accent)
                         .padding(.horizontal, 12)
@@ -531,40 +519,35 @@ struct VaultBrowseView: View {
         }
     }
 
-    private func uploadPhoto(_ item: PhotosPickerItem) async {
-        guard let data = try? await item.loadTransferable(type: Data.self) else {
-            state.reportOperationError(Strings.vaultFileUnreadable)
+    private func uploadFile(name: String, mime: String, at url: URL) {
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+        let size = Int64(values?.fileSize ?? 0)
+        Task {
+            await state.upload(
+                VaultUploadSource.file(
+                    name: name,
+                    mime: mime,
+                    size: size,
+                    url: url
+                )
+            )
+        }
+    }
+
+    private func upload(_ picked: VaultPhotoPicker.Picked) {
+        if let url = picked.url {
+            uploadFile(name: picked.name, mime: picked.mime, at: url)
             return
         }
-        let mime = item.supportedContentTypes.first?.preferredMIMEType
-            ?? "image/jpeg"
-        let name = originalName(for: item, mime: mime)
-        await state.upload(
-            VaultUploadSource.memory(name: name, mime: mime, data: data)
-        )
-    }
-
-    /// Best-effort original file name of a picked photo.
-    private func originalName(for item: PhotosPickerItem, mime: String) -> String {
-        let fallback = "IMG_\(Int(Date().timeIntervalSince1970)).\(fileExtension(for: mime))"
-        guard let identifier = item.itemIdentifier,
-              let asset = PHAsset.fetchAssets(
-                withLocalIdentifiers: [identifier],
-                options: nil
-              ).firstObject,
-              let resource = PHAssetResource.assetResources(for: asset).first else {
-            return fallback
-        }
-        return resource.originalFilename
-    }
-
-    private func fileExtension(for mime: String) -> String {
-        switch mime {
-        case "image/png": return "png"
-        case "image/heic": return "heic"
-        case "image/webp": return "webp"
-        case "image/gif": return "gif"
-        default: return "jpg"
+        guard let data = picked.data else { return }
+        Task {
+            await state.upload(
+                VaultUploadSource.memory(
+                    name: picked.name,
+                    mime: picked.mime,
+                    data: data
+                )
+            )
         }
     }
 
