@@ -245,6 +245,133 @@ final class MNGAPIClientTests: XCTestCase {
         XCTAssertTrue(response.hasMore)
     }
 
+    func testFavoritePostsValueAndCSRFHeader() async throws {
+        let client = makeClient()
+        await client.setCSRF("csrf-fav")
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/api/v1/items/42/favorite")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-CSRF-Token"), "csrf-fav")
+            let body = try XCTUnwrap(request.capturedBody)
+            let object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: body) as? [String: Any]
+            )
+            XCTAssertEqual(object["value"] as? Bool, true)
+            return try MockURLProtocol.respondJSON(body: #"{"ok":true,"favorite":true}"#)(request)
+        }
+
+        let response = try await client.favorite(id: 42, value: true)
+        XCTAssertTrue(response.favorite)
+    }
+
+    func testDeletePostsWithCSRFHeader() async throws {
+        let client = makeClient()
+        await client.setCSRF("csrf-del")
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/api/v1/items/9/delete")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-CSRF-Token"), "csrf-del")
+            return try MockURLProtocol.respondJSON(body: #"{"ok":true,"deleted":1}"#)(request)
+        }
+
+        let response = try await client.deleteItem(id: 9)
+        XCTAssertEqual(response.deleted, 1)
+    }
+
+    func testMediaDataUsesOriginPathAndReturnsBytes() async throws {
+        let client = makeClient()
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(
+                request.url?.absoluteString,
+                "https://api.test/api/v1/items/42/thumb?v=3&size=360"
+            )
+            return try MockURLProtocol.respondJSON(body: "image-bytes")(request)
+        }
+
+        let data = try await client.mediaData(path: "/api/v1/items/42/thumb?v=3&size=360")
+        XCTAssertEqual(String(decoding: data, as: UTF8.self), "image-bytes")
+
+        do {
+            _ = try await client.mediaData(path: "https://evil.example.com/x")
+            XCTFail("expected an invalid path error")
+        } catch let error as APIError {
+            XCTAssertEqual(error.code, "invalid_response")
+        }
+    }
+
+    func testArchiveRequestSendsFormCSRFAndSortedIds() async throws {
+        let client = makeClient()
+        await client.setCSRF("csrf zip/+")
+        let request = try await client.makeArchiveRequest(ids: [1, 2, 3])
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.absoluteString, "https://api.test/api/v1/items/zip")
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "Content-Type"),
+            "application/x-www-form-urlencoded"
+        )
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/zip")
+        let body = String(decoding: try XCTUnwrap(request.capturedBody), as: UTF8.self)
+        XCTAssertEqual(body, "csrf=csrf%20zip%2F%2B&ids=1&ids=2&ids=3")
+    }
+
+    func testMediaFileStagesDownloadWithSuggestedName() async throws {
+        let client = makeClient()
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertEqual(
+                request.url?.absoluteString,
+                "https://api.test/api/v1/items/42/media?live=1"
+            )
+            return try MockURLProtocol.respondJSON(
+                body: "movie-bytes",
+                headers: ["Content-Type": "video/quicktime"]
+            )(request)
+        }
+
+        let file = try await client.mediaFile(
+            path: "/api/v1/items/42/media?live=1",
+            suggestedName: "../evil.MOV"
+        )
+        defer { try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent()) }
+
+        XCTAssertEqual(file.filename, "evil.MOV")
+        XCTAssertEqual(file.url.lastPathComponent, "evil.MOV")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.url.path))
+        XCTAssertEqual(try Data(contentsOf: file.url), Data("movie-bytes".utf8))
+    }
+
+    func testArchiveStreamsDownloadAndUsesContentDispositionName() async throws {
+        let client = makeClient()
+        await client.setCSRF("csrf zip")
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/api/v1/items/zip")
+            let body = String(decoding: try XCTUnwrap(request.capturedBody), as: UTF8.self)
+            XCTAssertEqual(body, "csrf=csrf%20zip&ids=1&ids=2")
+            let url = try XCTUnwrap(request.url)
+            let response = try XCTUnwrap(
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: "HTTP/1.1",
+                    headerFields: [
+                        "Content-Type": "application/zip",
+                        "Content-Disposition": "attachment; filename=\"MNG-Cloud-2.zip\"",
+                    ]
+                )
+            )
+            return (response, Data([0x50, 0x4B]))
+        }
+
+        let archive = try await client.archive(ids: [2, 1, 1])
+        defer { try? FileManager.default.removeItem(at: archive.url.deletingLastPathComponent()) }
+
+        XCTAssertEqual(archive.filename, "MNG-Cloud-2.zip")
+        XCTAssertEqual(archive.url.lastPathComponent, "MNG-Cloud-2.zip")
+        XCTAssertEqual(try Data(contentsOf: archive.url), Data([0x50, 0x4B]))
+    }
+
     func testClearSessionCookiesRemovesHostCookies() async throws {
         let storage = HTTPCookieStorage.shared
         for cookie in storage.cookies ?? [] where cookie.domain.contains("api.test") {

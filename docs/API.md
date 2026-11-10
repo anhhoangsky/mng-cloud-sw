@@ -45,7 +45,7 @@ in the working tree). Update it deliberately when the server changes.
 | POST | `/api/v1/items/{id}/edit` (multipart) |
 | POST | `/api/v1/items/{id}/favorite` |
 | POST | `/api/v1/items/{id}/delete` |
-| POST | `/api/v1/items/zip` (form: `csrf`, `ids[]`) |
+| POST | `/api/v1/items/zip` (form: `csrf`, repeated `ids`) |
 | GET | `/api/v1/albums` |
 | GET | `/api/v1/duplicates` |
 | GET | `/api/v1/people` |

@@ -1,17 +1,24 @@
 import SwiftUI
+import UIKit
 
 /// Design tokens ported from `ui/assets/app.css` (light/dark values).
 enum Palette {
     static let bg = Color.mng(light: 0xFFFFFF, dark: 0x07090D)
     static let bgGrouped = Color.mng(light: 0xF2F2F7, dark: 0x0B0F15)
     static let bgElevated = Color.mng(light: 0xFFFFFF, dark: 0x10151D)
+    static let bgElevated2 = Color.mng(light: 0xF2F2F7, dark: 0x161D27)
 
     static let text = Color.mng(light: 0x000000, dark: 0xF2F5F9)
+    static let text2 = Color.mng(light: 0x3C3C43, dark: 0xE3E9F1)
+    static let text3 = Color.mng(light: 0x3C3C43, lightAlpha: 0.6, dark: 0xF2F5F9, darkAlpha: 0.62)
+    static let text4 = Color.mng(light: 0x3C3C43, lightAlpha: 0.36, dark: 0xF2F5F9, darkAlpha: 0.42)
     static let textMuted = Color.mng(light: 0x6E6E73, dark: 0x9AA7B6)
 
     static let sep = Color.mng(light: 0x3C3C43, lightAlpha: 0.22, dark: 0xFFFFFF, darkAlpha: 0.12)
     static let hairline = Color.mng(light: 0x3C3C43, lightAlpha: 0.29, dark: 0xFFFFFF, darkAlpha: 0.09)
     static let fill = Color.mng(light: 0x787880, lightAlpha: 0.12, dark: 0xFFFFFF, darkAlpha: 0.08)
+    static let fill2 = Color.mng(light: 0x787880, lightAlpha: 0.16, dark: 0xFFFFFF, darkAlpha: 0.12)
+    static let fill3 = Color.mng(light: 0x787880, lightAlpha: 0.24, dark: 0xFFFFFF, darkAlpha: 0.16)
 
     static let accent = Color.mng(light: 0x007AFF, dark: 0x7DD3FC)
     static let accentStrong = Color.mng(light: 0x0066D6, dark: 0x38BDF8)
@@ -47,6 +54,9 @@ enum Tokens {
     enum Layout {
         static let sidebarWidth: CGFloat = 264
         static let tabBarHeight: CGFloat = 68
+        static let contentMaxWidth: CGFloat = 1500
+        static let gridGap: CGFloat = 2
+        static let cardGap: CGFloat = 18
     }
 
     enum Motion {

@@ -68,6 +68,12 @@ public enum APIMessages {
     public static let logoutNetwork = "Mất kết nối tới máy chủ."
     public static let logoutFailed = "Không đăng xuất được. Vui lòng thử lại."
 
+    // Library error copy, from `item_error()`, `older_error()` and
+    // `bootstrap_error()` in `shell.rs`.
+    public static let itemListFailed = "Không tải được danh sách ảnh và video."
+    public static let olderPageFailed = "Không tải thêm được ảnh cũ."
+    public static let bootstrapFailed = "Không tải được thông tin thư viện."
+
     /// Login card copy.
     public static func login(_ error: APIError) -> String {
         if error.status == 0 {
@@ -92,5 +98,47 @@ public enum APIMessages {
     /// Logout toast copy, matching `logout_error()` in the PWA shell.
     public static func logout(_ error: APIError) -> String {
         error.status == 0 ? logoutNetwork : logoutFailed
+    }
+
+    /// Initial/refresh item page error, matching `item_error()`.
+    public static func itemList(_ error: APIError) -> String {
+        error.status == 0 ? network : itemListFailed
+    }
+
+    /// "Load older" error, matching `older_error()`.
+    public static func olderPage(_ error: APIError) -> String {
+        error.status == 0 ? network : olderPageFailed
+    }
+
+    /// Bootstrap error, matching `bootstrap_error()`.
+    public static func bootstrap(_ error: APIError) -> String {
+        error.status == 0 ? network : bootstrapFailed
+    }
+
+    // MARK: - Bulk action toasts
+
+    /// Single/multi favorite result. Capitalization matches the PWA.
+    public static func favoriteChanged(_ value: Bool, count: Int) -> String {
+        if count <= 1 {
+            return value ? "Đã thêm vào Yêu thích." : "Đã bỏ Yêu thích."
+        }
+        return value
+            ? "Đã thêm yêu thích \(count) mục."
+            : "Đã bỏ yêu thích \(count) mục."
+    }
+
+    /// Some favorite requests failed after the optimistic update.
+    public static func favoritePartial(done: Int, total: Int, failed: Int) -> String {
+        "Đã cập nhật \(done)/\(total) mục. \(failed) mục chưa đổi được."
+    }
+
+    /// Single/multi delete result.
+    public static func deleted(count: Int) -> String {
+        count <= 1 ? "Đã xóa khỏi đám mây." : "Đã xóa \(count) mục."
+    }
+
+    /// Some delete requests failed; the rows are restored.
+    public static func deletePartial(removed: Int, total: Int, failed: Int) -> String {
+        "Đã xóa \(removed)/\(total) mục. \(failed) mục chưa xóa được."
     }
 }

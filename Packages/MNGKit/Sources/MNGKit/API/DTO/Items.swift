@@ -59,7 +59,8 @@ public struct Item: Decodable, Equatable, Sendable, Identifiable {
     public let duration: Double
     public let live: Bool
     public let liveName: String
-    public let favorite: Bool
+    /// Mutable so optimistic favorite updates can patch the cached rows.
+    public var favorite: Bool
     public let thumbState: Int
     public let thumb: String
     public let preview: String
@@ -76,6 +77,13 @@ public struct Item: Decodable, Equatable, Sendable, Identifiable {
 
     public var isVideo: Bool { mediaType == "video" }
     public var isPhoto: Bool { mediaType == "photo" }
+
+    /// Copy with the favorite flag patched, used by menu/info snapshots.
+    public func withFavorite(_ value: Bool) -> Item {
+        var copy = self
+        copy.favorite = value
+        return copy
+    }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)

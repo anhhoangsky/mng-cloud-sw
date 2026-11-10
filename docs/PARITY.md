@@ -11,22 +11,40 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 | --- | --- | --- |
 | Boot | logo, spinner, retry + exact error copy | 🟡 wired to `SessionStore`, CI pending |
 | Login | card, cloud mark, error copy, CSRF session | 🟡 card + validation + CSRF session, CI pending |
-| App shell | 4 tabs compact / 264 pt sidebar regular, search button | ⏳ |
-| Library | Năm / Tháng / Tất cả, Ảnh/Video/Live/Yêu thích, 120-item pages, scroll anchor | ⏳ |
-| Tiles | long-press menu, info sheet, favorite optimistic, delete confirm, selection mode | ⏳ |
+| App shell | 4 tabs compact / 264 pt sidebar regular, search button | 🟡 ported: floating compact header/tab bar + search circle, 264 pt sidebar + 5 entries, cloud picker, toast; CI/device check pending |
+| Library | Năm / Tháng / Tất cả, Ảnh/Video/Live/Yêu thích, 120-item pages, scroll anchor | 🟡 ported: segmented Năm/Tháng/Tất cả, kind chips, 120-item paging, year/month collage, skeleton/empty/error, pull-to-refresh; no favorites chip in the 0.3.1 shell |
+| Tiles | long-press menu, info sheet, favorite optimistic, delete confirm, selection mode | 🟡 ported: context menu, info sheet (tap opens info until the P4 viewer), optimistic favorite/delete + rollback, selection bar; device presentation order pending |
 | Viewer | filmstrip, swipe, pinch/double-tap zoom, swipe-down dismiss, video Range, Live Photo | ⏳ |
 | Albums | 7 collapsible sections, 9-photo preview, sort/density, cover morph | ⏳ |
 | Search | 280 ms debounce, 5 chips, 4 hints, 300-result cap, return target | ⏳ |
 | Connections | cloud cards, health dot, active check, WebDAV copy, iCloud row | ⏳ |
-| Settings | Kết nối / iCloud / Thư viện / Tài khoản / Giới thiệu; test, rescan, retry thumbs, clear temp | ⏳ |
+| Settings | Kết nối / iCloud / Thư viện / Tài khoản / Giới thiệu; test, rescan, retry thumbs, clear temp | 🟡 P3 minimal: account, server/free space, thumbnail-cache clear, version, logout; full actions at P6 |
 | Duplicates | legacy summary, 30 groups per page, open group in viewer | ⏳ |
 | Vault | native list/unlock/browse/upload/folder/delete/auto-lock + Seafile E2EE read-only | ⏳ |
 | Editor | rotate → flip → crop, adjustments, filters, JPEG/PNG/WebP export | ⏳ |
 | Admin | lazy mount, users, password, activate, admin, delete, scan | ⏳ |
 | iCloud | honest status, 2.2 s job poll, login/2FA/start/save/pause/cancel/logout | ⏳ |
 | PWA-only surfaces | service worker, Trusted Types, extension | ➖ |
-| ZIP multi-select | POST form, 100 items / 2 GiB cap, share sheet | ⏳ |
+| ZIP multi-select | POST form, 100 items / 2 GiB cap, share sheet | 🟡 ported: chunked streaming to a temp file, 100-id guard, share sheet; 2 GiB remains a server limit |
 | Marquee | iPad pointer selection only | ⏳ |
+
+## P3 notes
+
+- The compact shell keeps the PWA's 36 pt floating title, 13 pt subtitle,
+  transparent library header, 4-tab dock and separate search button; the
+  subtitle hides in selection mode like `body.selection-mode`.
+- The segmented control changes grouping and clears the year/month drill-down
+  but keeps the kind chip; a kind chip returns to the timeline while keeping the
+  drill-down, matching `set_layout()` / kind transitions.
+- Older pages are appended below the current page, so the scroll anchor stays
+  put without FLIP; date-filtered timelines paginate as well.
+- Favorite and delete requests run four at a time. Only failed ids are rolled
+  back; partial-failure toasts reuse the PWA copy.
+- Info-sheet download dismisses first and shares when the stream is ready;
+  info-sheet delete dismisses first, then asks for confirmation after the sheet
+  animation. Both need a real-device check.
+- Deliberate platform differences: share sheet, `UIActivityViewController` temp
+  files, SF Symbols, and a native `.contextMenu` in place of the web menu.
 
 ## Visual checks per UI phase
 

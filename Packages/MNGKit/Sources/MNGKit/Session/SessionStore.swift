@@ -22,6 +22,8 @@ public final class SessionStore {
 
     public private(set) var phase: Phase = .checking
     public private(set) var session: Session?
+    /// Origin backing the active client. Nil while logged out.
+    public private(set) var server: MNGServer?
     public private(set) var bootError: String?
     public private(set) var loginError: String?
     public private(set) var loginErrorField: LoginField?
@@ -52,6 +54,7 @@ public final class SessionStore {
         let savedServer = defaults
             .string(forKey: Self.serverKey)
             .flatMap(MNGServer.init(string:))
+        server = savedServer
         serverText = savedServer?.origin ?? ""
         username = defaults.string(forKey: Self.usernameKey) ?? ""
     }
@@ -82,11 +85,13 @@ public final class SessionStore {
               let server = MNGServer(string: saved) else {
             client = nil
             session = nil
+            self.server = nil
             phase = .login
             return
         }
 
         serverText = server.origin
+        self.server = server
         let api = clientFactory(server)
         client = api
 
@@ -98,6 +103,7 @@ public final class SessionStore {
             await api.setCSRF(nil)
             client = nil
             session = nil
+            self.server = nil
             phase = .login
         } catch let error as APIError {
             // Keep `checking` with the failure visible: the PWA does not fall
@@ -149,6 +155,7 @@ public final class SessionStore {
             defaults.set(name, forKey: Self.usernameKey)
             username = name
             serverText = server.origin
+            self.server = server
             client = api
             session = Session(response)
             password = ""
@@ -197,6 +204,7 @@ public final class SessionStore {
         await api.setCSRF(nil)
         client = nil
         session = nil
+        server = nil
         password = ""
         isLoggingOut = false
         phase = .login
@@ -208,12 +216,14 @@ public final class SessionStore {
     }
 
     /// A later API call hit `401`: forget the session and show the login card.
-    public func expireSession() async {        if let api = client {
+    public func expireSession() async {
+        if let api = client {
             await api.clearSessionCookies()
             await api.setCSRF(nil)
         }
         client = nil
         session = nil
+        server = nil
         password = ""
         loginError = nil
         loginErrorField = nil

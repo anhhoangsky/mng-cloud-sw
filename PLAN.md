@@ -878,6 +878,17 @@ Nghiệm thu: parity checklist 390/768/1440 pt tương đương, light/dark, kh�
 tràn ngang; 1.966 mục hiển thị đúng; favorite/delete rollback khi 503
 `writer_unavailable`; nhãn tiếng Việt đúng.
 
+Trạng thái (2026-11-10): đã port shell compact (header 36pt + tab bar nổi 4 tab +
+nút tìm kiếm) và regular (sidebar 264pt + 5 mục), cloud picker, toast; thư viện
+Năm/Tháng/Tất cả, chip Ảnh/Video/Live, phân trang 120 mục, collage 4 ảnh, lưới
+3 cột/adaptive, skeleton/empty/error, kéo để tải lại; tile mở info sheet (viewer
+ở P4), menu ngữ cảnh, favorite/delete optimistic + rollback theo chunk 4, chế độ
+Chọn và ZIP qua share sheet. Logic thuần nằm trong `MNGKit` (`LibrarySupport`,
+`MNGFormat`, `ItemMedia`) và đã type-check Swift 5.10 trên Compiler Explorer;
+`swift test`/simulator thật vẫn chờ CI macOS (repo chưa có remote GitHub).
+Kiểm tra trên thiết bị còn chờ: thứ tự đóng info sheet → alert xoá, share sheet
+ngay sau khi đóng sheet, và header dính của timeline.
+
 ### P4 — Viewer (1.5 tuần)
 
 Việc chính:

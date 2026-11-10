@@ -151,6 +151,132 @@ public actor MNGAPIClient {
         return try await perform(request)
     }
 
+    /// Set or clear one item's favorite flag. Always sent with the CSRF header.
+    public func favorite(id: Int64, value: Bool) async throws -> FavoriteResponse {
+        guard id > 0 else {
+            throw APIError(status: 404, code: "not_found", message: "Mục không tồn tại.")
+        }
+        let body = try encode(FavoriteBody(value: value))
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/items/\(id)/favorite",
+            body: body,
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
+    /// Delete one item. Live Photo companions are handled by the server.
+    public func deleteItem(id: Int64) async throws -> DeleteResponse {
+        guard id > 0 else {
+            throw APIError(status: 404, code: "not_found", message: "Mục không tồn tại.")
+        }
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/items/\(id)/delete",
+            csrf: true
+        )
+        return try await perform(request)
+    }
+
+    /// Download an authenticated media path, used by thumbnails and previews.
+    public func mediaData(path: String) async throws -> Data {
+        guard path.hasPrefix("/"), !path.hasPrefix("//") else {
+            throw APIError.invalid(status: 0)
+        }
+        var request = URLRequest(url: try server.originURL(path: path))
+        request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        let (data, response) = try await send(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalid(status: 0)
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw apiError(data: data, status: http.statusCode)
+        }
+        return data
+    }
+
+    /// Download one item's media file (photo, video or Live Photo companion)
+    /// to a temporary file for the share sheet.
+    ///
+    /// `suggestedName` is the tile's filename; the server's
+    /// `Content-Disposition` is the fallback.
+    public func mediaFile(path: String, suggestedName: String) async throws -> DownloadedFile {
+        guard path.hasPrefix("/"), !path.hasPrefix("//") else {
+            throw APIError.invalid(status: 0)
+        }
+        var request = URLRequest(url: try server.originURL(path: path))
+        request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+
+        let (location, response) = try await download(request)
+        guard let http = response as? HTTPURLResponse else {
+            try? FileManager.default.removeItem(at: location)
+            throw APIError.invalid(status: 0)
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let data = (try? Data(contentsOf: location)) ?? Data()
+            try? FileManager.default.removeItem(at: location)
+            throw apiError(data: data, status: http.statusCode)
+        }
+
+        let header = http.value(forHTTPHeaderField: "Content-Disposition")
+            .flatMap(Self.filename(fromContentDisposition:))
+        let filename = Self.safeFilename(suggestedName)
+            ?? header
+            ?? "MNG-Cloud"
+        return try Self.stageDownload(location, filename: filename)
+    }
+
+    /// Stream a ZIP of the selected items to a temporary file.
+    ///
+    /// `/api/v1/items/zip` validates CSRF from the form body instead of the
+    /// header (the PWA uses a native form so the browser can stream to disk).
+    /// The limits mirror the server: 100 unique ids and 2 GiB.
+    public func archive(ids: [Int64]) async throws -> DownloadedArchive {
+        let unique = Array(Set(ids)).sorted()
+        guard !unique.isEmpty else {
+            throw APIError(
+                status: 400,
+                code: "no_items",
+                message: "Chưa chọn mục nào."
+            )
+        }
+        guard unique.count <= 100 else {
+            throw APIError(
+                status: 400,
+                code: "too_many",
+                message: "Tối đa 100 mục mỗi lần."
+            )
+        }
+
+        let request = try makeArchiveRequest(ids: unique)
+        let (location, response) = try await download(request)
+        guard let http = response as? HTTPURLResponse else {
+            try? FileManager.default.removeItem(at: location)
+            throw APIError.invalid(status: 0)
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let data = (try? Data(contentsOf: location)) ?? Data()
+            try? FileManager.default.removeItem(at: location)
+            throw apiError(data: data, status: http.statusCode)
+        }
+        let contentType = http.value(forHTTPHeaderField: "Content-Type") ?? ""
+        guard contentType.lowercased().hasPrefix("application/zip") else {
+            try? FileManager.default.removeItem(at: location)
+            throw APIError.invalid(status: http.statusCode)
+        }
+        let filename = http.value(forHTTPHeaderField: "Content-Disposition")
+            .flatMap(Self.filename(fromContentDisposition:))
+            ?? "MNG-Cloud.zip"
+        let named = (filename as NSString).pathExtension.isEmpty
+            ? filename + ".zip"
+            : filename
+        return try Self.stageDownload(location, filename: named)
+    }
+
     // MARK: - Albums, years and months
 
     public func albums(cloud: String? = nil) async throws -> AlbumsResponse {
@@ -347,6 +473,10 @@ public actor MNGAPIClient {
         let password: String
     }
 
+    private struct FavoriteBody: Encodable {
+        let value: Bool
+    }
+
     private struct OkResponse: Decodable {
         let ok: Bool
 
@@ -385,6 +515,23 @@ public actor MNGAPIClient {
     private func nonEmpty(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// The ZIP endpoint reads CSRF from the form body, so this request is built
+    /// separately from the JSON helper.
+    func makeArchiveRequest(ids: [Int64]) throws -> URLRequest {
+        var fields = ["csrf=\(PercentEncoding.encode(csrfToken ?? ""))"]
+        fields.append(contentsOf: ids.map { "ids=\($0)" })
+        var request = URLRequest(url: try server.apiURL(path: "/v1/items/zip", query: APIQuery()))
+        request.httpMethod = "POST"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue(
+            "application/x-www-form-urlencoded",
+            forHTTPHeaderField: "Content-Type"
+        )
+        request.setValue("application/zip", forHTTPHeaderField: "Accept")
+        request.httpBody = Data(fields.joined(separator: "&").utf8)
+        return request
     }
 
     private func makeRequest(
@@ -432,6 +579,76 @@ public actor MNGAPIClient {
             }
             task.resume()
         }
+    }
+
+    /// Move a completed URLSession download out of its ephemeral location before
+    /// the completion handler returns. The final share-friendly name is applied
+    /// by `stageDownload` once the response headers are available.
+    private func download(_ request: URLRequest) async throws -> (URL, URLResponse) {
+        try await withCheckedThrowingContinuation { continuation in
+            let task = session.downloadTask(with: request) { location, response, error in
+                if error != nil {
+                    continuation.resume(throwing: APIError.network())
+                    return
+                }
+                guard let location, let response else {
+                    continuation.resume(throwing: APIError.network())
+                    return
+                }
+                let target = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("mng-\(UUID().uuidString).download")
+                do {
+                    try FileManager.default.moveItem(at: location, to: target)
+                    continuation.resume(returning: (target, response))
+                } catch {
+                    continuation.resume(throwing: APIError.invalid(status: 0))
+                }
+            }
+            task.resume()
+        }
+    }
+
+    /// Move a downloaded temp file into its own share directory. Keeping the
+    /// final filename as the last path component lets `UIActivityViewController`
+    /// show the real name while every export remains uniquely addressable.
+    private static func stageDownload(_ location: URL, filename: String) throws -> DownloadedFile {
+        let manager = FileManager.default
+        let clean = safeFilename(filename) ?? "MNG-Cloud"
+        let directory = manager.temporaryDirectory
+            .appendingPathComponent("mng-share", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        do {
+            try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+            let target = directory.appendingPathComponent(clean, isDirectory: false)
+            try manager.moveItem(at: location, to: target)
+            return DownloadedFile(url: target, filename: clean)
+        } catch {
+            try? manager.removeItem(at: location)
+            throw APIError.invalid(status: 0)
+        }
+    }
+
+    private static func safeFilename(_ name: String) -> String? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let safe = (trimmed as NSString).lastPathComponent
+        guard !safe.isEmpty, safe != ".", safe != ".." else { return nil }
+        return safe
+    }
+
+    private static func filename(fromContentDisposition value: String) -> String? {
+        guard let range = value.range(of: "filename=", options: .caseInsensitive) else {
+            return nil
+        }
+        var name = String(value[range.upperBound...])
+        if name.hasPrefix("\"") {
+            name.removeFirst()
+            if let end = name.firstIndex(of: "\"") {
+                name = String(name[..<end])
+            }
+        } else if let end = name.firstIndex(of: ";") {
+            name = String(name[..<end])
+        }
+        return safeFilename(name)
     }
 
     private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {

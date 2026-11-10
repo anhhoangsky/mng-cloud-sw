@@ -18,7 +18,7 @@ struct AppRootView: View {
             case .login:
                 LoginView(store: store)
             case .ready:
-                SessionReadyView(store: store)
+                ShellView(store: store)
             }
         }
         .task {
