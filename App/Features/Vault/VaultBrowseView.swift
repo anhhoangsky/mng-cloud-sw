@@ -97,6 +97,13 @@ struct VaultBrowseView: View {
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .background(Palette.bg.ignoresSafeArea())
+        .task {
+            // The PWA starts the move as soon as a vault is unlocked.
+            let ids = model.pendingVaultMove
+            guard !ids.isEmpty else { return }
+            model.pendingVaultMove = []
+            await state.moveItems(ids)
+        }
         .sheet(isPresented: $isCreatingFolder) {
             VaultFolderSheet(model: model)
         }
@@ -541,11 +548,10 @@ struct VaultBrowseView: View {
     private func originalName(for item: PhotosPickerItem, mime: String) -> String {
         let fallback = "IMG_\(Int(Date().timeIntervalSince1970)).\(fileExtension(for: mime))"
         guard let identifier = item.itemIdentifier,
-              let assets = PHAsset.fetchAssets(
+              let asset = PHAsset.fetchAssets(
                 withLocalIdentifiers: [identifier],
                 options: nil
-              ),
-              let asset = assets.firstObject,
+              ).firstObject,
               let resource = PHAssetResource.assetResources(for: asset).first else {
             return fallback
         }

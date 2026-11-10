@@ -63,6 +63,9 @@ final class VaultModel {
 
     var onToast: ((String) -> Void)?
     var onUnauthorized: (() -> Void)?
+    /// Called after library items were moved into the vault so the library can
+    /// reload its page.
+    var onVaultMoveDone: (() -> Void)?
 
     @ObservationIgnored private var key: VaultKey?
     @ObservationIgnored private var lastActivity = Date()
@@ -540,21 +543,108 @@ final class VaultModel {
     /// entry into the encrypted manifest. Only one plaintext and one ciphertext
     /// chunk are in memory at a time.
     func upload(_ source: VaultUploadSource) async {
-        guard let vault = currentVault, let key else { return }
+        guard await storeFile(source) else { return }
+        notice = Strings.vaultUploaded(source.name)
+    }
+
+    /// Move library items into the unlocked vault and delete the originals
+    /// once the encrypted copy is stored.
+    func moveItems(_ ids: [Int64]) async {
+        guard currentVault != nil else { return }
+        guard !ids.isEmpty else { return }
+        isWorking = true
+        operationError = ""
+        var moved = 0
+        for id in ids {
+            do {
+                let detail = try await client.item(id: id)
+                let item = detail.item
+                let file = try await client.mediaFile(
+                    path: item.mediaPath(),
+                    suggestedName: item.name
+                )
+                defer {
+                    try? FileManager.default.removeItem(
+                        at: file.url.deletingLastPathComponent()
+                    )
+                }
+                let source = VaultUploadSource.file(
+                    name: item.name,
+                    mime: item.mime,
+                    size: item.size,
+                    url: file.url
+                )
+                guard await storeFile(source) else {
+                    isWorking = false
+                    return
+                }
+                _ = try await client.deleteItem(id: id)
+                moved += 1
+            } catch let error as APIError {
+                isWorking = false
+                if error.status == 401 {
+                    onUnauthorized?()
+                    return
+                }
+                operationError = error.message
+                return
+            } catch {
+                isWorking = false
+                operationError = unlockMessage(error)
+                return
+            }
+        }
+        isWorking = false
+        notice = Strings.vaultMoved(moved)
+        onVaultMoveDone?()
+    }
+
+    /// Rename one vault. The server stores the new name in the clear.
+    func rename(_ vault: NativeVault, name: String) async -> Bool {
+        guard let trimmed = VaultModel.cleanEntryName(name, maxCharacters: 80) else {
+            operationError = Strings.vaultNameMissing
+            return false
+        }
+        isWorking = true
+        operationError = ""
+        do {
+            let updated = try await client.renameNativeVault(id: vault.id, name: trimmed)
+            upsert(updated)
+            isWorking = false
+            notice = Strings.vaultRenamed(trimmed)
+            return true
+        } catch let error as APIError {
+            isWorking = false
+            if error.status == 401 {
+                onUnauthorized?()
+                return false
+            }
+            operationError = error.message
+            return false
+        } catch {
+            isWorking = false
+            operationError = unlockMessage(error)
+            return false
+        }
+    }
+
+    /// Encrypt, upload and register one file in the encrypted manifest.
+    private func storeFile(_ source: VaultUploadSource) async -> Bool {
+        guard let vault = currentVault, let key else { return false }
         guard let name = VaultModel.cleanEntryName(source.name, maxCharacters: 255) else {
             operationError = Strings.vaultFileInvalid
-            return
+            return false
         }
         let size = source.size
         guard size > 0 else {
             operationError = Strings.vaultFileEmpty
-            return
+            return false
         }
         let chunkSize = VaultKey.chunkBytes
         let total = Int((size + Int64(chunkSize) - 1) / Int64(chunkSize))
         guard total <= 4096 else {
             operationError = Strings.vaultFileTooLarge
-            return
+            return false
         }
 
         isWorking = true
@@ -576,7 +666,7 @@ final class VaultModel {
                 isWorking = false
                 upload = nil
                 operationError = Strings.vaultFileUnreadable
-                return
+                return false
             }
         }
         defer {
@@ -658,19 +748,21 @@ final class VaultModel {
             upsert(result.vault)
             isWorking = false
             upload = nil
-            notice = Strings.vaultUploaded(name)
+            return true
         } catch let error as APIError {
             isWorking = false
             upload = nil
             if error.status == 401 {
                 onUnauthorized?()
-                return
+                return false
             }
             operationError = error.message
+            return false
         } catch {
             isWorking = false
             upload = nil
             operationError = unlockMessage(error)
+            return false
         }
     }
 

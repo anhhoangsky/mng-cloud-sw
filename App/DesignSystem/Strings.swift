@@ -289,6 +289,8 @@ enum Strings {
     static let vaultFolder = "Thư mục"
     static let vaultUpload = "Tải lên"
     static let vaultLock = "Khóa"
+    static let vaultRename = "Đổi tên"
+    static let vaultRenameTitle = "Đổi tên kho"
     static let vaultSearchPlaceholder = "Tìm trong kho đã mã hóa…"
     static let vaultSearchEmptyTitle = "Không tìm thấy"
     static let vaultSearchEmptyBody = "Không có mục nào khớp với từ khóa."
@@ -346,6 +348,18 @@ enum Strings {
 
     static func vaultUploaded(_ name: String) -> String {
         "Đã tải lên “\(name)” vào kho mã hóa."
+    }
+
+    static func vaultMoved(_ count: Int) -> String {
+        "Đã chuyển \(MNGFormat.number(Int64(count))) mục vào kho mã hóa."
+    }
+
+    static func vaultMoveWaiting(_ count: Int) -> String {
+        "Có \(MNGFormat.number(Int64(count))) mục chờ chuyển vào kho. Mở khoá một kho để tiếp tục."
+    }
+
+    static func vaultRenamed(_ name: String) -> String {
+        "Đã đổi tên kho thành “\(name)”."
     }
 
     static func vaultDecrypting(_ done: Int, _ total: Int) -> String {

@@ -87,6 +87,9 @@ final class ShellModel {
     var toast: String?
     var shareFile: DownloadedFile?
     var activeSheet: ShellSheet?
+    /// Library items waiting to be moved into the encrypted vault. The vault
+    /// consumes the request as soon as it is unlocked.
+    var pendingVaultMove: [Int64] = []
 
     private(set) var bootstrap: Bootstrap?
     private(set) var activeCloud: String
@@ -177,6 +180,10 @@ final class ShellModel {
         }
         vault.onToast = { [weak self] message in
             self?.notify(message)
+        }
+        vault.onVaultMoveDone = { [weak self] in
+            guard let self else { return }
+            Task { await self.library.reload() }
         }
         albums.onToast = { [weak self] message in
             self?.notify(message)
@@ -409,6 +416,15 @@ final class ShellModel {
 
     func presentDuplicates() {
         activeSheet = .duplicates
+    }
+
+    /// Move library items into the encrypted vault. The request waits until a
+    /// vault is unlocked, like the PWA's `move_request`.
+    func requestVaultMove(_ ids: [Int64]) {
+        guard !ids.isEmpty else { return }
+        pendingVaultMove = ids
+        library.exitSelection()
+        selectTab(.vault)
     }
 
     func presentPersonEdit(_ person: Person) {

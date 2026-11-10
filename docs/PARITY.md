@@ -139,9 +139,10 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   update with one retry on `409 stale`.
 - Platform difference: the web copy says "trong trình duyệt"; the app says
   "trong ứng dụng này" because the key never lives in a browser.
-- Still missing: renaming a vault, generating a thumbnail for new uploads and
-  moving library items into a vault; the Seafile encrypted-library browser is
-  intentionally absent because the deployed web app no longer exposes it.
+- Still missing: generating a thumbnail for new uploads (the web client never
+  creates one, so the protocol is unverified) and the Seafile encrypted-library
+  browser, which is intentionally absent because the deployed web app no longer
+  exposes it.
 - Uploads encrypt 4 MiB chunks with AES-256-GCM (`chunk/{index}/{total}` AAD)
   and name every block with the SHA-1 of its ciphertext, exactly like the web
   client; the server verifies the digest itself. Files come from the document
@@ -150,6 +151,10 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   a temporary file that is deleted when the sheet closes, text is capped at
   2 MiB / 200,000 characters and other formats show the honest "cannot
   preview" state.
+- Renaming a vault uses the server's rename route, and "Chuyển vào kho mã hóa"
+  in the tile menu and the selection bar moves library items into the unlocked
+  vault: the encrypted copy is stored first and only then is the original
+  deleted, exactly like the web client.
 
 ## Visual checks per UI phase
 

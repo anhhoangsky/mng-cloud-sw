@@ -137,7 +137,7 @@ struct TileView: View {
         }
 
         Button {
-            model.notify(Strings.comingSoon)
+            model.requestVaultMove([item.id])
         } label: {
             Label(Strings.moveToVault, systemImage: "lock")
         }

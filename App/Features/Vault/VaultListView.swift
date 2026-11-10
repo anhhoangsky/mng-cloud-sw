@@ -8,6 +8,7 @@ struct VaultListView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var isCreating = false
     @State private var deleting: NativeVault?
+    @State private var renaming: NativeVault?
 
     private var vault: VaultModel { model.vault }
     private var isCompact: Bool { sizeClass == .compact }
@@ -29,6 +30,16 @@ struct VaultListView: View {
                         icon: "checkmark.circle.fill",
                         tint: Palette.green,
                         message: vault.notice
+                    )
+                }
+
+                if !model.pendingVaultMove.isEmpty {
+                    noticeBar(
+                        icon: "lock.fill",
+                        tint: Palette.accent,
+                        message: Strings.vaultMoveWaiting(
+                            model.pendingVaultMove.count
+                        )
                     )
                 }
 
@@ -55,6 +66,9 @@ struct VaultListView: View {
         }
         .sheet(item: $deleting) { target in
             VaultDeleteSheet(model: model, vault: target)
+        }
+        .sheet(item: $renaming) { target in
+            VaultRenameSheet(model: model, vault: target)
         }
     }
 
@@ -185,6 +199,18 @@ struct VaultListView: View {
         }
         .padding(.horizontal, 14)
         .frame(minHeight: 58)
+        .contextMenu {
+            Button {
+                renaming = vault
+            } label: {
+                Label(Strings.vaultRename, systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                deleting = vault
+            } label: {
+                Label(Strings.delete, systemImage: "trash")
+            }
+        }
     }
 
     private func meta(_ vault: NativeVault) -> String {

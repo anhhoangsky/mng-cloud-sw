@@ -1038,10 +1038,14 @@ mục dùng đúng thứ tự sort fold của PWA, tìm kiếm fold theo tên, b
 verify local trước khi gọi server. Khoá tự động khi rời tab, sau 15 phút không
 tương tác và khi app vào nền. MNGKit đã có đủ route vault (list/create/manifest
 CAS/prepare/commit/blob upload/binary download/delete/rename) kèm test.
-Còn lại P7.3: đổi tên kho, sinh thumbnail mới khi tải lên, chuyển ảnh từ thư viện
-sang kho. Trình duyệt E2EE Seafile đã bị PWA gỡ khỏi UI (`vault.rs` chỉ còn native
-vault) nên không port sang iOS; crypto `RepoKey` v2/v3 vẫn nằm trong MNGCore với
-KAT.
+P7.3 (2026-11-11): đổi tên kho (`POST /vaults/{id}/rename`) và chuyển ảnh từ
+thư viện sang kho ("Chuyển vào kho mã hóa" trong menu ô và thanh chọn nhiều):
+tải media của mục, mã hóa/chia khối y như tải lên, ghi manifest rồi mới xoá bản
+gốc trên cloud. Yêu cầu chờ cho tới khi mở khoá một kho, giống `move_request`
+của PWA. Còn lại: sinh thumbnail mới khi tải lên (PWA web không tạo thumbnail
+nên chưa xác minh được giao thức) và trình duyệt E2EE Seafile đã bị PWA gỡ
+khỏi UI (`vault.rs` chỉ còn native vault) nên không port sang iOS; crypto
+`RepoKey` v2/v3 vẫn nằm trong MNGCore với KAT.
 
 ### P8 — Editor ảnh (1 tuần)
 

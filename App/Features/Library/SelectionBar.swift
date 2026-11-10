@@ -30,7 +30,7 @@ struct SelectionBar: View {
             iconButton(
                 icon: "lock",
                 label: Strings.moveToVault,
-                action: { model.notify(Strings.comingSoon) }
+                action: { model.requestVaultMove(Array(library.selection)) }
             )
 
             iconButton(
