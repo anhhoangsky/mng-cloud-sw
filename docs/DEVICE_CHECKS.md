@@ -89,6 +89,41 @@ usable in the simulator.
 - [ ] Leaving the tab, idling for 15 minutes or backgrounding the app drops the
       key and asks for the password again.
 
+## Editor
+
+- [ ] The pencil in the viewer opens the editor for photos but not for videos.
+- [ ] Rotate/flip, the six crop ratios and the nine sliders update the preview
+      immediately; the crop rectangle can be dragged.
+- [ ] The filter chips match the web editor (Nguyên bản, Rực rỡ, Ấm áp, Mát
+      lạnh, Đen trắng, Mờ ảo).
+- [ ] "Lưu ảnh" with "Ghi đè ảnh gốc" replaces the file and refreshes the
+      library; "Lưu thành bản sao" keeps the original.
+- [ ] A cancelled or failed save leaves the original untouched.
+
+## Administration (admin account only)
+
+- [ ] The Settings row "Quản trị người dùng" only appears for administrators.
+- [ ] Opening the console loads the user list exactly once; the app itself
+      never calls the admin API.
+- [ ] Creating a user works with and without cloud provisioning.
+- [ ] Locking, unlocking, granting and revoking the admin role all update the
+      row in place.
+- [ ] Deleting a user asks once and works with and without the cloud data.
+- [ ] The server's refusals (primary admin, self delete, last admin) are shown
+      with the server's own sentence.
+
+## iCloud importer
+
+- [ ] A server without the importer shows "Máy chủ này chưa cung cấp trình tải
+      iCloud" instead of a fake connected state.
+- [ ] Signing in with an Apple ID asks for the six-digit 2FA code when the
+      account needs it.
+- [ ] The settings (50/200/500/1000 photos, delete after the import) are saved
+      and survive a reopen.
+- [ ] The job card follows the state, the progress and the log, and
+      pause/resume/cancel work.
+- [ ] The sheet stops polling when it is closed.
+
 ## Release checks (P11)
 
 - [ ] Dynamic Type at the default size and one step up.
