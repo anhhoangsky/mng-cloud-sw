@@ -11,7 +11,11 @@ enum AdminPassword {
         let alphabet = Array("abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789")
         var output = ""
         var bytes = [UInt8](repeating: 0, count: length)
-        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+        let status = bytes.withUnsafeMutableBytes { buffer -> Int32 in
+            guard let base = buffer.baseAddress else { return errSecParam }
+            return SecRandomCopyBytes(kSecRandomDefault, buffer.count, base)
+        }
+        guard status == errSecSuccess else {
             // Fall back to the system generator when the crypto source fails.
             return String((0..<length).map { _ in alphabet.randomElement() ?? "a" })
         }
