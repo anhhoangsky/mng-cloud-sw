@@ -123,6 +123,26 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - CI run `42858021122` passed all package tests, the unsigned simulator build,
   the simulator test target and the artifact upload.
 
+## P7 notes
+
+- The vault tab is the PWA's `NativeVaultSection`: a list of vaults, one
+  unlock screen per vault and the encrypted file browser. The vault name, the
+  row meta (`#id • N đã mã hóa` or `#id • Chưa có chỉ mục`) and the security
+  notes follow the web copy.
+- Creating a vault derives the key locally (PBKDF2-SHA256, 310k rounds,
+  NFKC password), encrypts the verifier and an empty manifest with
+  AES-256-GCM and only sends the ciphertext. The password is never sent.
+- Unlocking verifies the stored verifier, decrypts the manifest and drops the
+  key again when the tab is left, after 15 idle minutes or when the app goes to
+  the background — the same lifecycle as the web tab.
+- Folder and file changes go through the SHA-256 compare-and-swap manifest
+  update with one retry on `409 stale`.
+- Platform difference: the web copy says "trong trình duyệt"; the app says
+  "trong ứng dụng này" because the key never lives in a browser.
+- Still missing: the upload flow (4 MiB chunks) and the text/image/video
+  previews; the Seafile encrypted-library browser is intentionally absent
+  because the deployed web app no longer exposes it.
+
 ## Visual checks per UI phase
 
 - iPhone SE (compact, 375 pt), iPhone 15/16 (393 pt), iPad 11" portrait and

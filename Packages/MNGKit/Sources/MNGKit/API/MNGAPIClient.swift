@@ -410,6 +410,194 @@ public actor MNGAPIClient {
         return response.vault
     }
 
+    /// Create one native vault. Only the public KDF parameters, the encrypted
+    /// verifier and the encrypted manifest leave the device.
+    public func createNativeVault(
+        uid: String,
+        kdf: String,
+        iterations: Int64,
+        salt: String,
+        verifier: String,
+        manifest: String
+    ) async throws -> NativeVault {
+        let body = try encode(
+            CreateVaultBody(
+                uid: uid,
+                kdf: kdf,
+                iterations: iterations,
+                salt: salt,
+                verifier: verifier,
+                manifest: manifest
+            )
+        )
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/vaults",
+            body: body,
+            csrf: true
+        )
+        let response: NativeVaultResponse = try await perform(request)
+        return response.vault
+    }
+
+    /// Compare-and-swap the encrypted manifest. A `409 {"error":"stale"}` means
+    /// another session wrote first; the caller refetches and retries once.
+    public func updateNativeManifest(
+        id: Int64,
+        manifest: String,
+        prevSHA256: String,
+        bytes: Int64
+    ) async throws -> NativeVault {
+        let body = try encode(
+            UpdateManifestBody(
+                manifest: manifest,
+                prevSHA256: prevSHA256,
+                bytes: bytes
+            )
+        )
+        let request = try makeRequest(
+            method: .put,
+            path: "/v1/vaults/\(id)/manifest",
+            body: body,
+            csrf: true
+        )
+        let response: NativeVaultResponse = try await perform(request)
+        return response.vault
+    }
+
+    /// Ask the server which of the given blocks it still has to receive.
+    public func prepareNativeBlocks(id: Int64, blocks: [String]) async throws -> [String] {
+        let body = try encode(PrepareBlocksBody(blocks: blocks))
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/vaults/\(id)/blobs/prepare",
+            body: body,
+            csrf: true
+        )
+        let response: NativePrepareResponse = try await perform(request)
+        return response.missing
+    }
+
+    /// Commit one opaque blob file after every block was uploaded.
+    public func commitNativeFile(
+        id: Int64,
+        name: String,
+        size: Int64,
+        blocks: [String]
+    ) async throws -> String {
+        let body = try encode(
+            CommitFileBody(name: name, size: size, blocks: blocks)
+        )
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/vaults/\(id)/files",
+            body: body,
+            csrf: true
+        )
+        let response: NativeCommitResponse = try await perform(request)
+        return response.fileID
+    }
+
+    /// Remove one committed file from the vault's blob library.
+    public func deleteNativeFile(id: Int64, name: String) async throws {
+        let body = try encode(DeleteFileBody(name: name))
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/vaults/\(id)/files/delete",
+            body: body,
+            csrf: true
+        )
+        let _: OkResponse = try await perform(request)
+    }
+
+    /// Delete one owner vault, including its ciphertext blobs.
+    public func deleteNativeVault(id: Int64) async throws {
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/vaults/\(id)/delete",
+            csrf: true
+        )
+        let _: OkResponse = try await perform(request)
+    }
+
+    /// Rename one vault. The server stores the new name in the clear, exactly
+    /// like the PWA.
+    public func renameNativeVault(id: Int64, name: String) async throws -> NativeVault {
+        let body = try encode(RenameVaultBody(name: name))
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/vaults/\(id)/rename",
+            body: body,
+            csrf: true
+        )
+        let response: NativeVaultResponse = try await perform(request)
+        return response.vault
+    }
+
+    /// Upload one encrypted block. The body is the raw `iv || ciphertext || tag`.
+    public func uploadNativeBlock(id: Int64, block: String, data: Data) async throws {
+        guard Self.isBlockID(block) else {
+            throw APIError(
+                status: 0,
+                code: "invalid_blob",
+                message: "Mã khối dữ liệu không hợp lệ."
+            )
+        }
+        var request = try makeRequest(
+            method: .put,
+            path: "/v1/vaults/\(id)/blobs/\(block)",
+            csrf: true
+        )
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+        request.httpBody = data
+        let (payload, response) = try await send(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.network()
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw apiError(data: payload, status: http.statusCode)
+        }
+    }
+
+    /// Download the encrypted manifest (`iv || ciphertext || tag`).
+    public func nativeManifestBytes(id: Int64) async throws -> Data {
+        let request = try makeRequest(
+            method: .get,
+            path: "/v1/vaults/\(id)/manifest"
+        )
+        return try await performBinary(request)
+    }
+
+    /// Download one encrypted blob by its SHA-1 block id.
+    public func nativeBlobBytes(id: Int64, blob: String) async throws -> Data {
+        let request = try makeRequest(
+            method: .get,
+            path: "/v1/vaults/\(id)/blobs/\(blob)"
+        )
+        return try await performBinary(request)
+    }
+
+    /// Download one ciphertext block of a committed vault file.
+    public func nativeFileBlockBytes(
+        id: Int64,
+        fileID: String,
+        block: String
+    ) async throws -> Data {
+        let request = try makeRequest(
+            method: .get,
+            path: "/v1/vaults/\(id)/files/\(fileID)/blocks/\(block)"
+        )
+        return try await performBinary(request)
+    }
+
+    /// 40 lowercase hex characters, the Seafile block and file id shape.
+    private static func isBlockID(_ value: String) -> Bool {
+        value.count == 40 && value.allSatisfy { character in
+            character.isHexDigit && !character.isUppercase
+        }
+    }
+
     // MARK: - Seafile encrypted libraries
 
     public func e2eeLibraries() async throws -> E2eeLibrariesResponse {
@@ -549,6 +737,45 @@ public actor MNGAPIClient {
 
     private struct ScanBody: Encodable {
         let cloud: String
+    }
+
+    private struct CreateVaultBody: Encodable {
+        let uid: String
+        let kdf: String
+        let iterations: Int64
+        let salt: String
+        let verifier: String
+        let manifest: String
+    }
+
+    private struct UpdateManifestBody: Encodable {
+        let manifest: String
+        let prevSHA256: String
+        let bytes: Int64
+
+        enum CodingKeys: String, CodingKey {
+            case manifest
+            case prevSHA256 = "prev_sha256"
+            case bytes
+        }
+    }
+
+    private struct PrepareBlocksBody: Encodable {
+        let blocks: [String]
+    }
+
+    private struct CommitFileBody: Encodable {
+        let name: String
+        let size: Int64
+        let blocks: [String]
+    }
+
+    private struct DeleteFileBody: Encodable {
+        let name: String
+    }
+
+    private struct RenameVaultBody: Encodable {
+        let name: String
     }
 
     private struct OkResponse: Decodable {
@@ -738,6 +965,19 @@ public actor MNGAPIClient {
         } catch {
             throw APIError.invalid(status: http.statusCode)
         }
+    }
+
+    /// Binary routes answer with the raw bytes; the vault relays ciphertext
+    /// blobs that are never JSON.
+    private func performBinary(_ request: URLRequest) async throws -> Data {
+        let (data, response) = try await send(request)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalid(status: 0)
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw apiError(data: data, status: http.statusCode)
+        }
+        return data
     }
 
     /// Port of `ui/src/api.rs::error_of` plus the fallback strings used by the

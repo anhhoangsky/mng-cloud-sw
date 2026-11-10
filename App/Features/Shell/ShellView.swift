@@ -6,6 +6,7 @@ import SwiftUI
 struct ShellView: View {
     @State private var model: ShellModel
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.scenePhase) private var scenePhase
 
     init(store: SessionStore) {
         _model = State(initialValue: ShellModel(store: store))
@@ -45,6 +46,13 @@ struct ShellView: View {
             }
             .task {
                 await model.start()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                // The derived vault key never survives the app going to the
+                // background.
+                if phase != .active {
+                    model.vault.lock()
+                }
             }
     }
 
@@ -120,7 +128,7 @@ struct ShellView: View {
         case .settings:
             SettingsView(model: model)
         case .vault:
-            PlaceholderPage(tab: model.tab)
+            VaultView(model: model)
         }
     }
 

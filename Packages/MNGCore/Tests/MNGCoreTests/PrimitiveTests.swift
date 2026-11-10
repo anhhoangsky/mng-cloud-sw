@@ -44,4 +44,16 @@ final class PrimitiveTests: XCTestCase {
         XCTAssertEqual(bytes.copyBytes(), [0, 0, 0])
         XCTAssertEqual(bytes.count, 3)
     }
+
+    func testSHA1HexMatchesTheSeafileBlockID() {
+        XCTAssertEqual(
+            SHA1.hex([UInt8]("abc".utf8)),
+            "a9993e364706816aba3e25717850c26c9cd0d89d"
+        )
+        XCTAssertEqual(SHA1.hex([]), "da39a3ee5e6b4b0d3255bfef95601890afd80709")
+        XCTAssertEqual(
+            SHA1.hex([UInt8]("The quick brown fox!".utf8)),
+            "938443eee1717710adbf2858238add7e12dbb791"
+        )
+    }
 }

@@ -1015,6 +1015,22 @@ Album → Tài liệu → ảnh → text → khoá; upload file nhỏ/4 MiB/4 Mi
 retry; xoá vault đòi mật khẩu; không log/không gửi mật khẩu hay key; tự khoá
 sau 15 phút.
 
+Trạng thái (2026-11-11) — P7.1 xong: tab Kho thay placeholder bằng màn hình
+thật (danh sách → mở khoá → duyệt). Tạo kho sinh uid 32 hex + salt 16 byte,
+mã hoá verifier và manifest rỗng bằng AES-256-GCM rồi `POST /vaults`; mật
+khẩu chỉ chạy PBKDF2 310k (ngoài main actor) và không rời thiết bị. Mở khoá
+verify verifier rồi giải mã manifest (chỉ dùng `sanitizeManifest`). Cây thư
+mục dùng đúng thứ tự sort fold của PWA, tìm kiếm fold theo tên, breadcrumb và
+đường dẫn cha. Tạo/xoá thư mục và xoá tệp đi qua manifest CAS (`prev_sha256`/
+`bytes`) và retry một lần khi `409 stale`; xoá kho xác nhận bằng mật khẩu và
+verify local trước khi gọi server. Khoá tự động khi rời tab, sau 15 phút không
+tương tác và khi app vào nền. MNGKit đã có đủ route vault (list/create/manifest
+CAS/prepare/commit/blob upload/binary download/delete/rename) kèm test.
+Còn lại P7.2: tải lên (chia 4 MiB, SHA-1 block id), xem trước ảnh/video/text,
+thumbnail giải mã, tên tệp từ picker. Trình duyệt E2EE Seafile đã bị PWA gỡ
+khỏi UI (`vault.rs` chỉ còn native vault) nên không port sang iOS; crypto
+`RepoKey` v2/v3 vẫn nằm trong MNGCore với KAT.
+
 ### P8 — Editor ảnh (1 tuần)
 
 Việc chính:

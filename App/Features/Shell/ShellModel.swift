@@ -81,6 +81,7 @@ final class ShellModel {
     let icloud: ICloudModel
     let settings: SettingsModel
     let duplicates: DuplicatesModel
+    let vault: VaultModel
 
     var tab: ShellTab = .library
     var toast: String?
@@ -115,6 +116,7 @@ final class ShellModel {
         icloud = ICloudModel(client: client)
         settings = SettingsModel(client: client)
         duplicates = DuplicatesModel(client: client)
+        vault = VaultModel(client: client)
 
         library.cloudLabel = { [weak self] cloud in
             self?.cloudLabel(for: cloud) ?? (cloud.isEmpty ? Strings.cloud.lowercased() : cloud)
@@ -169,6 +171,12 @@ final class ShellModel {
         }
         duplicates.onUnauthorized = { [weak self] in
             self?.expireSession()
+        }
+        vault.onUnauthorized = { [weak self] in
+            self?.expireSession()
+        }
+        vault.onToast = { [weak self] message in
+            self?.notify(message)
         }
         albums.onToast = { [weak self] message in
             self?.notify(message)
@@ -327,6 +335,11 @@ final class ShellModel {
             Task { [weak self] in
                 await self?.albums.loadIfNeeded()
             }
+        }
+        // The PWA mounts the vault only while its tab is active, so leaving it
+        // drops every derived key and decrypted byte.
+        if next != .vault {
+            vault.lock()
         }
     }
 

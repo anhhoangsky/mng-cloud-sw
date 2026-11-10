@@ -284,3 +284,8 @@ extension VaultKey: CustomDebugStringConvertible {
         "VaultKey()"
     }
 }
+
+/// The derived key never changes after creation and the protected buffer is
+/// only read, so the key can be derived off the main actor and handed back to
+/// the UI isolation domain.
+extension VaultKey: @unchecked Sendable {}

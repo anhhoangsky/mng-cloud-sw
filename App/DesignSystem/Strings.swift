@@ -237,6 +237,105 @@ enum Strings {
     static let comingSoon = "Tính năng đang được xây dựng."
     static let comingSoonHint = "Phần này sẽ có ở giai đoạn tiếp theo."
 
+    // Native vault
+    static let vaultTitle = "Kho mã hóa"
+    static let vaultCreate = "Tạo kho"
+    static let vaultRefresh = "Làm mới"
+    static let vaultLoading = "Đang tải kho mã hóa…"
+    static let vaultLoadFailed = "Không tải được kho mã hóa"
+    static let vaultEmptyTitle = "Chưa có kho mã hóa"
+    static let vaultEmptyBody = "Tạo kho trên máy chủ, sau đó làm mới danh sách này."
+    static let vaultNoteServer =
+        "Máy chủ chỉ lưu các khối đã mã hóa AES-256-GCM. Mật khẩu và chìa khóa chỉ tồn tại trong ứng dụng này."
+    static let vaultNoteChunks =
+        "Nội dung tệp được chia thành khối 4 MiB, mã hóa AES-256-GCM và chỉ giải mã trong ứng dụng này."
+    static let vaultNoIndex = "Chưa có chỉ mục"
+    static let vaultRootName = "Kho"
+    static let vaultUnlock = "Mở khóa"
+    static let vaultUnlocking = "Đang mở khóa…"
+    static let vaultUnlockBody =
+        "Mật khẩu chỉ tạo chìa khóa PBKDF2 trong ứng dụng này; mật khẩu và chìa khóa không được gửi tới máy chủ."
+    static let vaultPassword = "Mật khẩu mã hóa"
+    static let vaultPasswordPlaceholder = "Nhập mật khẩu của kho"
+    static let vaultPasswordMissing = "Hãy nhập mật khẩu mã hóa."
+    static let vaultPasswordShort = "Mật khẩu cần ít nhất 8 ký tự."
+    static let vaultPasswordMismatch = "Mật khẩu xác nhận không khớp."
+    static let vaultWrongPassword = "Mật khẩu không đúng."
+    static let vaultDeleteWrongPassword = "Mật khẩu mã hóa không đúng."
+    static let vaultUnlockFailed = "Không mở khóa được kho."
+    static let vaultInvalidIterations = "Số vòng PBKDF2 không hợp lệ."
+    static let vaultInvalidSalt = "Muối mã hóa không hợp lệ."
+    static let vaultInvalidVerifier = "Mã xác thực của kho không hợp lệ."
+    static let vaultInvalidMetadata = "Siêu dữ liệu kho không hợp lệ."
+    static let vaultManifestInvalid = "Chỉ mục mã hóa không hợp lệ hoặc đã bị thay đổi."
+    static let vaultNoIndexTitle = "Kho này chưa có chỉ mục mã hóa."
+    static let vaultNoIndexBody = "Chủ kho cần tạo chỉ mục trước khi kho có thể mở khóa."
+    static let vaultBackToList = "Danh sách kho"
+    static let vaultCreateTitle = "Tạo kho mã hóa"
+    static let vaultCreateBody =
+        "Tên kho, tên tệp và nội dung chỉ được lưu dưới dạng mã hóa trên máy chủ."
+    static let vaultName = "Tên kho"
+    static let vaultNameMissing = "Hãy nhập tên kho."
+    static let vaultNamePlaceholder = "Ví dụ: Kho gia đình"
+    static let vaultConfirmPassword = "Nhập lại mật khẩu"
+    static let vaultCreating = "Đang tạo kho…"
+    static let vaultCreateHint =
+        "Mật khẩu không thể khôi phục. Nếu quên, dữ liệu trong kho sẽ không giải mã được."
+    static let vaultCreated = "Đã tạo kho mã hóa."
+    static let vaultDeleteTitle = "Xóa kho mã hóa?"
+    static let vaultDeleting = "Đang xóa…"
+    static let vaultDeleteHint =
+        "Mật khẩu chỉ kiểm tra chìa khóa trong kho này; mật khẩu và chìa khóa không được gửi tới máy chủ."
+    static let vaultFolder = "Thư mục"
+    static let vaultUpload = "Tải lên"
+    static let vaultLock = "Khóa"
+    static let vaultSearchPlaceholder = "Tìm trong kho đã mã hóa…"
+    static let vaultSearchEmptyTitle = "Không tìm thấy"
+    static let vaultSearchEmptyBody = "Không có mục nào khớp với từ khóa."
+    static let vaultEmptyFolderTitle = "Kho đang trống"
+    static let vaultEmptyFolderBody = "Kho này chưa có tệp hoặc thư mục con."
+    static let vaultCreateFolder = "Tạo thư mục"
+    static let vaultFolderName = "Tên thư mục"
+    static let vaultFolderPlaceholder = "Tên thư mục mới"
+    static let vaultFolderCreating = "Đang tạo…"
+    static let vaultFileLabel = "Tệp"
+    static let vaultImageLabel = "Ảnh"
+    static let vaultVideoLabel = "Video"
+    static let vaultUnlockFailedTitle = "Không mở khóa được kho"
+    static let vaultStale = "Kho đã thay đổi ở phiên khác. Hãy thử lại."
+    static let vaultLockedNotice = "Kho đã khoá. Nhập mật khẩu để tiếp tục."
+    static let vaultDeleted = "Đã xoá kho mã hóa."
+    static let vaultFileDeleted = "Đã xoá tệp khỏi chỉ mục."
+    static let vaultFolderDeleted = "Đã xoá thư mục khỏi chỉ mục."
+
+    static func vaultMeta(id: Int64, bytes: Int64) -> String {
+        "#\(id) • \(MNGFormat.bytes(bytes)) đã mã hóa"
+    }
+
+    static func vaultSubtitle(files: Int, bytes: Int64) -> String {
+        "\(MNGFormat.number(Int64(files))) tệp • \(MNGFormat.bytes(bytes)) • đã mở khóa"
+    }
+
+    static func vaultFolderCount(_ count: Int) -> String {
+        "\(MNGFormat.number(Int64(count))) tệp"
+    }
+
+    static func vaultFolderPath(_ path: String) -> String {
+        "Trong: \(path)"
+    }
+
+    static func vaultDeleteBody(_ name: String) -> String {
+        "Kho “\(name)” cùng toàn bộ thư viện trên máy chủ của kho sẽ bị xóa vĩnh viễn. Chỉ mục mã hóa, tệp và thư mục bên trong không thể khôi phục."
+    }
+
+    static func vaultFileMeta(_ label: String, _ bytes: Int64) -> String {
+        "\(label) • \(MNGFormat.bytes(bytes))"
+    }
+
+    static func vaultFileMetaPath(_ path: String, _ bytes: Int64) -> String {
+        "\(path) • \(MNGFormat.bytes(bytes))"
+    }
+
     // Albums
     static let albumFallback = "Album"
     static let albumSelected = "Bộ sưu tập đã chọn"

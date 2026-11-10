@@ -475,6 +475,183 @@ final class MNGAPIClientTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: archive.url), Data([0x50, 0x4B]))
     }
 
+    func testVaultRoutesSendCSRFAndDecodeResponses() async throws {
+        let client = makeClient()
+        await client.setCSRF("csrf-vault")
+        let vaultJSON = """
+        {
+          "id": 7,
+          "uid": "00112233445566778899aabbccddeeff",
+          "name": "Kho gia đình",
+          "kdf": "PBKDF2-SHA256",
+          "salt": "c2FsdHNhbHRzYWx0c2FsdA==",
+          "iterations": 310000,
+          "verifier": "dmVyaWZpZXI=",
+          "bytes": 4096,
+          "manifest_size": 128,
+          "manifest_at": 99,
+          "manifest_sha256": "aabb",
+          "manifest_ready": true,
+          "created_at": 10,
+          "updated_at": 20
+        }
+        """
+
+        MockURLProtocol.handler = { request in
+            let method = request.httpMethod ?? "GET"
+            switch (method, request.url?.path ?? "") {
+            case ("GET", "/api/v1/vaults"):
+                return try MockURLProtocol.respondJSON(
+                    body: #"{"vaults":[\#(vaultJSON)]}"#
+                )(request)
+            case ("GET", "/api/v1/vaults/7"):
+                return try MockURLProtocol.respondJSON(
+                    body: #"{"vault":\#(vaultJSON)}"#
+                )(request)
+            case ("POST", "/api/v1/vaults"):
+                XCTAssertEqual(
+                    request.value(forHTTPHeaderField: "X-CSRF-Token"),
+                    "csrf-vault"
+                )
+                let body = try XCTUnwrap(request.capturedBody)
+                let object = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: body) as? [String: Any]
+                )
+                XCTAssertEqual(object["kdf"] as? String, "PBKDF2-SHA256")
+                XCTAssertEqual(object["iterations"] as? Int, 310000)
+                return try MockURLProtocol.respondJSON(
+                    body: #"{"vault":\#(vaultJSON)}"#
+                )(request)
+            case ("PUT", "/api/v1/vaults/7/manifest"):
+                let body = try XCTUnwrap(request.capturedBody)
+                let object = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: body) as? [String: Any]
+                )
+                XCTAssertEqual(object["prev_sha256"] as? String, "aabb")
+                XCTAssertEqual(object["bytes"] as? Int, 128)
+                return try MockURLProtocol.respondJSON(
+                    body: #"{"vault":\#(vaultJSON)}"#
+                )(request)
+            case ("POST", "/api/v1/vaults/7/blobs/prepare"):
+                return try MockURLProtocol.respondJSON(
+                    body: #"{"missing":["abc"]}"#
+                )(request)
+            case ("POST", "/api/v1/vaults/7/files"):
+                return try MockURLProtocol.respondJSON(
+                    body: #"{"file_id":"0123456789abcdef0123456789abcdef01234567"}"#
+                )(request)
+            case ("POST", "/api/v1/vaults/7/files/delete"):
+                return try MockURLProtocol.respondJSON(body: #"{"ok":true}"#)(request)
+            case ("POST", "/api/v1/vaults/7/delete"):
+                return try MockURLProtocol.respondJSON(body: #"{"ok":true}"#)(request)
+            case ("POST", "/api/v1/vaults/7/rename"):
+                return try MockURLProtocol.respondJSON(
+                    body: #"{"vault":\#(vaultJSON)}"#
+                )(request)
+            default:
+                XCTFail("unexpected request \(method) \(request.url?.path ?? "nil")")
+                return try MockURLProtocol.respondJSON(body: #"{}"#)(request)
+            }
+        }
+
+        let list = try await client.nativeVaults()
+        XCTAssertEqual(list.vaults.count, 1)
+        XCTAssertEqual(list.vaults[0].id, 7)
+        XCTAssertEqual(list.vaults[0].iterations, 310000)
+        XCTAssertTrue(list.vaults[0].manifestReady)
+        XCTAssertEqual(list.vaults[0].manifestSHA256, "aabb")
+
+        let single = try await client.nativeVault(id: 7)
+        XCTAssertEqual(single.name, "Kho gia đình")
+
+        let created = try await client.createNativeVault(
+            uid: "00112233445566778899aabbccddeeff",
+            kdf: "PBKDF2-SHA256",
+            iterations: 310000,
+            salt: "c2FsdHNhbHRzYWx0c2FsdA==",
+            verifier: "dmVyaWZpZXI=",
+            manifest: "bWFuaWZlc3Q="
+        )
+        XCTAssertEqual(created.id, 7)
+
+        let updated = try await client.updateNativeManifest(
+            id: 7,
+            manifest: "bWFuaWZlc3Q=",
+            prevSHA256: "aabb",
+            bytes: 128
+        )
+        XCTAssertEqual(updated.manifestSize, 128)
+
+        let missing = try await client.prepareNativeBlocks(id: 7, blocks: ["abc"])
+        XCTAssertEqual(missing, ["abc"])
+
+        let fileID = try await client.commitNativeFile(
+            id: 7,
+            name: "f-1.bin",
+            size: 12,
+            blocks: ["abc"]
+        )
+        XCTAssertEqual(fileID, "0123456789abcdef0123456789abcdef01234567")
+
+        try await client.deleteNativeFile(id: 7, name: "f-1.bin")
+        try await client.deleteNativeVault(id: 7)
+        _ = try await client.renameNativeVault(id: 7, name: "Kho mới")
+    }
+
+    func testVaultBinaryRoutesReturnRawBytes() async throws {
+        let client = makeClient()
+        MockURLProtocol.handler = { request in
+            let url = try XCTUnwrap(request.url)
+            let response = try XCTUnwrap(
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: "HTTP/1.1",
+                    headerFields: ["Content-Type": "application/octet-stream"]
+                )
+            )
+            return (response, Data([0x01, 0x02, 0x03]))
+        }
+
+        let manifest = try await client.nativeManifestBytes(id: 7)
+        XCTAssertEqual(manifest, Data([0x01, 0x02, 0x03]))
+
+        let blob = try await client.nativeBlobBytes(id: 7, blob: "abc")
+        XCTAssertEqual(blob, Data([0x01, 0x02, 0x03]))
+
+        let block = try await client.nativeFileBlockBytes(id: 7, fileID: "f", block: "abc")
+        XCTAssertEqual(block, Data([0x01, 0x02, 0x03]))
+    }
+
+    func testUploadVaultBlockSendsOctetStreamAndRejectsBadID() async throws {
+        let client = makeClient()
+        await client.setCSRF("csrf-vault")
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "PUT")
+            XCTAssertEqual(
+                request.value(forHTTPHeaderField: "Content-Type"),
+                "application/octet-stream"
+            )
+            XCTAssertEqual(
+                request.value(forHTTPHeaderField: "X-CSRF-Token"),
+                "csrf-vault"
+            )
+            let body = try XCTUnwrap(request.capturedBody)
+            XCTAssertEqual(body, Data([0x09, 0x08]))
+            return try MockURLProtocol.respondJSON(body: #"{"ok":true}"#)(request)
+        }
+
+        let block = "0123456789abcdef0123456789abcdef01234567"
+        try await client.uploadNativeBlock(id: 7, block: block, data: Data([0x09, 0x08]))
+
+        do {
+            try await client.uploadNativeBlock(id: 7, block: "nope", data: Data())
+            XCTFail("expected an invalid block id error")
+        } catch let error as APIError {
+            XCTAssertEqual(error.code, "invalid_blob")
+        }
+    }
+
     func testClearSessionCookiesRemovesHostCookies() async throws {
         let storage = HTTPCookieStorage.shared
         for cookie in storage.cookies ?? [] where cookie.domain.contains("api.test") {

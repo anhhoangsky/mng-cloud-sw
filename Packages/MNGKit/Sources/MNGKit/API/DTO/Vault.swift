@@ -75,3 +75,39 @@ public struct NativeVaultResponse: Decodable, Equatable, Sendable {
         case vault
     }
 }
+
+/// `POST /vaults/{id}/blobs/prepare` lists the blocks the server still misses.
+public struct NativePrepareResponse: Decodable, Equatable, Sendable {
+    public let missing: [String]
+
+    public init(missing: [String] = []) {
+        self.missing = missing
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        missing = try container.mngValue(.missing, default: [])
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case missing
+    }
+}
+
+/// `POST /vaults/{id}/files` returns the committed Seafile file id.
+public struct NativeCommitResponse: Decodable, Equatable, Sendable {
+    public let fileID: String
+
+    public init(fileID: String = "") {
+        self.fileID = fileID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        fileID = try container.mngValue(.fileID, default: "")
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case fileID = "file_id"
+    }
+}
