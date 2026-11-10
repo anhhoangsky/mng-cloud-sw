@@ -212,6 +212,8 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - Tiles give a light haptic when they enter or leave the selection.
 - `os_signpost` marks the thumbnail decode so the device profiling in Xcode
   shows where the time goes.
+- The timeline warms the thumbnails of the next rows (eight at a time, one
+  after another) so a long library scrolls without a flash of empty tiles.
 
 ## Visual checks per UI phase
 

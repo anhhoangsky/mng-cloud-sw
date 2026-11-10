@@ -44,4 +44,18 @@ final class ThumbCache {
         }
         inflight.removeAll()
     }
+
+    /// Warm the cache for rows that are about to scroll into view.
+    ///
+    /// The downloads run one after another so a big library never floods the
+    /// connection while the user is still scrolling.
+    func prefetch(paths: [String], client: MNGAPIClient) {
+        guard !paths.isEmpty else { return }
+        Task { [weak self] in
+            for path in paths {
+                guard let self else { return }
+                _ = await self.data(for: path, client: client)
+            }
+        }
+    }
 }

@@ -146,14 +146,20 @@ final class LibraryModel {
         await reload()
     }
 
-    private func loadTimeline(seq: Int) async {
-        do {
+    /// Warm the thumbnails of the rows that are about to scroll into view.
+    private func prefetchThumbnails() {
+        let upcoming = page.items.suffix(8).map { $0.thumbnailPath(size: 360) }
+        ThumbCache.shared.prefetch(paths: upcoming, client: client)
+    }
+
+    private func loadTimeline(seq: Int) async {        do {
             let response = try await client.items(
                 requestFilters(offset: 0)
             )
             guard seq == requestSeq else { return }
             page.replace(with: response)
             loadState = .ready
+            prefetchThumbnails()
         } catch let error as APIError {
             guard seq == requestSeq else { return }
             if error.status == 401 {

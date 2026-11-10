@@ -1147,8 +1147,9 @@ P11 (2026-11-11, phần đầu): bàn phím cứng trong viewer (←/→ đổi 
 Dynamic Type: mọi cỡ chữ cố định của PWA nay đi qua `Font.mng(...)` nên nhân
 với hệ số Dynamic Type (giới hạn 1,6× để tiêu đề lớn không vỡ layout).
 Viewer đã tôn trọng Reduce Motion cho zoom ✓. Multi-select, ZIP, share,
-pull-to-refresh và các trạng thái lỗi đã có từ P3–P6. Còn lại: marquee iPad,
-prefetch thumbnail, ảnh/phát hành TestFlight và kiểm tra trên thiết bị thật.
+pull-to-refresh và các trạng thái lỗi đã có từ P3–P6. Thư viện lớn được
+prefetch thumbnail cho 8 ảnh kế tiếp (tải tuần tự, không ngập kết nối).
+Còn lại: marquee iPad, ảnh/phát hành TestFlight và kiểm tra trên thiết bị thật.
 
 ---
 
