@@ -16,7 +16,7 @@ struct BootScreen: View {
             Palette.bg.ignoresSafeArea()
 
             VStack(spacing: Tokens.Spacing.l) {
-                logo
+                AppMark(size: 84)
 
                 Text(Strings.appName)
                     .font(.system(size: 22, weight: .semibold))
@@ -50,22 +50,6 @@ struct BootScreen: View {
                     .tint(Palette.accent)
             }
         }
-    }
-
-    private var logo: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: Tokens.Radius.xl, style: .continuous)
-                .fill(Palette.accentSoft)
-                .frame(width: 84, height: 84)
-            Image(systemName: "cloud.fill")
-                .font(.system(size: 38, weight: .medium))
-                .foregroundStyle(Palette.accent)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: Tokens.Radius.xl, style: .continuous)
-                .stroke(Palette.hairline, lineWidth: 1)
-        }
-        .accessibilityLabel(Strings.appName)
     }
 }
 

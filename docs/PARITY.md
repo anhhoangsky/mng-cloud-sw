@@ -9,8 +9,8 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 
 | Area | Target | Status |
 | --- | --- | --- |
-| Boot | logo, spinner, retry + exact error copy | 🟡 static screen done |
-| Login | card, cloud mark, error copy, CSRF session | ⏳ |
+| Boot | logo, spinner, retry + exact error copy | 🟡 wired to `SessionStore`, CI pending |
+| Login | card, cloud mark, error copy, CSRF session | 🟡 card + validation + CSRF session, CI pending |
 | App shell | 4 tabs compact / 264 pt sidebar regular, search button | ⏳ |
 | Library | Năm / Tháng / Tất cả, Ảnh/Video/Live/Yêu thích, 120-item pages, scroll anchor | ⏳ |
 | Tiles | long-press menu, info sheet, favorite optimistic, delete confirm, selection mode | ⏳ |

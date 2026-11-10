@@ -851,6 +851,12 @@ Việc chính:
 Nghiệm thu: đăng nhập box staging; relaunch vẫn còn phiên (cookie); logout;
 mutation gửi `X-CSRF-Token`; sai mật khẩu hiển thị đúng câu; không log bí mật.
 
+Trạng thái (2026-11-10): đã port `APIError`, chuẩn hoá origin và `/api/v1`,
+query builder, DTO đọc, `MNGAPIClient` (cookie + CSRF), `SessionStore`,
+`LoginView`/`BootScreen`. Type-check Swift 5.10 và runtime harness
+(`URLProtocol`) trên Compiler Explorer đạt; `swift test`/simulator thật vẫn
+chờ CI macOS (repo chưa có remote GitHub).
+
 ### P3 — Shell + Thư viện + tile actions (2 tuần)
 
 Việc chính:
