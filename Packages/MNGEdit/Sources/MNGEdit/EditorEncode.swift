@@ -76,10 +76,4 @@ extension EditorExportFormat {
         case .webp: return UTType.webP.identifier
         }
     }
-
-    /// True when the platform can write this container.
-    public var isEncodable: Bool {
-        let types = CGImageDestinationCopyTypeIdentifiers() as? [String] ?? []
-        return types.contains(identifier)
-    }
 }

@@ -218,6 +218,19 @@ public enum EditorExportFormat: String, Equatable, CaseIterable, Sendable {
         case .webp: return "webp"
         }
     }
+
+    /// True when the platform can write this container.
+    ///
+    /// ImageIO only gained a WebP encoder on some systems, so the app falls
+    /// back to JPEG when it is missing.
+    public var isEncodable: Bool {
+        #if canImport(CoreGraphics) && canImport(ImageIO)
+        let types = CGImageDestinationCopyTypeIdentifiers() as? [String] ?? []
+        return types.contains(identifier)
+        #else
+        return true
+        #endif
+    }
 }
 
 /// One decoded image plus the editor state.
