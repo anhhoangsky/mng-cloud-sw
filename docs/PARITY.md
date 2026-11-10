@@ -120,6 +120,8 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   the same `LibraryModel` mutations and rollback path.
 - The admin row is intentionally absent until P9; storage is read-only, matching
   the web UI.
+- CI run `42858021122` passed all package tests, the unsigned simulator build,
+  the simulator test target and the artifact upload.
 
 ## Visual checks per UI phase
 

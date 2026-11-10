@@ -988,8 +988,9 @@ server qua `APIMessages.settingsAction`, refresh bootstrap sau khi xong. iCloud
 row refresh mỗi lần mở Settings nhưng không poll. Duplicates sheet đọc
 `/duplicates`, summary `hashed/total`, mở 30 nhóm/trang, grid thumbnail 128 pt,
 mở viewer với đúng danh sách nhóm và giữ nút `Xem thêm N nhóm`. Đã thêm DTO +
-client method + test request/CSRF/decode; CI P6 đang chờ. Chưa có hàng Admin
-(P9) và action "Dung lượng" chỉ đọc.
+client method + test request/CSRF/decode; CI P6 run 42858021122 (2026-11-11)
+xanh toàn bộ: MNGCore, MNGKit, MNGEdit, build và test simulator. Chưa có hàng
+Admin (P9) và action "Dung lượng" chỉ đọc.
 
 ### P7 — Vault native + Seafile E2EE (2.5 tuần)
 
