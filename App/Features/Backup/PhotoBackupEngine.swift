@@ -38,7 +38,6 @@ final class PhotoBackupEngine {
         let name: String
         let mime: String
         let creationDate: Date
-        let size: Int64
         let isLivePhoto: Bool
         /// The background tasks that carry the upload, once they are running.
         /// A Live Photo is two files, so there can be more than one.
@@ -342,19 +341,12 @@ final class PhotoBackupEngine {
                 ? "video-\(asset.localIdentifier).mov"
                 : "IMG-\(asset.localIdentifier).jpg")
         let isLive = !isVideo && resources.contains { $0.type == .pairedVideo }
-        // The size of a resource is an optional `Int`, so the sum is widened
-        // to the `Int64` the job carries.
-        var size: Int64 = 0
-        for resource in resources {
-            size += Int64(resource.dataSize ?? 0)
-        }
         return Job(
             id: UUID(),
             localIdentifier: asset.localIdentifier,
             name: name,
             mime: mime(for: name, isVideo: isVideo),
             creationDate: asset.creationDate ?? Date(),
-            size: size,
             isLivePhoto: isLive,
             taskIDs: [],
             attempts: 0,
@@ -413,7 +405,8 @@ final class PhotoBackupEngine {
                 StagedFile(
                     name: fileName,
                     mime: Self.mime(for: fileName, isVideo: isCompanion),
-                    url: target
+                    url: target,
+                    size: Self.fileSize(of: target)
                 )
             )
         }
@@ -459,6 +452,16 @@ final class PhotoBackupEngine {
             .appendingPathExtension((name as NSString).pathExtension)
     }
 
+    /// The size of a written file, in bytes.
+    ///
+    /// The Photos framework does not expose the size of a resource on every
+    /// supported system, so the size of the copy that is uploaded is read
+    /// from the file itself.
+    private static func fileSize(of url: URL) -> Int64 {
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+        return Int64(values?.fileSize ?? 0)
+    }
+
     private static func write(
         resource: PHAssetResource,
         to url: URL
@@ -481,28 +484,34 @@ final class PhotoBackupEngine {
 
     /// Stage one job and hand it to the background session.
     private func upload(job: Job, client: MNGAPIClient) async {
+        let staged = await stage(job)
+        guard !staged.isEmpty else {
+            recordFailure(job)
+            return
+        }
+
         // The server knows what is already in the library; asking it first
-        // saves the transfer of a photo the user uploaded from another device.
+        // saves the transfer of a photo the user uploaded from another
+        // device. The size of the staged file is the size the server would
+        // get, so it is the one the match compares against. A Live Photo is
+        // matched on its still, not on the companion movie.
+        let size = staged.first { $0.name == job.name }?.size ?? staged[0].size
         let takenAt = MNGNames.takenAt(
             from: job.name,
             mtime: job.creationDate.timeIntervalSince1970 > 0
                 ? Int64(job.creationDate.timeIntervalSince1970)
                 : 0
         )
-        if takenAt > 0, job.size > 0,
-           (try? await client.mediaMatch(takenAt: takenAt, size: job.size)) == true {
+        if takenAt > 0, size > 0,
+           (try? await client.mediaMatch(takenAt: takenAt, size: size)) == true {
             skipped += 1
             markHandled(job)
+            removeStagedFiles(job.id)
             removeFromQueue(job.id)
             saveState()
             return
         }
 
-        let staged = await stage(job)
-        guard !staged.isEmpty else {
-            recordFailure(job)
-            return
-        }
         // The scratch files are remembered before the first transfer starts,
         // so they are removed even when the second one fails.
         var scratch = staged.map(\.url)
@@ -670,6 +679,8 @@ struct StagedFile {
     let name: String
     let mime: String
     let url: URL
+    /// The size of the written file, which is the size the server gets.
+    let size: Int64
 }
 
 /// Watches the photo library for new assets.
