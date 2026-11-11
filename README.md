@@ -11,6 +11,8 @@ writer, worker and signing chain stay in `mng-cloud-rs`.
 - [docs/CRYPTO.md](docs/CRYPTO.md) — E2EE / vault crypto parity and KAT vectors
 - [docs/PARITY.md](docs/PARITY.md) — per-screen parity checklist
 - [docs/DEVICE_CHECKS.md](docs/DEVICE_CHECKS.md) — what still needs a real device
+- [docs/INSTALL_ON_DEVICE.md](docs/INSTALL_ON_DEVICE.md) — build a signed `.ipa`
+  on GitHub Actions and install it on an iPhone without a Mac
 
 ## Build
 
@@ -35,6 +37,10 @@ xcodebuild -project MNGCloud.xcodeproj -scheme MNGCloud \
 Use `generic/platform=iOS Simulator` when no simulator device is installed; the
 CI picks the first available device and falls back to `build-for-testing` when
 the runner has no iOS runtime.
+
+To try the app on a real iPhone without a Mac, run the **build-ios** workflow:
+it signs a `.ipa` on the GitHub runner and publishes it as an artifact. The
+step-by-step setup is in [docs/INSTALL_ON_DEVICE.md](docs/INSTALL_ON_DEVICE.md).
 
 ## Layout
 
