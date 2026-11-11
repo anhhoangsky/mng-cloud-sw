@@ -250,20 +250,26 @@ public actor MNGAPIClient {
     /// envelope is written to a scratch file and the file itself is streamed
     /// from disk, so a large video never lands in memory as a whole.
     ///
+    /// `takenAt` is the capture date the client knows. A phone names its
+    /// photos `IMG_1234.HEIC`, so the name carries no date and the server
+    /// would file the photo under the time of the upload.
+    ///
     /// The server stores the file in the owner's library and indexes it. A
     /// `matched` answer means an identical object was already there and no
     /// transfer happened.
     public func mediaUpload(
         name: String,
         fileURL: URL,
-        mime: String
+        mime: String,
+        takenAt: Int64 = 0
     ) async throws -> MediaUploadResponse {
         let boundary = "----MNGUpload\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         let body = try multipartBody(
             boundary: boundary,
             name: name,
             fileURL: fileURL,
-            mime: mime
+            mime: mime,
+            takenAt: takenAt
         )
         defer { try? FileManager.default.removeItem(at: body) }
 
@@ -298,14 +304,16 @@ public actor MNGAPIClient {
     public func mediaUploadRequest(
         name: String,
         fileURL: URL,
-        mime: String
+        mime: String,
+        takenAt: Int64 = 0
     ) async throws -> MediaUploadRequest {
         let boundary = "----MNGUpload\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         let body = try multipartBody(
             boundary: boundary,
             name: name,
             fileURL: fileURL,
-            mime: mime
+            mime: mime,
+            takenAt: takenAt
         )
         var request = try makeRequest(method: .post, path: "/v1/media/upload", csrf: true)
         request.setValue(
@@ -339,7 +347,8 @@ public actor MNGAPIClient {
         boundary: String,
         name: String,
         fileURL: URL,
-        mime: String
+        mime: String,
+        takenAt: Int64 = 0
     ) throws -> URL {
         let base = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)
@@ -372,7 +381,24 @@ public actor MNGAPIClient {
             try output.write(contentsOf: chunk)
         }
 
-        try output.write(contentsOf: Data("\r\n--\(boundary)--\r\n".utf8))
+        try output.write(contentsOf: Data("\r\n".utf8))
+
+        // The capture date the client knows. A phone names its photos
+        // `IMG_1234.HEIC`, so the name carries no date and the server would
+        // file the photo under the time of the upload.
+        if takenAt > 0 {
+            try output.write(
+                contentsOf: Data("--\(boundary)\r\n".utf8)
+            )
+            try output.write(
+                contentsOf: Data(
+                    "Content-Disposition: form-data; name=\"taken_at\"\r\n\r\n".utf8
+                )
+            )
+            try output.write(contentsOf: Data("\(takenAt)\r\n".utf8))
+        }
+
+        try output.write(contentsOf: Data("--\(boundary)--\r\n".utf8))
         return target
     }
 

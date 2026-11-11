@@ -61,6 +61,48 @@ public enum MNGNames {
         return mtime > 0 ? mtime : 0
     }
 
+    /// The capture date of a photo, as the server stores it.
+    ///
+    /// The server keeps the capture date as a UTC epoch that carries the
+    /// local wall-clock time, exactly like a date in a file name does. A
+    /// phone names its photos `IMG_1234.HEIC`, so the name carries no date
+    /// and the app has to send the capture date itself; otherwise the photo
+    /// is filed under the time of the upload.
+    ///
+    /// The date is read in the device's own time zone, so the photo lands
+    /// on the day the user took it.
+    public static func captureTimestamp(from date: Date) -> Int64 {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let parts = calendar.dateComponents(
+            [.year, .month, .day, .hour, .minute, .second],
+            from: date
+        )
+        guard let year = parts.year,
+              let month = parts.month,
+              let day = parts.day
+        else {
+            return 0
+        }
+        let hour = parts.hour ?? 0
+        let minute = parts.minute ?? 0
+        let second = parts.second ?? 0
+        guard (1990...2037).contains(year),
+              (1...12).contains(month),
+              day >= 1,
+              day <= daysInMonth(year: year, month: month),
+              hour <= 23,
+              minute <= 59,
+              second <= 59
+        else {
+            return 0
+        }
+        return daysFromCivil(year: year, month: month, day: day) * 86_400
+            + hour * 3_600
+            + minute * 60
+            + second
+    }
+
     /// The file name without its extension.
     public static func stem(of name: String) -> String {
         let base = (name as NSString).deletingPathExtension

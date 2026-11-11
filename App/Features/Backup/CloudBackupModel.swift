@@ -56,6 +56,9 @@ final class CloudBackupModel {
         for job in jobs {
             currentName = job.name
             do {
+                // The capture date travels with the upload: a phone names its
+                // photos `IMG_1234.HEIC`, so the name carries no date and the
+                // server would file the photo under the time of the upload.
                 let takenAt = MNGNames.takenAt(
                     from: job.name,
                     mtime: CloudBackupModel.modificationDate(of: job.url)
@@ -66,7 +69,8 @@ final class CloudBackupModel {
                     let response = try await client.mediaUpload(
                         name: job.name,
                         fileURL: job.url,
-                        mime: job.mime
+                        mime: job.mime,
+                        takenAt: takenAt
                     )
                     if response.matched {
                         skipped += 1
@@ -109,10 +113,14 @@ final class CloudBackupModel {
         )
     }
 
-    /// The modification time of a file, in Unix seconds.
+    /// The modification time of a file, as the server stores it.
+    ///
+    /// The server keeps a date as a UTC epoch that carries the local
+    /// wall-clock time, so the same conversion the capture date uses applies
+    /// here.
     private static func modificationDate(of url: URL) -> Int64 {
         let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
         guard let date = values?.contentModificationDate else { return 0 }
-        return Int64(date.timeIntervalSince1970)
+        return MNGNames.captureTimestamp(from: date)
     }
 }

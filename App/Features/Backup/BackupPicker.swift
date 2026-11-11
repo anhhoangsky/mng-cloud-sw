@@ -86,6 +86,19 @@ struct BackupPicker: UIViewControllerRepresentable {
             }
         }
 
+        /// The capture date of the picked asset.
+        ///
+        /// The picker runs out of process, so the asset is looked up by its
+        /// identifier. A picker that was opened without the library returns
+        /// no identifier, and the copy keeps the modification time the
+        /// provider gave it.
+        private static func captureDate(of result: PHPickerResult) -> Date? {
+            guard let identifier = result.assetIdentifier else { return nil }
+            return PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil)
+                .firstObject?
+                .creationDate
+        }
+
         /// Load one picked item: the file itself and, for a Live Photo, the
         /// paired movie.
         private func load(_ result: PHPickerResult) async -> [Picked] {
@@ -108,7 +121,15 @@ struct BackupPicker: UIViewControllerRepresentable {
             let name = provider.suggestedName
                 ?? "IMG_\(Int(Date().timeIntervalSince1970)).jpg"
             let mime = UTType(primary)?.preferredMIMEType ?? "image/jpeg"
-            guard let file = await stage(provider: provider, typeIdentifier: primary) else {
+            // The picker hands over a fresh copy whose modification time is
+            // the time of the pick, so the capture date of the asset is
+            // written onto the copy.
+            let captured = Self.captureDate(of: result)
+            guard let file = await stage(
+                provider: provider,
+                typeIdentifier: primary,
+                modificationDate: captured
+            ) else {
                 return []
             }
             var picked = [
@@ -122,7 +143,8 @@ struct BackupPicker: UIViewControllerRepresentable {
 
             if imageIdentifier != nil, let companion = await stage(
                 provider: provider,
-                typeIdentifier: LivePhoto.movieTypeIdentifier
+                typeIdentifier: LivePhoto.movieTypeIdentifier,
+                modificationDate: captured
             ) {
                 // The companion keeps the stem of the still, so the worker
                 // pairs the two files into a Live Photo.
@@ -147,7 +169,8 @@ struct BackupPicker: UIViewControllerRepresentable {
         /// a date still resolves to the original capture time.
         private func stage(
             provider: NSItemProvider,
-            typeIdentifier: String
+            typeIdentifier: String,
+            modificationDate: Date?
         ) async -> (url: URL, size: Int64)? {
             await withCheckedContinuation { continuation in
                 provider.loadFileRepresentation(forTypeIdentifier: typeIdentifier) { url, _ in
@@ -167,9 +190,11 @@ struct BackupPicker: UIViewControllerRepresentable {
                         return
                     }
                     let size = (source?[.size] as? NSNumber)?.int64Value ?? 0
-                    if let source, let modified = source[.modificationDate] as? Date {
-                        // Keep the source modification time, so a name without
-                        // a date still resolves to the original capture time.
+                    // Keep the capture date on the copy, so a name without a
+                    // date still resolves to the day the photo was taken.
+                    if let modified = modificationDate
+                        ?? (source?[.modificationDate] as? Date)
+                    {
                         try? FileManager.default.setAttributes(
                             [.modificationDate: modified],
                             ofItemAtPath: target.path

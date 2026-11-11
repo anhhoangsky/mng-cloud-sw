@@ -496,10 +496,13 @@ final class PhotoBackupEngine {
         // get, so it is the one the match compares against. A Live Photo is
         // matched on its still, not on the companion movie.
         let size = staged.first { $0.name == job.name }?.size ?? staged[0].size
+        // A phone names its photos `IMG_1234.HEIC`, so the name carries no
+        // date and the capture date has to travel with the upload; the
+        // server would otherwise file the photo under the time of the upload.
         let takenAt = MNGNames.takenAt(
             from: job.name,
             mtime: job.creationDate.timeIntervalSince1970 > 0
-                ? Int64(job.creationDate.timeIntervalSince1970)
+                ? MNGNames.captureTimestamp(from: job.creationDate)
                 : 0
         )
         if takenAt > 0, size > 0,
@@ -518,10 +521,14 @@ final class PhotoBackupEngine {
         stagedFiles[job.id] = scratch
         for file in staged {
             do {
+                // The capture date travels with the upload: a phone names its
+                // photos `IMG_1234.HEIC`, so the name carries no date and the
+                // server would file the photo under the time of the upload.
                 let prepared = try await client.mediaUploadRequest(
                     name: file.name,
                     fileURL: file.url,
-                    mime: file.mime
+                    mime: file.mime,
+                    takenAt: takenAt
                 )
                 scratch.append(prepared.bodyFile)
                 stagedFiles[job.id] = scratch
