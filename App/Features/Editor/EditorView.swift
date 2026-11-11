@@ -13,6 +13,7 @@ struct EditorView: View {
     let item: Item
 
     @Environment(\.dismiss) private var dismiss
+    @State private var aurumOpen = false
 
     private var editor: EditorModel { model.editor }
 
@@ -32,6 +33,12 @@ struct EditorView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(Strings.editorCancel) { dismiss() }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(Strings.editorAurumAction) {
+                        aurumOpen = true
+                    }
+                    .font(Font.mng(14, weight: .semibold))
+                }
             }
         }
         .presentationDetents([.large])
@@ -41,6 +48,9 @@ struct EditorView: View {
         }
         .onDisappear {
             editor.close()
+        }
+        .fullScreenCover(isPresented: $aurumOpen) {
+            AurumEditorView(model: model, item: item)
         }
     }
 

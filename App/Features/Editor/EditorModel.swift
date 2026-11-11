@@ -355,6 +355,43 @@ final class EditorModel {
         }
     }
 
+    /// Upload an image that was edited outside the native pipeline, for
+    /// example by the Aurum web editor. The route is the same one the native
+    /// export uses, so the server needs no new endpoint.
+    ///
+    /// Returns `true` when the edit was stored.
+    @discardableResult
+    func saveExternal(
+        item: Item,
+        data: Data,
+        filename: String,
+        mime: String
+    ) async -> Bool {
+        do {
+            let response = try await client.saveEdit(
+                id: item.id,
+                data: data,
+                filename: filename,
+                mime: mime,
+                mode: mode.rawValue
+            )
+            let message = response.message.trimmingCharacters(in: .whitespacesAndNewlines)
+            onToast?(message.isEmpty ? Strings.editorSaved : message)
+            onSaved?()
+            return true
+        } catch let error as APIError {
+            if error.status == 401 {
+                onUnauthorized?()
+                return false
+            }
+            onToast?(error.message)
+            return false
+        } catch {
+            onToast?(Strings.editorSaveFailed)
+            return false
+        }
+    }
+
     /// The web editor keeps the source container: PNG stays PNG, WebP stays
     /// WebP and everything else becomes JPEG.
     static func exportFormat(for item: Item) -> EditorExportFormat {

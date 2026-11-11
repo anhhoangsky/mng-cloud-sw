@@ -35,6 +35,11 @@ targets:
       - path: App
         excludes:
           - "Resources/Info.plist"
+          # The Aurum bundle is a plain script, so it has to be copied into the
+          # app bundle instead of being compiled.
+          - "Resources/aurum.min.js"
+      - path: App/Resources/aurum.min.js
+        buildPhase: resources
     info:
       path: App/Resources/Info.plist
       properties:
@@ -51,8 +56,14 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSPhotoLibraryUsageDescription: "Chọn ảnh và video để tải lên kho mã hóa."
+        NSPhotoLibraryUsageDescription: "Ảnh và video được chọn hoặc sao lưu tự động lên thư viện của bạn."
         NSPhotoLibraryAddUsageDescription: "Lưu ảnh và video về thư viện ảnh."
+        UIBackgroundModes:
+          - processing
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.mngcloud.app.backup.process
+          - com.mngcloud.app.backup.refresh
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         ITSAppUsesNonExemptEncryption: false
