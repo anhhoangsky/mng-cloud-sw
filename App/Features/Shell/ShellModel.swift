@@ -244,6 +244,14 @@ final class ShellModel {
         }
         await library.start()
         await bootstrapTask.value
+
+        // The automatic backup needs the session, so it only starts once the
+        // shell is up. A pending upload keeps running in the background.
+        let engine = PhotoBackupEngine.shared
+        engine.client = client
+        if engine.isEnabled {
+            await engine.run()
+        }
     }
 
     func refreshBootstrap() async {

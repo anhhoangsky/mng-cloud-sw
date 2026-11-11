@@ -18,6 +18,7 @@ struct SettingsView: View {
                 connectionsSection
                 icloudSection
                 librarySection
+                BackupSettingsSection(engine: PhotoBackupEngine.shared)
                 toolsSection
                 accountSection
                 aboutSection
