@@ -146,11 +146,12 @@ enum Strings {
 
     static func backupLastRun(_ date: Date) -> String {
         let parts = Calendar.current.dateComponents([.day, .month, .year], from: date)
-        return "Lần cuối \(MNGFormat.itemDate(
+        let day = MNGFormat.itemDate(
             day: parts.day ?? 1,
             month: parts.month ?? 1,
             year: parts.year ?? 0
-        ))"
+        )
+        return "Lần cuối \(day)"
     }
 
     static func selectedCount(_ count: Int) -> String {
