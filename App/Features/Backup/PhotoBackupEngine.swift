@@ -346,7 +346,10 @@ final class PhotoBackupEngine {
         let isLive = !isVideo && resources.contains { $0.type == .pairedVideo }
         // The file size of a resource is an `Int`, so the sum is widened to
         // the `Int64` the job carries.
-        let size = resources.reduce(Int64(0)) { $0 + Int64($1.fileSize) }
+        var size: Int64 = 0
+        for resource in resources {
+            size += Int64(resource.fileSize)
+        }
         return Job(
             id: UUID(),
             localIdentifier: asset.localIdentifier,

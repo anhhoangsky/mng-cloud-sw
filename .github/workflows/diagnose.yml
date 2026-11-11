@@ -30,6 +30,26 @@ jobs:
       - name: Generate project
         run: xcodegen generate
 
+      # The exact declaration of the Photos API, read out of the SDK that the
+      # build uses. The public documentation lists the symbol but not the
+      # argument label.
+      - name: Report the Photos API
+        run: |
+          SDK="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          {
+            echo '### the Photos interface'
+            echo '```'
+            grep -rh "registerChangeObserver\|func register(" \
+              "$SDK/System/Library/Frameworks/Photos.framework/Modules/Photos.swiftmodule/" \
+              2>/dev/null | sort -u | head -30
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -rh "registerChangeObserver" \
+            "$SDK/System/Library/Frameworks/Photos.framework/Modules/Photos.swiftmodule/" \
+            2>/dev/null | sort -u | head -10 | while IFS= read -r line; do
+            echo "::error title=Photos API::${line}"
+          done
+
       # The build error is reported as a workflow annotation, because the
       # plain log of a public run is only readable when signed in.
       - name: Report the build errors
