@@ -11,8 +11,9 @@ writer, worker and signing chain stay in `mng-cloud-rs`.
 - [docs/CRYPTO.md](docs/CRYPTO.md) — E2EE / vault crypto parity and KAT vectors
 - [docs/PARITY.md](docs/PARITY.md) — per-screen parity checklist
 - [docs/DEVICE_CHECKS.md](docs/DEVICE_CHECKS.md) — what still needs a real device
-- [docs/INSTALL_ON_DEVICE.md](docs/INSTALL_ON_DEVICE.md) — build a signed `.ipa`
-  on GitHub Actions and install it on an iPhone without a Mac
+- [docs/INSTALL_ON_DEVICE.md](docs/INSTALL_ON_DEVICE.md) — step-by-step guide:
+  build a signed `.ipa` on GitHub Actions and install it on an iPhone without a
+  Mac (Apple keys, UDID, device registration, secrets, Sideloadly)
 
 ## Build
 
