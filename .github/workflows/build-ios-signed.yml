@@ -1,0 +1,206 @@
+name: build-ios-signed
+
+# Builds a **signed** .ipa for the paid signing paths:
+#
+#   * manual     - you provide a development certificate (.p12) and a
+#                  provisioning profile; the runner imports both and signs.
+#   * automatic  - an App Store Connect API key; Xcode creates the certificate
+#                  and the profile on the runner.
+#
+# This workflow is completely separate from `build-ios.yml`, which produces the
+# unsigned IPA that AltStore re-signs with a free personal Apple ID.
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: Build configuration
+        required: false
+        default: Release
+        type: choice
+        options:
+          - Release
+          - Debug
+      signing:
+        description: Signing method
+        required: false
+        default: automatic
+        type: choice
+        options:
+          - automatic
+          - manual
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-ios-signed-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Signed device build
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.4"
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the project
+        run: xcodegen generate
+
+      # ---------------------------------------------------------------- manual
+
+      - name: Import the development certificate and the profile
+        if: inputs.signing == 'manual'
+        env:
+          P12_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.BUILD_CERTIFICATE_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$P12_BASE64" ] || [ -z "$PROFILE_BASE64" ] || [ -z "$P12_PASSWORD" ] \
+             || [ -z "$KEYCHAIN_PASSWORD" ]; then
+            echo "Missing BUILD_CERTIFICATE_BASE64, BUILD_CERTIFICATE_PASSWORD,"
+            echo "PROVISIONING_PROFILE_BASE64 or KEYCHAIN_PASSWORD."
+            exit 1
+          fi
+          echo "$P12_BASE64" | base64 -D > /tmp/build.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import /tmp/build.p12 -k build.keychain \
+            -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" build.keychain
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "$PROFILE_BASE64" | base64 -D \
+            > "$HOME/Library/MobileDevice/Provisioning Profiles/profile.mobileprovision"
+
+      - name: Archive (manual signing)
+        if: inputs.signing == 'manual'
+        env:
+          PROFILE_NAME: ${{ secrets.PROVISIONING_PROFILE_SPECIFIER }}
+        run: |
+          set -euo pipefail
+          xcodebuild -project MNGCloud.xcodeproj -scheme MNGCloud \
+            -configuration "${{ inputs.configuration }}" \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/MNGCloud.xcarchive \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Development" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            archive
+
+      - name: Export the IPA (manual signing)
+        if: inputs.signing == 'manual'
+        env:
+          PROFILE_NAME: ${{ secrets.PROVISIONING_PROFILE_SPECIFIER }}
+        run: |
+          set -euo pipefail
+          cat > build/ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>development</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>teamID</key>
+            <string>${TEAM_ID}</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.mngcloud.app</key>
+              <string>${PROFILE_NAME}</string>
+            </dict>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath build/MNGCloud.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist build/ExportOptions.plist
+
+      # ------------------------------------------------------------ automatic
+
+      - name: Import the App Store Connect key
+        if: inputs.signing == 'automatic'
+        run: |
+          set -euo pipefail
+          if [ -z "$TEAM_ID" ] || [ -z "$KEY_ID" ] || [ -z "$ISSUER_ID" ] \
+             || [ -z "$PRIVATE_KEY" ]; then
+            echo "Missing APPLE_TEAM_ID, APP_STORE_CONNECT_KEY_ID,"
+            echo "APP_STORE_CONNECT_ISSUER_ID or APP_STORE_CONNECT_PRIVATE_KEY."
+            exit 1
+          fi
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          printf '%s' "$PRIVATE_KEY" | base64 -D \
+            > "$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8"
+          chmod 600 "$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8"
+
+      - name: Archive (automatic signing)
+        if: inputs.signing == 'automatic'
+        run: |
+          set -euo pipefail
+          xcodebuild -project MNGCloud.xcodeproj -scheme MNGCloud \
+            -configuration "${{ inputs.configuration }}" \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/MNGCloud.xcarchive \
+            -allowProvisioningUpdates \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGNING_ALLOWED=YES \
+            archive
+
+      - name: Export the IPA (automatic signing)
+        if: inputs.signing == 'automatic'
+        run: |
+          set -euo pipefail
+          cat > build/ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>development</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>teamID</key>
+            <string>${TEAM_ID}</string>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath build/MNGCloud.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist build/ExportOptions.plist \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID"
+
+      # ---------------------------------------------------------------- shared
+
+      - name: Upload the IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: MNGCloud-signed-IPA
+          path: build/export/*.ipa
+          if-no-files-found: error
+          retention-days: 30

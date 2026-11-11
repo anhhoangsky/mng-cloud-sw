@@ -1,13 +1,14 @@
 name: build-ios
 
-# Builds a signed device build so the app can be installed on a real iPhone
-# without a local Mac.
+# Builds an **unsigned** iOS device build and packs it as an .ipa that
+# AltStore / AltServer can re-sign with the user's own (free) Apple ID.
 #
-# Two signing paths:
-#   * manual     - a development certificate and a provisioning profile that
-#                   you created in the developer portal. Works with a free
-#                   Apple ID (no App Store Connect API key needed).
-#   * automatic  - an App Store Connect API key. Needs a paid membership.
+# The runner never sees an Apple credential: it only compiles the app and
+# packs `Payload/MNGCloud.app`. Signing happens on the user's machine, which
+# keeps the free Personal Team limits (7 day profiles, no push/iCloud/App
+# Groups) visible in the check below.
+#
+# The paid signing paths live in `build-ios-signed.yml`.
 
 on:
   workflow_dispatch:
@@ -20,15 +21,11 @@ on:
         options:
           - Release
           - Debug
-      signing:
-        description: Signing method
+      artifact_name:
+        description: Artifact name
         required: false
-        default: apple-id
-        type: choice
-        options:
-          - apple-id
-          - manual
-          - automatic
+        default: MNGCloud-AltStore-IPA
+        type: string
 
 permissions:
   contents: read
@@ -38,15 +35,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Signed device build
+  altstore:
+    name: Unsigned IPA for AltStore
     runs-on: macos-15
-    timeout-minutes: 90
-    env:
-      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-      ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-      PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -61,250 +53,46 @@ jobs:
       - name: Generate the project
         run: xcodegen generate
 
-      # --------------------------------------------------------------- apple-id
+      - name: Check the Personal Team capabilities
+        run: bash ./scripts/check-personal-team-entitlements.sh App
 
-      - name: Install fastlane
-        if: inputs.signing == 'apple-id'
-        run: brew install fastlane
-
-      - name: Create the certificate and the provisioning profile
-        id: appleid
-        if: inputs.signing == 'apple-id'
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          set -euo pipefail
-          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] \
-             || [ -z "$APPLE_TEAM_ID" ] || [ -z "$KEYCHAIN_PASSWORD" ]; then
-            echo "Missing APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID"
-            echo "or KEYCHAIN_PASSWORD."
-            exit 1
-          fi
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -lut 21600 build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          fastlane cert --skip-2fa \
-            --username "$APPLE_ID" \
-            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-            --team_id "$APPLE_TEAM_ID"
-          security set-key-partition-list -S apple-tool:,apple: \
-            -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          fastlane sigh --skip-2fa \
-            --username "$APPLE_ID" \
-            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-            --team_id "$APPLE_TEAM_ID" \
-            --app_identifier "com.mngcloud.app" \
-            --include_all_devices \
-            --force
-          PROFILE_PATH="$(find "$HOME/Library/MobileDevice/Provisioning Profiles" \
-            -name '*.mobileprovision' -print -quit)"
-          if [ -z "$PROFILE_PATH" ]; then
-            echo "fastlane did not create a provisioning profile"
-            exit 1
-          fi
-          PROFILE_NAME="$(security cms -D -i "$PROFILE_PATH" \
-            | plutil -extract Name raw -)"
-          echo "profile=$PROFILE_PATH" >> "$GITHUB_OUTPUT"
-          echo "name=$PROFILE_NAME" >> "$GITHUB_OUTPUT"
-          echo "Created profile: $PROFILE_NAME"
-
-      - name: Archive (Apple ID signing)
-        if: inputs.signing == 'apple-id'
-        env:
-          PROFILE_NAME: ${{ steps.appleid.outputs.name }}
+      - name: Build the unsigned device app
         run: |
           set -euo pipefail
           xcodebuild -project MNGCloud.xcodeproj -scheme MNGCloud \
             -configuration "${{ inputs.configuration }}" \
             -destination 'generic/platform=iOS' \
-            -archivePath build/MNGCloud.xcarchive \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Development" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
-            archive
+            -derivedDataPath build/dd \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
 
-      - name: Export the IPA (Apple ID signing)
-        if: inputs.signing == 'apple-id'
-        env:
-          PROFILE_NAME: ${{ steps.appleid.outputs.name }}
+      - name: Package the unsigned IPA
         run: |
           set -euo pipefail
-          cat > build/ExportOptions.plist <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>development</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>teamID</key>
-            <string>${TEAM_ID}</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>com.mngcloud.app</key>
-              <string>${PROFILE_NAME}</string>
-            </dict>
-          </dict>
-          </plist>
-          PLIST
-          xcodebuild -exportArchive \
-            -archivePath build/MNGCloud.xcarchive \
-            -exportPath build/export \
-            -exportOptionsPlist build/ExportOptions.plist
-
-      # ---------------------------------------------------------------- manual
-
-      - name: Import the development certificate and the profile
-        if: inputs.signing == 'manual'
-        env:
-          P12_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
-          P12_PASSWORD: ${{ secrets.BUILD_CERTIFICATE_PASSWORD }}
-          PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          set -euo pipefail
-          if [ -z "$P12_BASE64" ] || [ -z "$PROFILE_BASE64" ] || [ -z "$P12_PASSWORD" ] \
-             || [ -z "$KEYCHAIN_PASSWORD" ]; then
-            echo "Missing BUILD_CERTIFICATE_BASE64, BUILD_CERTIFICATE_PASSWORD,"
-            echo "PROVISIONING_PROFILE_BASE64 or KEYCHAIN_PASSWORD."
+          APP_PATH="build/dd/Build/Products/${{ inputs.configuration }}-iphoneos/MNGCloud.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "error: $APP_PATH was not produced by the build" >&2
             exit 1
           fi
-          echo "$P12_BASE64" | base64 -D > /tmp/build.p12
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -lut 21600 build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security import /tmp/build.p12 -k build.keychain \
-            -P "$P12_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: \
-            -k "$KEYCHAIN_PASSWORD" build.keychain
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          echo "$PROFILE_BASE64" | base64 -D \
-            > "$HOME/Library/MobileDevice/Provisioning Profiles/profile.mobileprovision"
-
-      - name: Archive (manual signing)
-        if: inputs.signing == 'manual'
-        env:
-          PROFILE_NAME: ${{ secrets.PROVISIONING_PROFILE_SPECIFIER }}
-        run: |
-          set -euo pipefail
-          xcodebuild -project MNGCloud.xcodeproj -scheme MNGCloud \
-            -configuration "${{ inputs.configuration }}" \
-            -destination 'generic/platform=iOS' \
-            -archivePath build/MNGCloud.xcarchive \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Development" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
-            archive
-
-      - name: Export the IPA (manual signing)
-        if: inputs.signing == 'manual'
-        env:
-          PROFILE_NAME: ${{ secrets.PROVISIONING_PROFILE_SPECIFIER }}
-        run: |
-          set -euo pipefail
-          cat > build/ExportOptions.plist <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>development</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>teamID</key>
-            <string>${TEAM_ID}</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>com.mngcloud.app</key>
-              <string>${PROFILE_NAME}</string>
-            </dict>
-          </dict>
-          </plist>
-          PLIST
-          xcodebuild -exportArchive \
-            -archivePath build/MNGCloud.xcarchive \
-            -exportPath build/export \
-            -exportOptionsPlist build/ExportOptions.plist
-
-      # ------------------------------------------------------------ automatic
-
-      - name: Import the App Store Connect key
-        if: inputs.signing == 'automatic'
-        run: |
-          set -euo pipefail
-          if [ -z "$TEAM_ID" ] || [ -z "$KEY_ID" ] || [ -z "$ISSUER_ID" ] \
-             || [ -z "$PRIVATE_KEY" ]; then
-            echo "Missing APPLE_TEAM_ID, APP_STORE_CONNECT_KEY_ID,"
-            echo "APP_STORE_CONNECT_ISSUER_ID or APP_STORE_CONNECT_PRIVATE_KEY."
-            exit 1
-          fi
-          mkdir -p "$HOME/.appstoreconnect/private_keys"
-          printf '%s' "$PRIVATE_KEY" | base64 -D \
-            > "$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8"
-          chmod 600 "$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8"
-
-      - name: Archive (automatic signing)
-        if: inputs.signing == 'automatic'
-        run: |
-          set -euo pipefail
-          xcodebuild -project MNGCloud.xcodeproj -scheme MNGCloud \
-            -configuration "${{ inputs.configuration }}" \
-            -destination 'generic/platform=iOS' \
-            -archivePath build/MNGCloud.xcarchive \
-            -allowProvisioningUpdates \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            CODE_SIGN_STYLE=Automatic \
-            CODE_SIGNING_ALLOWED=YES \
-            archive
-
-      - name: Export the IPA (automatic signing)
-        if: inputs.signing == 'automatic'
-        run: |
-          set -euo pipefail
-          cat > build/ExportOptions.plist <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>development</string>
-            <key>signingStyle</key>
-            <string>automatic</string>
-            <key>teamID</key>
-            <string>${TEAM_ID}</string>
-          </dict>
-          </plist>
-          PLIST
-          xcodebuild -exportArchive \
-            -archivePath build/MNGCloud.xcarchive \
-            -exportPath build/export \
-            -exportOptionsPlist build/ExportOptions.plist \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${KEY_ID}.p8" \
-            -authenticationKeyID "$KEY_ID" \
-            -authenticationKeyIssuerID "$ISSUER_ID"
-
-      # ---------------------------------------------------------------- shared
+          mkdir -p build/altstore
+          bash ./scripts/make-unsigned-ipa.sh \
+            "$APP_PATH" "build/altstore/MNGCloud.ipa"
 
       - name: Upload the IPA
         uses: actions/upload-artifact@v4
         with:
-          name: MNGCloud-ipa
-          path: build/export/*.ipa
+          name: ${{ inputs.artifact_name }}
+          path: build/altstore/*.ipa
           if-no-files-found: error
           retention-days: 30
 
       - name: Summarise the build
         run: |
           set -euo pipefail
-          ls -lh build/export
+          ls -lh build/altstore
+          echo
           echo "Bundle id: com.mngcloud.app"
-          echo "Profile: development (7 days for a free Apple ID)"
+          echo "Install: open the .ipa with AltStore (it re-signs it with your"
+          echo "personal Apple ID) or drop it on AltServer."

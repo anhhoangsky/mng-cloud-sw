@@ -40,13 +40,13 @@ CI picks the first available device and falls back to `build-for-testing` when
 the runner has no iOS runtime.
 
 To try the app on a real iPhone without a Mac, run the **build-ios** workflow:
-it signs a `.ipa` on the GitHub runner and publishes it as an artifact. The
-default `apple-id` path needs only an Apple ID, an app-specific password, the
-Team ID and the device registered in the portal — fastlane creates the
-certificate and the profile on the runner. `manual` (bring your own
-certificate and profile) and `automatic` (App Store Connect API key, paid
-account) are also available. The step-by-step setup is in
-[docs/INSTALL_ON_DEVICE.md](docs/INSTALL_ON_DEVICE.md).
+it builds an **unsigned** `.ipa` on the GitHub runner and publishes it as the
+`MNGCloud-AltStore-IPA` artifact. AltStore (or AltServer) re-signs that file
+with your personal Apple ID, so **no Team ID, certificate or provisioning
+profile is needed**. A workflow check reports (and refuses to strip) any
+capability that a free Personal Team cannot grant. The step-by-step guide is
+in [docs/INSTALL_ON_DEVICE.md](docs/INSTALL_ON_DEVICE.md); the paid signing
+paths live in the separate `build-ios-signed` workflow.
 
 ## Layout
 

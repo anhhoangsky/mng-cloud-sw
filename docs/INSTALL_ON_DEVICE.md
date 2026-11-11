@@ -1,90 +1,83 @@
-# Cài app MNG Cloud lên iPhone (không cần máy Mac)
+# Cài app MNG Cloud lên iPhone bằng AltStore (không cần máy Mac, **không cần Team ID**)
 
 App `MNG Cloud` là app **SwiftUI native**, nên không chạy được trong Expo/React
-Native. Cách test trên iPhone mà **không cần máy Mac** là để GitHub Actions
-build một bản `.ipa` đã ký, rồi cài bằng **AltStore** (AltStore tự ký lại
-bằng Apple ID của bạn nên `.ipa` chỉ cần hợp lệ là cài được).
+Native. Cách test trên iPhone mà không cần máy Mac:
 
-> Viết cho **Windows**. Người dùng macOS làm tương tự.
+```
+GitHub Actions            máy của bạn                    iPhone
+─────────────            ──────────────                  ──────
+build .ipa chưa ký  ──▶  AltStore / AltServer  ──▶  AltStore ký lại bằng
+                          (AltStore Classic)              Apple ID cá nhân → cài app
+```
 
----
-
-## 🔥 Cách nhanh nhất (3 việc, ~15 phút)
-
-Workflow `build-ios` có sẵn đường ký **`apple-id`**: fastlane trên runner tự
-tạo chứng thư phát triển, App ID và provisioning profile bằng Apple ID của
-bạn. Bạn **không** cần OpenSSL, không cần tạo App ID, không cần tải `.p8`.
-
-### Việc 1 — Đăng ký iPhone trong portal (bắt buộc)
-
-Profile chỉ chứa được thiết bị đã đăng ký.
-
-1. **Lấy UDID** (40 ký tự) trên Windows:
-   - **iMazing** (miễn phí, <https://imazing.com>): cắm iPhone bằng cáp USB →
-     lần đầu bấm **"Trust This Computer"** trên iPhone → chọn máy →
-     **More** → *Device Information* → copy **UDID**.
-   - hoặc **Apple Configurator 2** → *View → Device Information* → *UDID*.
-2. <https://developer.apple.com/account/resources/devices> → chọn nhóm **iPhone**
-   → **+** → *Device Name* tự do · *Platform* **iOS** · *Device Identifier*: dán
-   UDID → **Continue** → **Register**.
-
-### Việc 2 — Tạo app-specific password
-
-<https://account.apple.com> → *Sign-in and security* → *App-specific passwords*
-→ **+** → đặt tên (`MNG Cloud CI`) → **Create** → copy mã 16 ký tự
-(xxxx-xxxx-xxxx-xxxx). Chỉ hiện **một lần**.
-
-### Việc 3 — Thêm 4 secrets vào repo
-
-Repo → **Settings → Secrets and variables → Actions** → **New repository
-secret**:
-
-| Tên secret | Giá trị |
-| --- | --- |
-| `APPLE_ID` | Apple ID của bạn (email) |
-| `APPLE_APP_SPECIFIC_PASSWORD` | mã 16 ký tự ở Việc 2 |
-| `APPLE_TEAM_ID` | Team ID 10 ký tự — <https://developer.apple.com/account> → bấm tên/email → **Membership Details** |
-| `KEYCHAIN_PASSWORD` | chuỗi bất kỳ, ví dụ `mngcloud-keychain-2026` |
-
-### Việc 4 — Chạy workflow → lấy .ipa → AltStore
-
-1. **Actions → build-ios → Run workflow**: branch `main`, configuration
-   `Release`, **signing = `apple-id`** → **Run workflow**.
-2. Job xanh (~5–15 phút) → cuộn xuống **Artifacts** → **MNGCloud-ipa** → tải
-   về (zip) → giải nén ra `MNGCloud.ipa`.
-3. **Cài vào iPhone** (xem [§2](#2-cài-ipa-vào-iphone-bằng-altstore)).
-
-> **Nếu fastlane lỗi** (ví dụ Apple ID bật 2FA và app-specific password bị
-> từ chối), dùng đường **thủ công** ở [§3](#3-phương-án-thủ-công-nếu-fastlane-lỗi).
+* **GitHub Actions** chỉ build + đóng gói: `Payload/MNGCloud.app` trong một
+  file `.ipa` **chưa ký**, không đụng tới Apple ID nào.
+* **AltStore trên máy của bạn** ký lại bằng **Apple ID miễn phí** (Personal
+  Team) rồi cài vào iPhone.
 
 ---
 
-## 1. Vì sao không dùng được "Access Keys"?
+## 1. Build unsigned IPA (GitHub Actions)
 
-Trang *Access Keys* (App Store Connect API key) **chỉ dành cho account Developer
-trả phí 99 USD/năm** → tài khoản miễn phí sẽ thấy *"Access Unavailable"*.
-Không sao: tài khoản miễn phí vẫn ký app iOS được, chỉ cần làm thủ công
-(chứng thư + provisioning profile) — đường `apple-id` ở trên tự động hoá phần
-đó.
+1. Vào repo → tab **Actions** → workflow **build-ios** → **Run workflow**.
+2. Chọn branch `main`, configuration `Release` → **Run workflow**.
+3. Job làm 5 việc (xem log):
+   | Bước | Việc |
+   | --- | --- |
+   | Generate the project | `xcodegen generate` từ `project.yml` |
+   | Check the Personal Team capabilities | in báo cáo capability của app, **fail rõ ràng** nếu app cần capability mà tài khoản miễn phí không cấp được |
+   | Build the unsigned device app | `xcodebuild … CODE_SIGNING_ALLOWED=NO` cho `generic/platform=iOS` (binary arm64 cho máy thật) |
+   | Package the unsigned IPA | `scripts/make-unsigned-ipa.sh` → đóng gói + kiểm tra lại bundle |
+   | Upload the IPA | artifact **`MNGCloud-AltStore-IPA`** (giữ 30 ngày) |
+4. Xong job (xanh) → cuộn xuống **Artifacts** → bấm **MNGCloud-AltStore-IPA** →
+   tải về (zip) → giải nén ra `MNGCloud.ipa`.
 
-## 2. Cài `.ipa` vào iPhone bằng AltStore
+### Báo cáo trong log
 
-### Cách A — cài ngay trên iPhone (tiện nhất)
+`make-unsigned-ipa.sh` in ra để bạn biết IPA có đúng không:
 
-1. Gửi file `MNGCloud.ipa` sang iPhone: **AirDrop**, **iCloud Drive**, hoặc
-   email cho chính mình (đính kèm).
-2. Trên iPhone: mở **Files** → vào thư mục chứa file `.ipa` → bấm file →
-   nó mở AltStore → **Install** (AltStore sẽ ký lại bằng Apple ID của bạn).
-   - Nếu bấm file mà không mở AltStore: vào **AltStore → My Apps → +** → chọn
-     file trong Files.
-3. Chờ tới khi AltStore báo **Finished**, mở app trên màn hình chính.
+```
+== IPA report ==
+Bundle id:       com.mngcloud.app
+Display name:    MNG Cloud
+Version:         1.0.0 (1)
+Minimum iOS:     17.0
+Executable:      MNGCloud
+Architectures:   arm64
+Binary:          Mach-O 64-bit executable arm64
+Signature:       none (AltStore signs it with the personal Apple ID)
+Frameworks:      none (Swift package libraries are linked statically)
+App extensions:  none
+Watch apps:      none
+Packaged:        build/altstore/MNGCloud.ipa (2.1M)
+Payload layout:
+  Payload
+  Payload/MNGCloud.app
+  ...
+```
 
-### Cách B — cài từ PC
+Nếu bundle sai, executable thiếu, kiến trúc không phải arm64 hoặc framework nhúng
+bị hỏng, script **dừng với lỗi rõ ràng** chứ không tạo ra IPA hỏng.
 
-1. Cài **AltStore cho Windows**: <https://altstore.io> → *Download AltStore*.
-   (AltStore cần **iTunes**/Apple Mobile Device Support để nhận ra iPhone.)
-2. Mở AltStore → tab **My Apps** → **+** → chọn file `.ipa` đã tải → chờ
-   **Finished**.
+---
+
+## 2. Cài bằng AltStore Classic
+
+Bạn đã cài AltStore rồi, nên chỉ còn một trong hai cách sau:
+
+### Cách A — từ máy tính (AltStore trên Windows)
+
+1. Mở **AltStore** → tab **My Apps** → bấm **+** → chọn `MNGCloud.ipa` →
+   chờ **Finished**.
+2. Nếu AltStore báo chưa có iPhone: cắm iPhone bằng cáp USB và bấm **Trust
+   This Computer** trên iPhone.
+
+### Cách B — cài trực tiếp trên iPhone
+
+1. Gửi `MNGCloud.ipa` sang iPhone: **AirDrop**, **iCloud Drive**, hoặc email cho
+   chính mình.
+2. Trên iPhone: mở **Files** → bấm file `.ipa` → nó mở **AltStore** →
+   **Install** → chờ **Finished**.
 
 ### Lần đầu mở app
 
@@ -94,95 +87,53 @@ Không sao: tài khoản miễn phí vẫn ký app iOS được, chỉ cần là
 3. Đăng nhập bằng tài khoản MNG Cloud + URL máy chủ `mngd`
    (ví dụ `https://cloud.example.com`).
 
-### Hạn 7 ngày
-
-- Profile *development* (kể cả account trả phí) hết hạn sau **7 ngày** → app
-  mở được nhưng server từ chối phiên.
-- **AltStore tự làm mới** profile mỗi 7 ngày nếu iPhone vẫn kết nối cùng
-  mạng Wi-Fi và bật *Refresh sideload* trong cài đặt AltStore → thường không
-  cần build lại.
-- Nếu AltStore không tự làm mới: chạy lại workflow `build-ios` → tải `.ipa` mới
-  → cài lại (AltStore sẽ dùng profile cũ hết hạn? → cần *Refresh* trong
-  AltStore hoặc xoá app rồi cài lại).
-
 ---
 
-## 3. Phương án thủ công (nếu fastlane lỗi)
+## 3. Giới hạn của Apple ID miễn phí (Personal Team)
 
-Làm tay chứng thư + provisioning profile rồi dùng `signing = manual` trong
-workflow (cần 6 secrets).
+Đây là các giới hạn **của Apple**, không phải của app. Đã đối chiếu với app:
 
-### 3.1 Tạo CSR + khóa riêng (Git Bash trên Windows)
-
-```bash
-cd ~/Downloads
-openssl req -new -newkey rsa:2048 -nodes \
-  -keyout mngcloud-dev.key -out mngcloud-dev.csr \
-  -subj "/CN=MNG Cloud Dev/email=you@example.com"
-```
-
-### 3.2 Upload CSR lên portal → nhận `.cer`
-
-<https://developer.apple.com/account/resources/certificates> → **+** →
-**Apple Development** → *Upload a certificate signing request* → chọn
-`mngcloud-dev.csr` → **Continue** → **Register** → **Download** →
-`certificate.cer`.
-
-### 3.3 Ghép `.cer` + key thành `.p12`
-
-```bash
-cd ~/Downloads
-openssl x509 -inform DER -in certificate.cer -out certificate.pem
-openssl pkcs12 -export -out certificate.p12 \
-  -inkey mngcloud-dev.key -in certificate.pem -password pass:MAT-KHAU
-```
-
-### 3.4 Tạo App ID
-
-<https://developer.apple.com/account/resources/identifiers/list> → **App IDs** →
-**+** → **App** → iOS → **Explicit** → bundle id `com.mngcloud.app` (khớp
-`project.yml`) → Register.
-
-### 3.5 Tạo provisioning profile
-
-<https://developer.apple.com/account/resources/profiles> → **+** → **iOS App
-Development** → chọn App ID → chọn iPhone → đặt tên (ví dụ `MNG Cloud Dev`) →
-**Generate** → **Download** → `MNG Cloud Dev.mobileprovision`.
-**Tên profile** (không phải tên file) dùng cho secret
-`PROVISIONING_PROFILE_SPECIFIER`.
-
-### 3.6 Mã hoá base64 (PowerShell)
-
-```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("$HOME\Downloads\certificate.p12"))
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("$HOME\Downloads\MNG Cloud Dev.mobileprovision"))
-```
-
-### 3.7 Secrets cho đường `manual`
-
-| Secret | Giá trị |
+| Giới hạn | Ảnh hưởng tới MNG Cloud |
 | --- | --- |
-| `APPLE_TEAM_ID` | Team ID 10 ký tự |
-| `BUILD_CERTIFICATE_BASE64` | base64 `certificate.p12` |
-| `BUILD_CERTIFICATE_PASSWORD` | mật khẩu đặt ở 3.3 |
-| `PROVISIONING_PROFILE_BASE64` | base64 `.mobileprovision` |
-| `PROVISIONING_PROFILE_SPECIFIER` | tên profile (3.5) |
-| `KEYCHAIN_PASSWORD` | chuỗi bất kỳ |
+| Profile *development* hết hạn sau **7 ngày** | App mở được nhưng phiên đăng nhập (cookie máy chủ) có thể bị từ chối. **AltStore tự làm mới** profile mỗi 7 ngày nếu iPhone vẫn ở cùng mạng Wi-Fi và bật *Refresh sideload*. Nếu không, cài lại `.ipa` (workflow cho artifact mới). |
+| Số **App ID** đăng ký được trong 7 ngày (AltStore ghi "10 apps / 7 days" cho account miễn phí) | Mỗi lần AltStore cài app mới dùng một App ID. Xoá app trên máy rồi cài lại vẫn tốn một App ID. |
+| Số **thiết bị** (100/loại/năm) | Chỉ cần đăng ký iPhone của bạn — AltStore tự làm. |
+| **Không có Push Notifications** | App **không** dùng push (không có `aps-environment`) → không ảnh hưởng. |
+| **Không có iCloud/CloudKit** | Tính năng "iCloud" trong app là **trình nhập chạy trên máy chủ `mngd`**, không dùng CloudKit của Apple → không ảnh hưởng. |
+| **Không có App Groups** | App không dùng App Group → không ảnh hưởng. |
+| **Không có Keychain Sharing** | App không dùng nhóm keychain dùng chung (chỉ `HTTPCookieStorage` + `UserDefaults` của riêng app) → không ảnh hưởng. |
+| **Không có Associated Domains** | App không dùng → không ảnh hưởng. |
+| AltStore có thể **đổi bundle id** thành `com.mngcloud.app.<random>` | `UserDefaults`/keychain của app bị tách theo bundle id → nếu AltStore đổi id, chỉ cần **đăng nhập lại**. Dữ liệu trên máy chủ không bị ảnh hưởng. |
+| Không có **background fetch** | App không khai báo `UIBackgroundModes` → không ảnh hưởng (app chỉ chạy khi mở). |
 
-Rồi chạy workflow với **signing = `manual`**.
+### Nếu sau này app cần một capability
+
+Workflow `build-ios` chạy `scripts/check-personal-team-entitlements.sh` trước khi
+build. Script **không tự ý xoá** capability (xoá là đổi chức năng app) mà sẽ
+**dừng build** với thông báo rõ ràng, ví dụ:
+
+```
+== Personal Team capability report ==
+Entitlements files: 1
+  - App/App.entitlements
+    UNSUPPORTED by a free Personal Team: aps-environment
+RESULT: the app requests entitlements that a free Personal Team cannot
+        grant. Remove the capability from the app (it is a functional
+        change) or build with a paid team. Nothing was stripped here.
+```
+
+Khi đó bạn có 2 lựa chọn: bỏ capability khỏi app, hoặc dùng đường ký trả phí.
 
 ---
 
-## 4. Phương án tự động (API key — cần account trả phí)
+## 4. Nếu muốn IPA đã ký sẵn (account trả phí)
 
-1. <https://developer.apple.com/account/resources/keys> → *Access Keys* → **+** →
-   *Key Access*: **App Manager** → **Register** → tải `AuthKey_XXX.p8`
-   (**chỉ tải được 1 lần**).
-2. Lấy **Key ID** (10 ký tự sau `AuthKey_`) và **Issuer ID** trên trang Keys.
-3. Secrets: `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`,
-   `APP_STORE_CONNECT_PRIVATE_KEY` (base64 của `.p8`).
-4. Chạy workflow với **signing = `automatic`** → Xcode tự tạo chứng thư +
-   profile trên runner.
+Workflow riêng **`build-ios-signed`**:
+- `signing = automatic` → dùng App Store Connect API key (Xcode tự tạo chứng thư
+  và profile trên runner).
+- `signing = manual` → bạn tự upload `.p12` + `.mobileprovision` qua secrets.
+
+Hai workflow tách biệt hoàn toàn: `build-ios` **không dùng secret nào**.
 
 ---
 
@@ -190,15 +141,13 @@ Rồi chạy workflow với **signing = `manual`**.
 
 | Triệu chứng | Nguyên nhân | Cách sửa |
 | --- | --- | --- |
-| "Access Unavailable" ở trang Keys | Access Keys cần account **trả phí** | Dùng đường `apple-id` hoặc `manual` |
-| "Missing APPLE_ID … secrets" | Thiếu/sai tên secret | Kiểm tra lại 4 secret (đường apple-id) |
-| fastlane: "Could not login to Apple" | App-specific password sai, hoặc Apple ID bật 2FA | Tạo lại app-specific password; nếu vẫn lỗi dùng đường `manual` |
-| "No profiles for 'com.mngcloud.app'" | Profile không chứa App ID | fastlane tạo App ID tự động; nếu thủ công thì tạo App ID ở 3.4 |
-| "Provisioning profile doesn't include device" | Chưa đăng ký UDID | Đăng ký iPhone (Việc 1) rồi chạy lại workflow |
-| "Unable to authenticate" khi Sideloadly/AltStore | Sai app-specific password / Apple ID | Tạo lại mật khẩu, đồng bộ iCloud với AltStore |
-| "Device not found" | Chưa bấm "Trust This Computer" | Mở khoá máy, chấp nhận Trust, thử lại |
-| App mở ra rồi báo lỗi đăng nhập | Profile hết hạn 7 ngày | Bật *Refresh sideload* trong AltStore hoặc cài lại `.ipa` mới |
+| AltStore báo "Invalid Signature" / không cài được | File `.ipa` bị hỏng hoặc tải về chưa giải nén | Tải lại artifact, giải nén `.ipa`, cài lại |
+| AltStore báo "The app could not be installed" vì hết App ID | Đã dùng hết số App ID 7 ngày | Chờ hết 7 ngày hoặc dùng đường ký trả phí |
+| App mở ra rồi báo lỗi đăng nhập | Profile hết hạn / cookie phiên cũ | Bật *Refresh sideload* trong AltStore, hoặc cài lại `.ipa` và đăng nhập lại |
+| "Device not found" | Chưa bấm **Trust This Computer** | Mở khoá iPhone, chấp nhận Trust, thử lại |
 | Không đăng nhập được dù app mở | Chưa có máy chủ `mngd` hoặc sai URL | Dựng backend từ `mng-cloud-rs`, kiểm tra URL |
+| Workflow báo "the app requests entitlements…" | App cần capability mà account miễn phí không cấp | Xem mục 3, hoặc dùng `build-ios-signed` |
+| Workflow báo "Missing …" | Sai tên input của workflow | Chạy lại với `configuration=Release`, `artifact_name=MNGCloud-AltStore-IPA` |
 
 ---
 
@@ -207,13 +156,3 @@ Rồi chạy workflow với **signing = `manual`**.
 Workflow `ci` xuất artifact **MNGCloud-simulator** chứa app **chưa ký** cho
 simulator. Tải artifact đó, mở bằng Xcode (Window → Devices) để chạy thử UI
 trên máy Mac của người khác.
-
----
-
-## 7. Phụ lục: TestFlight (account trả phí)
-
-1. Tạo app trong **App Store Connect** với bundle id `com.mngcloud.app`.
-2. Workflow `release` (tag `v*`) đã sẵn sàng: thêm các secret
-   `APPSTORE_KEY_ID`, `APPSTORE_ISSUER_ID`, `APPSTORE_PRIVATE_KEY` và bổ sung
-   bước `xcodebuild -exportArchive -destination upload`.
-3. Cài từ app **TestFlight** trên iPhone → profile không hết hạn 7 ngày ✓.
