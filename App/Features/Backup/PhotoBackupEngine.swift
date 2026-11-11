@@ -82,8 +82,6 @@ final class PhotoBackupEngine {
     private var settings = Settings()
     private var runTask: Task<Void, Never>?
     private var changeObserver: PhotoLibraryObserver?
-    /// The fetch result keeps the observer registered, so it has to stay alive.
-    private var changeFetch: Any?
     /// The staged files of the running jobs, so they can be removed when the
     /// transfer is done.
     private var stagedFiles: [UUID: [URL]] = [:]
@@ -148,9 +146,10 @@ final class PhotoBackupEngine {
                 await self?.run()
             }
         }
-        // The fetch result keeps the registration alive; the observer only
-        // learns that something changed.
-        changeFetch = PHPhotoLibrary.shared().registerChangeObserver(for: observer)
+        // The observer has to stay registered, so it is kept alive next to
+        // the observer itself. The Photos API takes the observer without a
+        // label.
+        PHPhotoLibrary.shared().register(observer)
         changeObserver = observer
     }
 
@@ -158,7 +157,6 @@ final class PhotoBackupEngine {
         guard let observer = changeObserver else { return }
         PHPhotoLibrary.shared().unregisterChangeObserver(observer)
         changeObserver = nil
-        changeFetch = nil
     }
 
     // MARK: - Permission
@@ -344,11 +342,11 @@ final class PhotoBackupEngine {
                 ? "video-\(asset.localIdentifier).mov"
                 : "IMG-\(asset.localIdentifier).jpg")
         let isLive = !isVideo && resources.contains { $0.type == .pairedVideo }
-        // The file size of a resource is an `Int`, so the sum is widened to
-        // the `Int64` the job carries.
+        // The size of a resource is an optional `Int`, so the sum is widened
+        // to the `Int64` the job carries.
         var size: Int64 = 0
         for resource in resources {
-            size += Int64(resource.fileSize)
+            size += Int64(resource.dataSize ?? 0)
         }
         return Job(
             id: UUID(),
