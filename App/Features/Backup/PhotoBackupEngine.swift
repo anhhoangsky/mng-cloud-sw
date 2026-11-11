@@ -82,6 +82,8 @@ final class PhotoBackupEngine {
     private var settings = Settings()
     private var runTask: Task<Void, Never>?
     private var changeObserver: PhotoLibraryObserver?
+    /// The fetch result keeps the observer registered, so it has to stay alive.
+    private var changeFetch: Any?
     /// The staged files of the running jobs, so they can be removed when the
     /// transfer is done.
     private var stagedFiles: [UUID: [URL]] = [:]
@@ -146,7 +148,9 @@ final class PhotoBackupEngine {
                 await self?.run()
             }
         }
-        PHPhotoLibrary.shared().register(observer)
+        // The fetch result keeps the registration alive; the observer only
+        // learns that something changed.
+        changeFetch = PHPhotoLibrary.shared().registerChangeObserver(for: observer)
         changeObserver = observer
     }
 
@@ -154,6 +158,7 @@ final class PhotoBackupEngine {
         guard let observer = changeObserver else { return }
         PHPhotoLibrary.shared().unregisterChangeObserver(observer)
         changeObserver = nil
+        changeFetch = nil
     }
 
     // MARK: - Permission
