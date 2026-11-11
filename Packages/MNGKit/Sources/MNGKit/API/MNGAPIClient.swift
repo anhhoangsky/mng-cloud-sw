@@ -299,9 +299,9 @@ public actor MNGAPIClient {
         name: String,
         fileURL: URL,
         mime: String
-    ) async throws -> (request: URLRequest, bodyFile: URL) {
+    ) async throws -> MediaUploadRequest {
         let boundary = "----MNGUpload\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
-        let body = try Self.multipartBody(
+        let body = try multipartBody(
             boundary: boundary,
             name: name,
             fileURL: fileURL,
@@ -316,7 +316,7 @@ public actor MNGAPIClient {
            let header = fields["Cookie"] {
             request.setValue(header, forHTTPHeaderField: "Cookie")
         }
-        return (request, body)
+        return MediaUploadRequest(request: request, bodyFile: body)
     }
 
     /// The session cookie of the signed-in user.
@@ -333,15 +333,16 @@ public actor MNGAPIClient {
     /// directory: a background upload may only read it minutes later, and the
     /// system is free to purge the temporary directory while the app is not
     /// running. The caller removes it once the transfer is done.
-    private static func multipartBody(
+    private func multipartBody(
         boundary: String,
         name: String,
         fileURL: URL,
         mime: String
     ) throws -> URL {
-        let directory = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("mng-upload-body", isDirectory: true)
+        let base = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let directory = base.appendingPathComponent("mng-upload-body", isDirectory: true)
         try? FileManager.default.createDirectory(
             at: directory,
             withIntermediateDirectories: true

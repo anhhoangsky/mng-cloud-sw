@@ -45,25 +45,32 @@ final class BackgroundUploadSession: NSObject, @unchecked Sendable {
     private var backgroundHandlers: [String: () -> Void] = [:]
 
     /// Hand one upload to the system.
+    ///
+    /// The job is told about the task before it starts, so a fast transfer
+    /// cannot complete before the queue knows about it.
     @discardableResult
     func enqueue(
         jobID: UUID,
         request: URLRequest,
-        bodyFile: URL
+        bodyFile: URL,
+        register: (Int) -> Void
     ) -> Int {
         let task = session.uploadTask(with: request, fromFile: bodyFile)
         // The description survives the relaunch, so the completion still finds
         // the job it belongs to.
         task.taskDescription = jobID.uuidString
+        register(task.taskIdentifier)
         task.resume()
         return task.taskIdentifier
     }
 
-    /// The uploads that are still running.
-    func runningTaskIDs() async -> [Int] {
+    /// The jobs the system is still transferring.
+    func runningJobIDs() async -> Set<UUID> {
         await withCheckedContinuation { continuation in
             session.getAllTasks { tasks in
-                continuation.resume(returning: tasks.map(\.taskIdentifier))
+                continuation.resume(returning: Set(tasks.compactMap {
+                    $0.taskDescription.flatMap(UUID.init(uuidString:))
+                }))
             }
         }
     }

@@ -1,5 +1,20 @@
 import Foundation
 
+/// A prepared media upload.
+///
+/// The request carries the session cookie and the CSRF token, and the body is
+/// a scratch file on disk, so a background `URLSession` can send it long after
+/// the app was suspended.
+public struct MediaUploadRequest {
+    public let request: URLRequest
+    public let bodyFile: URL
+
+    public init(request: URLRequest, bodyFile: URL) {
+        self.request = request
+        self.bodyFile = bodyFile
+    }
+}
+
 /// `POST /api/v1/media/match` response.
 ///
 /// `matched` is true when the index already carries a photo with the same

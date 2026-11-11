@@ -196,7 +196,7 @@ final class PhotoBackupEngine {
 
         // A run that is already going on must not start a second one.
         guard runTask == nil else { return true }
-        let task = Task { [weak self] in
+        let task = Task<Void, Never> { [weak self] in
             await self?.performRun(client: client)
         }
         runTask = task
@@ -231,8 +231,11 @@ final class PhotoBackupEngine {
 
     private func performRun(client: MNGAPIClient) async {
         status = .scanning
+        // A task the system no longer knows about must not block the queue.
+        await reconcileRunningTasks()
         let discovered = discover()
         merge(discovered)
+        pruneHandled()
 
         let due = queue.filter { job in
             guard job.taskIDs.isEmpty else { return false }
@@ -256,6 +259,22 @@ final class PhotoBackupEngine {
         }
         lastRun = Date()
         status = .idle
+        saveState()
+    }
+
+    /// Drop the task ids of the transfers the system does not run any more.
+    ///
+    /// The task identifier of a background session is only unique inside one
+    /// session instance, so the ids of a relaunch do not match. The job id in
+    /// the task description does, so the running tasks are matched by it.
+    private func reconcileRunningTasks() async {
+        let running = await BackgroundUploadSession.shared.runningJobIDs()
+        guard !running.isEmpty else { return }
+        for index in queue.indices where !queue[index].taskIDs.isEmpty {
+            if !running.contains(queue[index].id) {
+                queue[index].taskIDs.removeAll()
+            }
+        }
         saveState()
     }
 
@@ -286,9 +305,6 @@ final class PhotoBackupEngine {
         // The scan boundary moves to the newest photo that was seen.
         if let newest = jobs.map(\.creationDate).max() {
             scannedUntil = newest
-            // Only the assets near the boundary have to be remembered; the
-            // older ones are never discovered again.
-            handled = handled.filter { $0.value >= newest }
         }
         return jobs
     }
@@ -298,14 +314,18 @@ final class PhotoBackupEngine {
         var known = Set(queue.map(\.localIdentifier))
         for job in discovered where !known.contains(job.localIdentifier) {
             // An asset that is already in the library is not sent again.
-            if handled[job.localIdentifier] != nil {
-                skipped += 1
-                continue
-            }
+            if handled[job.localIdentifier] != nil { continue }
             queue.append(job)
             known.insert(job.localIdentifier)
         }
         queue.sort { $0.creationDate < $1.creationDate }
+    }
+
+    /// Only the assets near the scan boundary have to be remembered; the older
+    /// ones are never discovered again.
+    private func pruneHandled() {
+        guard let boundary = scannedUntil else { return }
+        handled = handled.filter { $0.value >= boundary }
     }
 
     private static func job(for asset: PHAsset, isVideo: Bool) -> Job {
@@ -398,18 +418,19 @@ final class PhotoBackupEngine {
     /// and the upload still has to find the file.
     static var stagingDirectory: URL {
         let base = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("mng-backup-stage", isDirectory: true)
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let directory = base.appendingPathComponent("mng-backup-stage", isDirectory: true)
         try? FileManager.default.createDirectory(
-            at: base,
+            at: directory,
             withIntermediateDirectories: true
         )
         // The staged files are copies, not user data.
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
-        var mutable = base
+        var mutable = directory
         try? mutable.setResourceValues(values)
-        return base
+        return directory
     }
 
     static func purgeStaging() {
@@ -473,7 +494,10 @@ final class PhotoBackupEngine {
             recordFailure(job)
             return
         }
+        // The scratch files are remembered before the first transfer starts,
+        // so they are removed even when the second one fails.
         var scratch = staged.map(\.url)
+        stagedFiles[job.id] = scratch
         for file in staged {
             do {
                 let prepared = try await client.mediaUploadRequest(
@@ -482,18 +506,19 @@ final class PhotoBackupEngine {
                     mime: file.mime
                 )
                 scratch.append(prepared.bodyFile)
-                let taskID = BackgroundUploadSession.shared.enqueue(
+                stagedFiles[job.id] = scratch
+                BackgroundUploadSession.shared.enqueue(
                     jobID: job.id,
                     request: prepared.request,
                     bodyFile: prepared.bodyFile
-                )
-                addTaskID(taskID, for: job.id)
-            } catch {
+                ) { [weak self] taskID in
+                    self?.addTaskID(taskID, for: job.id)
+                }            } catch {
                 recordFailure(job)
+                removeStagedFiles(job.id)
                 return
             }
         }
-        stagedFiles[job.id] = scratch
     }
 
     private func addTaskID(_ taskID: Int, for jobID: UUID) {
@@ -507,14 +532,13 @@ final class PhotoBackupEngine {
     }
 
     private func recordFailure(_ job: Job) {
-        failed += 1
         guard let index = queue.firstIndex(where: { $0.id == job.id }) else { return }
         queue[index].attempts += 1
-        queue[index].taskIDs.removeAll()
         if queue[index].attempts >= Self.maximumAttempts {
             // The file cannot be read (it may live only in iCloud); give up
             // instead of retrying forever.
-            queue.remove(at: index)
+            failed += 1
+            removeFromQueue(job.id)
             return
         }
         // A transient failure waits a little longer every time.
@@ -528,6 +552,11 @@ final class PhotoBackupEngine {
 
     private func removeFromQueue(_ id: UUID) {
         queue.removeAll { $0.id == id }
+        removeStagedFiles(id)
+    }
+
+    /// Remove the scratch files of a job.
+    private func removeStagedFiles(_ id: UUID) {
         stagedFiles[id]?.forEach { try? FileManager.default.removeItem(at: $0) }
         stagedFiles[id] = nil
     }
@@ -537,19 +566,20 @@ final class PhotoBackupEngine {
     /// The background session finished one upload.
     func handleCompletion(jobID: UUID, taskID: Int, succeeded: Bool) {
         guard let index = queue.firstIndex(where: { $0.id == jobID }) else { return }
-        queue[index].taskIDs.remove(taskID)
+        // A completion of a task this job does not know any more is stale.
+        guard queue[index].taskIDs.remove(taskID) != nil else { return }
         if succeeded {
-            uploaded += 1
             // The job is only done when every part of it arrived; a Live Photo
             // is two files.
             if queue[index].taskIDs.isEmpty {
+                uploaded += 1
                 markHandled(queue[index])
                 removeFromQueue(jobID)
             }
         } else {
-            failed += 1
             queue[index].attempts += 1
             if queue[index].attempts >= Self.maximumAttempts {
+                failed += 1
                 removeFromQueue(jobID)
             } else {
                 let delay = min(

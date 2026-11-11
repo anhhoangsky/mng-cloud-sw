@@ -23,12 +23,6 @@ public enum MNGNames {
     private static let compactPattern =
         "(\\d{4})(\\d{2})(\\d{2})[_-](\\d{2})(\\d{2})(\\d{2})"
 
-    /// The compiled patterns, built once.
-    private static let named = try? NSRegularExpression(pattern: namedPattern)
-    private static let separated = try? NSRegularExpression(pattern: separatedPattern)
-    private static let short = try? NSRegularExpression(pattern: shortPattern)
-    private static let compact = try? NSRegularExpression(pattern: compactPattern)
-
     /// The capture date of a media file, as a Unix timestamp.
     ///
     /// The timestamp is a UTC epoch that represents local wall-clock time,
@@ -37,8 +31,13 @@ public enum MNGNames {
     public static func takenAt(from name: String, mtime: Int64 = 0) -> Int64 {
         let decoded = name.removingPercentEncoding ?? name
 
-        for (regex, shortYear) in [(named, false), (separated, false), (short, true)] {
-            guard let regex else { continue }
+        let patterns: [(String, Bool)] = [
+            (namedPattern, false),
+            (separatedPattern, false),
+            (shortPattern, true)
+        ]
+        for (pattern, shortYear) in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
             guard let match = firstMatch(regex, in: decoded) else { continue }
             if let timestamp = timestamp(match, in: decoded, shortYear: shortYear) {
                 return timestamp
@@ -49,8 +48,8 @@ public enum MNGNames {
         // touches another digit is not a date, and a boundary-valid match with
         // an impossible date falls back to the modification time instead of
         // letting a later number in the same name win.
-        if let compact {
-            for match in compact.matches(in: decoded, range: fullRange(decoded)) {
+        if let regex = try? NSRegularExpression(pattern: compactPattern) {
+            for match in regex.matches(in: decoded, range: fullRange(decoded)) {
                 guard !touchesDigitBoundary(match, in: decoded) else { continue }
                 if let timestamp = timestamp(match, in: decoded, shortYear: false) {
                     return timestamp
