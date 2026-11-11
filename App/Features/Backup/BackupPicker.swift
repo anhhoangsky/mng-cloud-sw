@@ -167,7 +167,9 @@ struct BackupPicker: UIViewControllerRepresentable {
                         return
                     }
                     let size = (source?[.size] as? NSNumber)?.int64Value ?? 0
-                    if let modified = source?[.modificationDate] as? Date {
+                    if let source, let modified = source[.modificationDate] as? Date {
+                        // Keep the source modification time, so a name without
+                        // a date still resolves to the original capture time.
                         try? FileManager.default.setAttributes(
                             [.modificationDate: modified],
                             ofItemAtPath: target.path

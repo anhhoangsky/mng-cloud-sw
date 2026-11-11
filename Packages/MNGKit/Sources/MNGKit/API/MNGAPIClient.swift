@@ -312,9 +312,11 @@ public actor MNGAPIClient {
             "multipart/form-data; boundary=\(boundary)",
             forHTTPHeaderField: "Content-Type"
         )
-        if let cookie = sessionCookie(), let fields = HTTPCookie.requestHeaderFields(with: [cookie]),
-           let header = fields["Cookie"] {
-            request.setValue(header, forHTTPHeaderField: "Cookie")
+        if let cookie = sessionCookie() {
+            let fields = HTTPCookie.requestHeaderFields(with: [cookie])
+            if let header = fields["Cookie"] {
+                request.setValue(header, forHTTPHeaderField: "Cookie")
+            }
         }
         return MediaUploadRequest(request: request, bodyFile: body)
     }
@@ -356,7 +358,7 @@ public actor MNGAPIClient {
         }
         defer { try? output.close() }
 
-        let filename = safeFilename(name) ?? "upload"
+        let filename = Self.safeFilename(name) ?? "upload"
         let header = "--\(boundary)\r\n"
             + "Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n"
             + "Content-Type: \(mime)\r\n\r\n"
