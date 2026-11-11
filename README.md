@@ -41,10 +41,11 @@ the runner has no iOS runtime.
 
 To try the app on a real iPhone without a Mac, run the **build-ios** workflow:
 it signs a `.ipa` on the GitHub runner and publishes it as an artifact. The
-default `manual` signing path works with a **free** Apple ID (you upload a
-certificate signing request and a provisioning profile from the developer
-portal); `automatic` signing uses an App Store Connect API key and needs a paid
-membership. The step-by-step setup is in
+default `apple-id` path needs only an Apple ID, an app-specific password, the
+Team ID and the device registered in the portal — fastlane creates the
+certificate and the profile on the runner. `manual` (bring your own
+certificate and profile) and `automatic` (App Store Connect API key, paid
+account) are also available. The step-by-step setup is in
 [docs/INSTALL_ON_DEVICE.md](docs/INSTALL_ON_DEVICE.md).
 
 ## Layout
