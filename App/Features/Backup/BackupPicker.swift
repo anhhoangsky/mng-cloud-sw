@@ -120,7 +120,7 @@ struct BackupPicker: UIViewControllerRepresentable {
                 )
             ]
 
-            if !isVideo, let companion = await stage(
+            if imageIdentifier != nil, let companion = await stage(
                 provider: provider,
                 typeIdentifier: LivePhoto.movieTypeIdentifier
             ) {
