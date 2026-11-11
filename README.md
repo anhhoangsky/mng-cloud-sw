@@ -41,7 +41,11 @@ the runner has no iOS runtime.
 
 To try the app on a real iPhone without a Mac, run the **build-ios** workflow:
 it signs a `.ipa` on the GitHub runner and publishes it as an artifact. The
-step-by-step setup is in [docs/INSTALL_ON_DEVICE.md](docs/INSTALL_ON_DEVICE.md).
+default `manual` signing path works with a **free** Apple ID (you upload a
+certificate signing request and a provisioning profile from the developer
+portal); `automatic` signing uses an App Store Connect API key and needs a paid
+membership. The step-by-step setup is in
+[docs/INSTALL_ON_DEVICE.md](docs/INSTALL_ON_DEVICE.md).
 
 ## Layout
 
