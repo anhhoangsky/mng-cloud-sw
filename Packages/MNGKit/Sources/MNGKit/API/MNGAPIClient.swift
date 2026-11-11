@@ -259,7 +259,7 @@ public actor MNGAPIClient {
         mime: String
     ) async throws -> MediaUploadResponse {
         let boundary = "----MNGUpload\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
-        let body = try Self.multipartBody(
+        let body = try multipartBody(
             boundary: boundary,
             name: name,
             fileURL: fileURL,
