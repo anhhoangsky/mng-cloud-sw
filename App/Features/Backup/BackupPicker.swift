@@ -93,16 +93,16 @@ struct BackupPicker: UIViewControllerRepresentable {
             let identifiers = provider.registeredTypeIdentifiers
             // A Live Photo registers both a still and its companion movie, so
             // the kind of the asset decides which one is the primary file.
-            let isVideo = result.assetMediaType == .video
             let movieIdentifier = identifiers.first {
                 UTType($0)?.conforms(to: .movie) == true
             }
             let imageIdentifier = identifiers.first {
                 UTType($0)?.conforms(to: .image) == true
             }
-            let primary = isVideo
-                ? (movieIdentifier ?? identifiers.first)
-                : (imageIdentifier ?? identifiers.first)
+            // A picker result does not carry a media type, so the registered
+            // type identifiers decide which file is the primary one. A Live
+            // Photo registers both a still and its companion movie.
+            let primary = movieIdentifier ?? imageIdentifier ?? identifiers.first
             guard let primary else { return [] }
 
             let name = provider.suggestedName
