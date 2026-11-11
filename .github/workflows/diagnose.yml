@@ -36,19 +36,19 @@ jobs:
       - name: Report the Photos API
         run: |
           SDK="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          INTERFACE="$SDK/System/Library/Frameworks/Photos.framework/Modules/Photos.swiftmodule"
           {
             echo '### the Photos interface'
             echo '```'
-            grep -rh "registerChangeObserver\|func register(" \
-              "$SDK/System/Library/Frameworks/Photos.framework/Modules/Photos.swiftmodule/" \
-              2>/dev/null | sort -u | head -30
+            grep -rh "registerChangeObserver\|func register(" "$INTERFACE" 2>/dev/null \
+              | sort -u | head -30 || echo "(the interface was not found)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          grep -rh "registerChangeObserver" \
-            "$SDK/System/Library/Frameworks/Photos.framework/Modules/Photos.swiftmodule/" \
-            2>/dev/null | sort -u | head -10 | while IFS= read -r line; do
+          grep -rh "registerChangeObserver" "$INTERFACE" 2>/dev/null \
+            | sort -u | head -10 | while IFS= read -r line; do
             echo "::error title=Photos API::${line}"
           done
+          exit 0
 
       # The build error is reported as a workflow annotation, because the
       # plain log of a public run is only readable when signed in.
