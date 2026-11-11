@@ -61,6 +61,33 @@ jobs:
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO build
 
+      # Keeps the AltStore path honest: the runner builds the same unsigned
+      # device archive and packs the very same .ipa the build-ios workflow
+      # publishes.
+      - name: Build unsigned device app (AltStore path)
+        run: |
+          set -euo pipefail
+          bash ./scripts/check-personal-team-entitlements.sh App
+          xcodebuild -project MNGCloud.xcodeproj -scheme MNGCloud \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/device \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+          bash ./scripts/make-unsigned-ipa.sh \
+            "build/device/Build/Products/Release-iphoneos/MNGCloud.app" \
+            "build/device/MNGCloud.ipa"
+
+      - name: Upload the unsigned AltStore IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: MNGCloud-AltStore-IPA
+          path: build/device/MNGCloud.ipa
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Test simulator
         run: |
           # The runner image does not always ship a booted iOS simulator, so
