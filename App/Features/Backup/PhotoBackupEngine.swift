@@ -197,7 +197,8 @@ final class PhotoBackupEngine {
         // A run that is already going on must not start a second one.
         guard runTask == nil else { return true }
         let task = Task<Void, Never> { [weak self] in
-            await self?.performRun(client: client)
+            guard let self else { return }
+            await self.performRun(client: client)
         }
         runTask = task
         await task.value
