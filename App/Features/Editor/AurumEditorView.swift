@@ -233,7 +233,7 @@ private struct AurumWebView: UIViewRepresentable {
                 onPhase(.ready)
             case "error":
                 onPhase(.failed(body["message"] as? String ?? Strings.editorSaveFailed))
-            case "save":
+            case "save", "saveCopy":
                 let payload = body["data"] as? String ?? ""
                 // The payload is a data URL: strip the prefix before decoding.
                 let base64 = payload.split(separator: ",").last.map { String($0) } ?? payload
@@ -278,7 +278,8 @@ private struct AurumWebView: UIViewRepresentable {
 enum AurumBundle {
     /// The IIFE build of Aurum, injected before the page runs.
     static func script() -> String? {
-        guard let url = Bundle.main.url(forResource: "aurum", withExtension: "js"),
+        // The resource is `aurum.min.js`, so the name carries the `min` part.
+        guard let url = Bundle.main.url(forResource: "aurum.min", withExtension: "js"),
               let source = try? String(contentsOf: url, encoding: .utf8)
         else {
             return nil
@@ -296,11 +297,11 @@ enum AurumBundle {
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
         <style>
           html, body { margin: 0; padding: 0; height: 100%; background: #08080a; }
-          #editor { position: absolute; inset: 0; }
+          #aurumHost { position: absolute; inset: 0; }
         </style>
         </head>
         <body>
-        <div id="editor"></div>
+        <div id="aurumHost"></div>
         </body>
         </html>
         """
@@ -339,7 +340,7 @@ enum AurumBundle {
         let safeName = fileName.replacingOccurrences(of: "'", with: "")
         return """
         (function () {
-          if (!window.Aurum) {
+          if (!window.Aurum || !window.Aurum.createEditor) {
             window.webkit.messageHandlers.aurum.postMessage({
               type: 'error',
               message: 'Aurum không tải được.'
@@ -349,10 +350,12 @@ enum AurumBundle {
           var editor;
           try {
             editor = window.Aurum.createEditor({
-              container: '#editor',
+              container: '#aurumHost',
               image: '\(source)',
               fileName: '\(safeName)',
+              colorSpace: 'auto',
               locale: 'vi',
+              title: 'Chỉnh sửa ảnh',
               startTab: 'adjust',
               exportTypes: ['image/jpeg', 'image/png'],
               onSave: function (blob, fileName) {
@@ -360,6 +363,17 @@ enum AurumBundle {
                 reader.onloadend = function () {
                   window.webkit.messageHandlers.aurum.postMessage({
                     type: 'save',
+                    data: reader.result,
+                    name: fileName
+                  });
+                };
+                reader.readAsDataURL(blob);
+              },
+              onSaveCopy: function (blob, fileName) {
+                var reader = new FileReader();
+                reader.onloadend = function () {
+                  window.webkit.messageHandlers.aurum.postMessage({
+                    type: 'saveCopy',
                     data: reader.result,
                     name: fileName
                   });

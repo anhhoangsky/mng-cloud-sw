@@ -228,20 +228,24 @@ private struct CompactShellHeader: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button {
-                model.presentConnections()
-            } label: {
-                Image(systemName: "cloud.fill")
-                    .font(Font.mng(15, weight: .semibold))
-                    .foregroundStyle(Palette.accent)
-                    .frame(width: 36, height: 36)
-                    .background(Palette.accentSoft, in: Circle())
-                    .overlay {
-                        Circle().stroke(Palette.hairline, lineWidth: 0.5)
-                    }
+            // The server picker belongs to the settings; the library header
+            // only shows the count and the date of the photo on top.
+            if model.tab == .settings {
+                Button {
+                    model.presentConnections()
+                } label: {
+                    Image(systemName: "cloud.fill")
+                        .font(Font.mng(15, weight: .semibold))
+                        .foregroundStyle(Palette.accent)
+                        .frame(width: 36, height: 36)
+                        .background(Palette.accentSoft, in: Circle())
+                        .overlay {
+                            Circle().stroke(Palette.hairline, lineWidth: 0.5)
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(Strings.switchCloud) · \(model.activeCloudLabel)")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(Strings.switchCloud) · \(model.activeCloudLabel)")
         }
         .padding(.horizontal, 16)
         .padding(.top, 10)

@@ -102,6 +102,8 @@ public struct AdminUsersResponse: Decodable, Equatable, Sendable {
 public struct AdminMutationResponse: Decodable, Equatable, Sendable {
     public let user: AdminUser?
     public let password: String?
+    /// The password of the Seafile account, when the cloud was reprovisioned.
+    public let cloudPassword: String?
     public let provision: [String: AdminProvisionResult]
     public let clouds: [String: AdminProvisionResult]
 
@@ -109,12 +111,14 @@ public struct AdminMutationResponse: Decodable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         user = try container.decodeIfPresent(AdminUser.self, forKey: .user)
         password = try container.decodeIfPresent(String.self, forKey: .password)
+        cloudPassword = try container.decodeIfPresent(String.self, forKey: .cloudPassword)
         provision = try container.mngValue(.provision, default: [:])
         clouds = try container.mngValue(.clouds, default: [:])
     }
 
     private enum CodingKeys: String, CodingKey {
         case user, password, provision, clouds
+        case cloudPassword = "cloud_password"
     }
 }
 

@@ -112,6 +112,12 @@ final class AdminModel {
         }
     }
 
+    /// The password of the Seafile account, when the cloud was reprovisioned.
+    ///
+    /// The server hands the new cloud password back, because the admin has to
+    /// pass it to the user; it is never stored in the app.
+    private(set) var cloudPassword: String = ""
+
     func setActive(_ active: Bool, for user: AdminUser) async {
         let message = active
             ? Strings.adminUnlocked(user.username)
@@ -193,8 +199,11 @@ final class AdminModel {
         isWorking = true
         error = ""
         do {
-            _ = try await operation()
+            let response = try await operation()
             isWorking = false
+            // The server hands the new cloud password back when the account
+            // was reprovisioned; the admin has to pass it on.
+            cloudPassword = response.cloudPassword ?? ""
             notice = message
             onToast?(message)
             await load()

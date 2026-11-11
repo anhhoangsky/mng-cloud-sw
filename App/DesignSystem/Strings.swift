@@ -431,6 +431,12 @@ enum Strings {
     static let adminCreateFailed = "Không tạo được người dùng."
     static let adminActionFailed = "Không thực hiện được thao tác."
     static let adminScanFailed = "Không quét được thư viện."
+    static let adminRename = "Đổi tên"
+    static let adminRenameTitle = "Đổi tên hiển thị"
+    static let adminRenameMessage = "Tên mới hiển thị của tài khoản."
+    static let adminSave = "Lưu"
+    static let adminCopy = "Sao chép"
+    static let adminCloudPassword = "Mật khẩu máy chủ"
 
     static func adminCreated(_ username: String) -> String {
         "Đã tạo \(username)."

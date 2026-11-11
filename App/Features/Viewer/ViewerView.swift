@@ -64,7 +64,7 @@ struct ViewerView: View {
             return .handled
         }
         .sheet(item: $editingItem) { item in
-            EditorView(model: model, item: item)
+            AurumEditorView(model: model, item: item)
         }
     }
 
@@ -368,7 +368,7 @@ private struct ViewerFooter: View {
 
                     if !item.isVideo {
                         ViewerCircleButton(
-                            icon: "arrow.down.to.square",
+                            icon: "square.and.arrow.down",
                             label: Strings.viewerSaveToPhotos,
                             action: onSave
                         )
