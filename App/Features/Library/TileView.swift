@@ -24,30 +24,37 @@ struct TileView: View {
                 library.openViewer(item)
             }
         } label: {
-            ZStack(alignment: .topTrailing) {
-                ThumbnailView(
-                    client: model.client,
-                    path: item.thumbnailPath(size: 360)
-                )
+            // The square is driven by the aspect ratio, not by the thumbnail,
+            // so every row of the grid keeps the same height even while the
+            // images load at different sizes.
+            Color.clear
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    ZStack(alignment: .topTrailing) {
+                        ThumbnailView(
+                            client: model.client,
+                            path: item.thumbnailPath(size: 360)
+                        )
 
-                badges
+                        badges
 
-                if library.selectionMode {
-                    selectionCheck
-                        .padding(7)
-                        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                        if library.selectionMode {
+                            selectionCheck
+                                .padding(7)
+                                .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                        }
+                    }
+                    .clipped()
                 }
-            }
-            .aspectRatio(1, contentMode: .fit)
-            .background(Palette.fill)
-            .clipShape(RoundedRectangle(cornerRadius: 1, style: .continuous))
-            .overlay {
-                if library.isSelected(item.id) {
-                    Rectangle()
-                        .stroke(Palette.accent, lineWidth: 3)
+                .background(Palette.fill)
+                .clipShape(RoundedRectangle(cornerRadius: 1, style: .continuous))
+                .overlay {
+                    if library.isSelected(item.id) {
+                        Rectangle()
+                            .stroke(Palette.accent, lineWidth: 3)
+                    }
                 }
-            }
-            .contentShape(Rectangle())
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
@@ -117,6 +124,19 @@ struct TileView: View {
 
     @ViewBuilder
     private var menu: some View {
+        // Native Photos starts the selection from the context menu, so the
+        // header does not need a permanent "Chọn" button.
+        if library.canSelect {
+            Button {
+                library.enterSelection()
+                library.toggleSelection(item.id)
+            } label: {
+                Label(Strings.select, systemImage: "checkmark.circle")
+            }
+
+            Divider()
+        }
+
         Button {
             library.toggleFavorite(item)
         } label: {

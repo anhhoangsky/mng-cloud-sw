@@ -32,6 +32,22 @@ public extension Item {
     var downloadPath: String {
         download.isEmpty ? "/api/v1/items/\(id)/media?download=1" : download
     }
+
+    /// True for the HEIF family (HEIC/HEIF).
+    ///
+    /// iOS decodes these natively through ImageIO, so the viewer can read the
+    /// original instead of the lossy JPEG preview the server renders for
+    /// browsers.
+    var isHeif: Bool {
+        switch mime.lowercased() {
+        case "image/heic", "image/heif", "image/heic-sequence", "image/heif-sequence":
+            return true
+        default:
+            break
+        }
+        let ext = (name as NSString).pathExtension.lowercased()
+        return ext == "heic" || ext == "heif"
+    }
 }
 
 public extension MNGServer {

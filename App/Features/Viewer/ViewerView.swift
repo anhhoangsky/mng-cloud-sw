@@ -9,6 +9,7 @@ struct ViewerView: View {
 
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var editingItem: Item?
+    @State private var liveText: LiveTextOutcome?
     @FocusState private var isFocused: Bool
 
     private var viewer: ViewerModel { model.library.viewer }
@@ -25,7 +26,12 @@ struct ViewerView: View {
                     client: model.client,
                     server: model.server,
                     item: item,
-                    chromeHidden: viewer.chromeHidden
+                    chromeHidden: viewer.chromeHidden,
+                    onLiveText: { outcome in
+                        withAnimation(Tokens.Motion.fade) {
+                            liveText = outcome
+                        }
+                    }
                 )
                 .ignoresSafeArea()
                 .zIndex(1)
@@ -33,6 +39,7 @@ struct ViewerView: View {
                 topBar(item)
                 navigation
                 footer(item)
+                liveTextPanel
             }
         }
         .background(Color.black.ignoresSafeArea())
@@ -122,10 +129,54 @@ struct ViewerView: View {
             chromeHidden: viewer.chromeHidden,
             onSelect: { index in
                 viewer.select(index: index)
+            },
+            onShare: {
+                viewer.shareCurrent()
+            },
+            onSave: {
+                saveToPhotos(item)
             }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .zIndex(6)
+    }
+
+    /// The recognised text of the photo, shown over the image.
+    @ViewBuilder
+    private var liveTextPanel: some View {
+        if let liveText {
+            VStack {
+                Spacer(minLength: 0)
+                LiveTextPanel(outcome: liveText) {
+                    withAnimation(Tokens.Motion.fade) {
+                        self.liveText = nil
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 120)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .zIndex(7)
+        }
+    }
+
+    /// Save the photo into the system photo library.
+    private func saveToPhotos(_ item: Item) {
+        guard !item.isVideo else {
+            viewer.shareCurrent()
+            return
+        }
+        Task { @MainActor in
+            guard let image = await PhotoLibrarySaver.loadImage(
+                path: item.mediaPath(),
+                client: model.client
+            ) else {
+                model.notify(Strings.saveToPhotosFailed)
+                return
+            }
+            let saved = await PhotoLibrarySaver.save(image)
+            model.notify(saved ? Strings.savedToPhotos : Strings.saveToPhotosFailed)
+        }
     }
 
     private func close() {
@@ -216,6 +267,69 @@ private struct ViewerTopBar: View {
     }
 }
 
+// MARK: - Live Text
+
+/// The text Vision found in the photo.
+private struct LiveTextPanel: View {
+    let outcome: LiveTextOutcome
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "text.viewfinder")
+                    .font(Font.mng(13, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text(Strings.viewerLiveText)
+                    .font(Font.mng(13, weight: .semibold))
+                    .foregroundStyle(.white)
+                Spacer(minLength: 0)
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(Font.mng(11, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Strings.close)
+            }
+
+            switch outcome {
+            case .working:
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                    Text(Strings.viewerLiveTextWorking)
+                        .font(Font.mng(12))
+                        .foregroundStyle(.white.opacity(0.75))
+                }
+            case .text(let text):
+                Text(text)
+                    .font(Font.mng(13))
+                    .foregroundStyle(.white)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            case .empty:
+                Text(Strings.viewerLiveTextEmpty)
+                    .font(Font.mng(12))
+                    .foregroundStyle(.white.opacity(0.75))
+            case .failed:
+                Text(Strings.viewerLiveTextFailed)
+                    .font(Font.mng(12))
+                    .foregroundStyle(.white.opacity(0.75))
+            }
+        }
+        .padding(14)
+        .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(.white.opacity(0.16), lineWidth: 0.5)
+        }
+    }
+}
+
 // MARK: - Footer
 
 private struct ViewerFooter: View {
@@ -224,6 +338,8 @@ private struct ViewerFooter: View {
     let item: Item
     let chromeHidden: Bool
     let onSelect: (Int) -> Void
+    let onShare: () -> Void
+    let onSave: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -240,15 +356,23 @@ private struct ViewerFooter: View {
                 Spacer(minLength: 0)
 
                 HStack(spacing: 7) {
-                    if item.live, !viewer.liveMode {
+                    if item.live {
                         liveButton
                     }
 
                     ViewerCircleButton(
-                        icon: "arrow.down.to.line",
-                        label: Strings.download,
-                        action: viewer.downloadCurrent
+                        icon: "square.and.arrow.up",
+                        label: Strings.viewerShare,
+                        action: onShare
                     )
+
+                    if !item.isVideo {
+                        ViewerCircleButton(
+                            icon: "arrow.down.to.square",
+                            label: Strings.viewerSaveToPhotos,
+                            action: onSave
+                        )
+                    }
 
                     ViewerCircleButton(
                         icon: "trash",
@@ -280,7 +404,7 @@ private struct ViewerFooter: View {
     private var liveButton: some View {
         Button {
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
-                viewer.activateLive()
+                viewer.toggleLive()
             }
         } label: {
             HStack(spacing: 5) {

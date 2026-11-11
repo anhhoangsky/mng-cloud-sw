@@ -47,7 +47,10 @@ enum ShellTab: String, CaseIterable, Identifiable {
         }
     }
 
-    static let tabBarTabs: [ShellTab] = [.library, .albums, .vault, .settings]
+    /// The compact tab bar shows Library, Album and Cài đặt. The encrypted
+    /// vault stays reachable from the sidebar, from Settings and from the
+    /// selection bar, so it does not need its own bottom tab.
+    static let tabBarTabs: [ShellTab] = [.library, .albums, .settings]
     static let sidebarTabs: [ShellTab] = [.library, .albums, .search, .vault, .settings]
 }
 
@@ -85,7 +88,8 @@ final class ShellModel {
     let vault: VaultModel
     let editor: EditorModel
     let admin: AdminModel
-
+    /// Saving photos and videos from the device into the cloud library.
+    let backup = CloudBackupModel()
     var tab: ShellTab = .library
     var toast: String?
     var shareFile: DownloadedFile?
@@ -202,6 +206,12 @@ final class ShellModel {
         }
         editor.onUnauthorized = { [weak self] in
             self?.expireSession()
+        }
+        backup.onUnauthorized = { [weak self] in
+            self?.expireSession()
+        }
+        backup.onToast = { [weak self] message in
+            self?.notify(message)
         }
         admin.onToast = { [weak self] message in
             self?.notify(message)
@@ -421,11 +431,13 @@ final class ShellModel {
             return Strings.albumSelected
         }
         guard tab == .library else { return tab.subtitle }
-        let card = activeCloudCard
-        let count = card?.counts.total ?? bootstrap?.total ?? library.page.total
-        let video = card?.counts.video
-            ?? Int64(library.page.items.filter(\.isVideo).count)
-        return "\(MNGFormat.today()) · \(MNGFormat.number(count)) mục · \(MNGFormat.number(video)) video"
+        // Scrolled timeline: the header shows the date of the photo at the top
+        // of the grid instead of the item count, like iOS Photos.
+        if let date = library.timelineTopDate {
+            return date
+        }
+        let count = activeCloudCard?.counts.total ?? bootstrap?.total ?? library.page.total
+        return "\(MNGFormat.number(count)) mục"
     }
 
     // MARK: - Modals

@@ -18,6 +18,8 @@ final class ViewerModel {
     var onInfo: ((Item) -> Void)?
     var onDownload: ((Item) -> Void)?
     var onDelete: ((Item) -> Void)?
+    /// Shares the current item through the system share sheet.
+    var onShare: ((Item) -> Void)?
 
     var isOpen: Bool { collection != nil }
     var current: Item? { collection?.current }
@@ -30,7 +32,8 @@ final class ViewerModel {
         guard let next = ViewerCollection(items: items, opening: id) else { return }
         collection = next
         chromeHidden = false
-        liveMode = false
+        // A Live Photo starts moving on its own, like the native viewer.
+        liveMode = next.current?.live == true
     }
 
     func close() {
@@ -43,7 +46,7 @@ final class ViewerModel {
         guard var next = collection, next.index != index else { return }
         next.select(index: index)
         collection = next
-        liveMode = false
+        liveMode = next.current?.live == true
     }
 
     func goPrevious() {
@@ -60,11 +63,11 @@ final class ViewerModel {
         chromeHidden.toggle()
     }
 
-    /// The LIVE button starts the companion stream exactly once; the still is
-    /// the default frame until the person asks for motion.
-    func activateLive() {
+    /// Start or stop the motion of a Live Photo. A Live Photo opens with the
+    /// motion already running, like the native viewer.
+    func toggleLive() {
         guard current?.live == true else { return }
-        liveMode = true
+        liveMode.toggle()
     }
 
     func toggleFavorite() {
@@ -80,6 +83,12 @@ final class ViewerModel {
     func downloadCurrent() {
         guard let item = current else { return }
         onDownload?(item)
+    }
+
+    /// Share the current item with the other apps on the device.
+    func shareCurrent() {
+        guard let item = current else { return }
+        onShare?(item)
     }
 
     func deleteCurrent() {

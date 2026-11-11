@@ -225,6 +225,154 @@ public actor MNGAPIClient {
         return try await perform(request)
     }
 
+    // MARK: - Media uploads
+
+    /// `POST /api/v1/media/match`: exact `(taken_at, size)` dedupe pre-check.
+    ///
+    /// Returns `true` when the library already carries the same photo, so the
+    /// caller can skip the transfer.
+    public func mediaMatch(takenAt: Int64, size: Int64) async throws -> Bool {
+        guard takenAt > 0, size > 0 else { return false }
+        let body = try encode(MediaMatchBody(takenAt: takenAt, size: size))
+        let request = try makeRequest(
+            method: .post,
+            path: "/v1/media/match",
+            body: body,
+            csrf: true
+        )
+        let response: MediaMatchResponse = try await perform(request)
+        return response.matched
+    }
+
+    /// `POST /api/v1/media/upload`: one photo or video per request.
+    ///
+    /// The body is a multipart form with a single `file` part. The multipart
+    /// envelope is written to a scratch file and the file itself is streamed
+    /// from disk, so a large video never lands in memory as a whole.
+    ///
+    /// The server stores the file in the owner's library and indexes it. A
+    /// `matched` answer means an identical object was already there and no
+    /// transfer happened.
+    public func mediaUpload(
+        name: String,
+        fileURL: URL,
+        mime: String
+    ) async throws -> MediaUploadResponse {
+        let boundary = "----MNGUpload\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let body = try Self.multipartBody(
+            boundary: boundary,
+            name: name,
+            fileURL: fileURL,
+            mime: mime
+        )
+        defer { try? FileManager.default.removeItem(at: body) }
+
+        var request = try makeRequest(method: .post, path: "/v1/media/upload", csrf: true)
+        request.setValue(
+            "multipart/form-data; boundary=\(boundary)",
+            forHTTPHeaderField: "Content-Type"
+        )
+        let (payload, response) = try await upload(request, fromFile: body)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalid(status: 0)
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw apiError(data: payload, status: http.statusCode)
+        }
+        do {
+            return try decoder.decode(MediaUploadResponse.self, from: payload)
+        } catch {
+            throw APIError.invalid(status: http.statusCode)
+        }
+    }
+
+    /// Build the request of a media upload without sending it.
+    ///
+    /// A background `URLSession` has to carry everything the server needs with
+    /// the request: the system replays it long after the app was suspended,
+    /// so the session cookie and the CSRF token travel in the headers instead
+    /// of a cookie jar that is not there yet.
+    ///
+    /// The multipart envelope is written to a scratch file, because a
+    /// background upload can only be sent from a file.
+    public func mediaUploadRequest(
+        name: String,
+        fileURL: URL,
+        mime: String
+    ) async throws -> (request: URLRequest, bodyFile: URL) {
+        let boundary = "----MNGUpload\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let body = try Self.multipartBody(
+            boundary: boundary,
+            name: name,
+            fileURL: fileURL,
+            mime: mime
+        )
+        var request = try makeRequest(method: .post, path: "/v1/media/upload", csrf: true)
+        request.setValue(
+            "multipart/form-data; boundary=\(boundary)",
+            forHTTPHeaderField: "Content-Type"
+        )
+        if let cookie = sessionCookie(), let fields = HTTPCookie.requestHeaderFields(with: [cookie]),
+           let header = fields["Cookie"] {
+            request.setValue(header, forHTTPHeaderField: "Cookie")
+        }
+        return (request, body)
+    }
+
+    /// The session cookie of the signed-in user.
+    private func sessionCookie() -> HTTPCookie? {
+        let url = server.url
+        return cookieStorage.cookies(for: url)?.first {
+            $0.name == "mng_session"
+        }
+    }
+
+    /// Write the multipart envelope and the file into one scratch file.
+    ///
+    /// The scratch file lives in Application Support, not in the temporary
+    /// directory: a background upload may only read it minutes later, and the
+    /// system is free to purge the temporary directory while the app is not
+    /// running. The caller removes it once the transfer is done.
+    private static func multipartBody(
+        boundary: String,
+        name: String,
+        fileURL: URL,
+        mime: String
+    ) throws -> URL {
+        let directory = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("mng-upload-body", isDirectory: true)
+        try? FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let target = directory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("multipart")
+        _ = FileManager.default.createFile(atPath: target.path, contents: nil)
+        guard let output = try? FileHandle(forWritingTo: target) else {
+            throw APIError.invalid(status: 0)
+        }
+        defer { try? output.close() }
+
+        let filename = safeFilename(name) ?? "upload"
+        let header = "--\(boundary)\r\n"
+            + "Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n"
+            + "Content-Type: \(mime)\r\n\r\n"
+        try output.write(contentsOf: Data(header.utf8))
+
+        guard let input = try? FileHandle(forReadingFrom: fileURL) else {
+            throw APIError.invalid(status: 0)
+        }
+        defer { try? input.close() }
+        while let chunk = try input.read(upToCount: 1_048_576), !chunk.isEmpty {
+            try output.write(contentsOf: chunk)
+        }
+
+        try output.write(contentsOf: Data("\r\n--\(boundary)--\r\n".utf8))
+        return target
+    }
+
     /// Upload an edited image back to the item as `multipart/form-data`.
     ///
     /// `mode` is `overwrite` (replace the original) or `copy` (keep the
@@ -984,6 +1132,17 @@ public actor MNGAPIClient {
         let value: Bool
     }
 
+    /// Body of `POST /api/v1/media/match`.
+    private struct MediaMatchBody: Encodable {
+        let takenAt: Int64
+        let size: Int64
+
+        enum CodingKeys: String, CodingKey {
+            case takenAt = "taken_at"
+            case size
+        }
+    }
+
     private struct RenamePersonBody: Encodable {
         let name: String
     }
@@ -1215,6 +1374,28 @@ public actor MNGAPIClient {
     private func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
         try await withCheckedThrowingContinuation { continuation in
             let task = session.dataTask(with: request) { data, response, error in
+                if error != nil {
+                    continuation.resume(throwing: APIError.network())
+                    return
+                }
+                guard let data, let response else {
+                    continuation.resume(throwing: APIError.network())
+                    return
+                }
+                continuation.resume(returning: (data, response))
+            }
+            task.resume()
+        }
+    }
+
+    /// Send a request whose body lives in a file. The body is streamed from
+    /// disk, so an upload never has to be buffered in memory.
+    private func upload(
+        _ request: URLRequest,
+        fromFile url: URL
+    ) async throws -> (Data, URLResponse) {
+        try await withCheckedThrowingContinuation { continuation in
+            let task = session.uploadTask(with: request, fromFile: url) { data, response, error in
                 if error != nil {
                     continuation.resume(throwing: APIError.network())
                     return

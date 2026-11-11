@@ -191,12 +191,6 @@ private struct CompactShellHeader: View {
         model.canGoBack
     }
 
-    private var showsSelect: Bool {
-        model.tab == .library
-            && model.library.canSelect
-            && !model.library.selectionMode
-    }
-
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             if showsBack {
@@ -233,17 +227,6 @@ private struct CompactShellHeader: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-
-            if showsSelect {
-                Button(Strings.select) {
-                    model.library.enterSelection()
-                }
-                .font(Font.mng(13, weight: .semibold))
-                .foregroundStyle(Palette.accent)
-                .padding(.horizontal, 4)
-                .frame(minHeight: 36)
-                .buttonStyle(.plain)
-            }
 
             Button {
                 model.presentConnections()

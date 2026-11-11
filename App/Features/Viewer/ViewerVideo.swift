@@ -1,9 +1,9 @@
 import AVFoundation
-import AVKit
 import Combine
 import MNGKit
 import Observation
 import SwiftUI
+import UIKit
 
 /// AVPlayer wrapper for one viewer video (or Live Photo companion).
 ///
@@ -12,6 +12,11 @@ import SwiftUI
 /// `AVURLAssetHTTPCookiesKey`; Range requests and buffering are left to
 /// AVFoundation. A single failed load is retried after 800 ms, matching the
 /// legacy `video_retry` handler.
+///
+/// The controller is owned by the viewer stage, not by the player view: the
+/// stage has to start and pause the video from its own gestures. Loading a
+/// new item replaces the current one, so the stage never pauses a player that
+/// a fresh load already took over.
 @MainActor
 @Observable
 final class ViewerVideoController {
@@ -19,21 +24,40 @@ final class ViewerVideoController {
 
     private(set) var hasStarted = false
     private(set) var waiting = false
+    private(set) var isPlaying = false
+    /// Size the player renders at, rotation included. A portrait clip stored
+    /// as 1920x1080 reports 1080x1920 here, so the viewer can size it right.
+    private(set) var presentationSize: CGSize = .zero
+    private(set) var isMuted = false
 
     @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
     @ObservationIgnored private var url: URL?
     @ObservationIgnored private var cookies: [HTTPCookie] = []
     @ObservationIgnored private var retried = false
+    /// Live Photo companions loop like the native Live Photo.
+    @ObservationIgnored private var loops = false
+    @ObservationIgnored private var audioActive = false
+    @ObservationIgnored private var pausedInBackground = false
 
-    func load(url: URL, cookies: [HTTPCookie], autoplay: Bool) {
+    func load(
+        url: URL,
+        cookies: [HTTPCookie],
+        autoplay: Bool,
+        loops: Bool = false,
+        muted: Bool = false
+    ) {
         self.url = url
         self.cookies = cookies
+        self.loops = loops
         retried = false
         hasStarted = autoplay
+        isMuted = muted
+        presentationSize = .zero
         rebuild(autoplay: autoplay)
     }
 
     func play() {
+        activateAudio()
         hasStarted = true
         player.play()
     }
@@ -42,12 +66,37 @@ final class ViewerVideoController {
         player.pause()
     }
 
+    func togglePlayback() {
+        if isPlaying {
+            player.pause()
+        } else {
+            play()
+        }
+    }
+
+    /// The app went to the background: remember that it was playing so it can
+    /// continue where it stopped.
+    func enterBackground() {
+        guard isPlaying else { return }
+        pausedInBackground = true
+        player.pause()
+    }
+
+    func enterForeground() {
+        guard pausedInBackground else { return }
+        pausedInBackground = false
+        player.play()
+    }
+
     func teardown() {
         cancellables.removeAll()
         player.pause()
         player.replaceCurrentItem(with: nil)
         waiting = false
         hasStarted = false
+        isPlaying = false
+        presentationSize = .zero
+        deactivateAudio()
     }
 
     private func rebuild(autoplay: Bool) {
@@ -59,8 +108,10 @@ final class ViewerVideoController {
         let item = AVPlayerItem(asset: asset)
         item.preferredForwardBufferDuration = 5
         player.replaceCurrentItem(with: item)
+        player.isMuted = isMuted
         observe(item)
         if autoplay {
+            activateAudio()
             player.play()
         }
     }
@@ -71,9 +122,18 @@ final class ViewerVideoController {
         item.publisher(for: \.status)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
-                guard status == .failed else { return }
                 Task { @MainActor [weak self] in
-                    self?.handleFailure()
+                    guard let self else { return }
+                    if status == .failed {
+                        self.handleFailure()
+                        return
+                    }
+                    if status == .readyToPlay {
+                        let size = item.presentationSize
+                        if size.width > 0, size.height > 0 {
+                            self.presentationSize = size
+                        }
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -82,7 +142,21 @@ final class ViewerVideoController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
                 Task { @MainActor [weak self] in
-                    self?.waiting = status == .waitingToPlayAtSpecifiedRate
+                    guard let self else { return }
+                    self.waiting = status == .waitingToPlayAtSpecifiedRate
+                    self.isPlaying = status == .playing
+                }
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default
+            .publisher(for: .AVPlayerItemDidPlayToEndTime, object: item)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.loops else { return }
+                    self.player.seek(to: .zero)
+                    self.player.play()
                 }
             }
             .store(in: &cancellables)
@@ -97,6 +171,54 @@ final class ViewerVideoController {
             self.rebuild(autoplay: self.hasStarted)
         }
     }
+
+    private func activateAudio() {
+        guard !audioActive else { return }
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .moviePlayback)
+        try? session.setActive(true)
+        audioActive = true
+    }
+
+    private func deactivateAudio() {
+        guard audioActive else { return }
+        audioActive = false
+        try? AVAudioSession.sharedInstance().setActive(
+            false,
+            options: .notifyOthersOnDeactivation
+        )
+    }
+}
+
+/// Bare `AVPlayerLayer` surface.
+///
+/// `AVKit.VideoPlayer` ships its own transport controls, which swallow the
+/// taps and pinches the viewer needs. A plain layer keeps every gesture ours
+/// and lets the viewer draw its own play/pause affordance, the way the native
+/// Photos viewer does.
+struct PlayerLayerView: UIViewRepresentable {
+    let player: AVPlayer
+
+    func makeUIView(context: Context) -> PlayerSurfaceView {
+        let view = PlayerSurfaceView()
+        view.playerLayer.player = player
+        return view
+    }
+
+    func updateUIView(_ uiView: PlayerSurfaceView, context: Context) {
+        if uiView.playerLayer.player !== player {
+            uiView.playerLayer.player = player
+        }
+    }
+}
+
+final class PlayerSurfaceView: UIView {
+    override class var layerClass: AnyClass { AVPlayerLayer.self }
+
+    var playerLayer: AVPlayerLayer {
+        // Safe: `layerClass` pins the layer type.
+        layer as! AVPlayerLayer
+    }
 }
 
 /// Native video surface with the PWA's thumbnail poster and LIVE autoplay.
@@ -108,15 +230,18 @@ struct ViewerVideo: View {
     let item: Item
     let live: Bool
     let autoplay: Bool
+    /// Owned by the stage so the viewer can drive the playback.
+    let controller: ViewerVideoController
+    /// Reports the size the player renders at, rotation included.
+    var onPresentationSize: ((CGSize) -> Void)? = nil
 
     @Environment(\.scenePhase) private var scenePhase
-    @State private var controller = ViewerVideoController()
-    @State private var audioActive = false
 
     var body: some View {
         ZStack {
             if controller.hasStarted {
-                VideoPlayer(player: controller.player)
+                PlayerLayerView(player: controller.player)
+                    .background(Color.black)
             } else {
                 poster
             }
@@ -130,24 +255,18 @@ struct ViewerVideo: View {
         }
         .background(Color.black)
         .onAppear {
-            if autoplay {
-                activateAudio()
-            }
             load()
-        }
-        .onDisappear {
-            controller.teardown()
-            deactivateAudio()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                if controller.hasStarted {
-                    activateAudio()
-                }
+                controller.enterForeground()
             } else {
-                controller.pause()
-                deactivateAudio()
+                controller.enterBackground()
             }
+        }
+        .onChange(of: controller.presentationSize) { _, size in
+            guard size.width > 0, size.height > 0 else { return }
+            onPresentationSize?(size)
         }
     }
 
@@ -172,13 +291,12 @@ struct ViewerVideo: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
-        .onTapGesture {
-            activateAudio()
-            controller.play()
-        }
         .accessibilityElement()
         .accessibilityLabel(Strings.viewerPlay)
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction {
+            controller.play()
+        }
     }
 
     private func load() {
@@ -186,23 +304,13 @@ struct ViewerVideo: View {
             return
         }
         let cookies = HTTPCookieStorage.shared.cookies(for: url) ?? []
-        controller.load(url: url, cookies: cookies, autoplay: autoplay)
-    }
-
-    private func activateAudio() {
-        guard !audioActive else { return }
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .moviePlayback)
-        try? session.setActive(true)
-        audioActive = true
-    }
-
-    private func deactivateAudio() {
-        guard audioActive else { return }
-        audioActive = false
-        try? AVAudioSession.sharedInstance().setActive(
-            false,
-            options: .notifyOthersOnDeactivation
+        // A Live Photo companion plays muted, like the native Live Photo.
+        controller.load(
+            url: url,
+            cookies: cookies,
+            autoplay: autoplay,
+            loops: live,
+            muted: live
         )
     }
 }

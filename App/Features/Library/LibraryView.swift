@@ -8,35 +8,122 @@ struct LibraryView: View {
 
     @Environment(\.horizontalSizeClass) private var sizeClass
 
+    /// Scroll offset of the library grid, used to swap the header subtitle
+    /// between the item count and the date of the photo at the top.
+    @State private var scrollOffset: CGFloat = 0
+    /// Frames of the realized timeline tiles, in the library scroll space.
+    @State private var tileFrames: [Int64: CGRect] = [:]
+    /// The photo picker for "save into the library".
+    @State private var backupPickerOpen = false
+
     private var library: LibraryModel { model.library }
     private var isCompact: Bool { sizeClass == .compact }
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                if !library.isAlbumOpen {
-                    LibraryToolbar(model: model)
+            VStack(alignment: .leading, spacing: 0) {
+                // Scroll probe. It sits directly above the content, so its
+                // frame in the named space is exactly the negated offset.
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: TimelineScrollOffsetKey.self,
+                        value: -proxy.frame(in: .named(TimelineSpace.name)).minY
+                    )
+                }
+                .frame(height: 0)
+
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if !library.isAlbumOpen {
+                        LibraryToolbar(model: model) {
+                            backupPickerOpen = true
+                        }
                         .padding(.horizontal, isCompact ? 16 : 0)
                         .padding(.top, isCompact ? 6 : 0)
                         .padding(.bottom, 16)
-                }
+                    }
 
-                bodyContent
+                    bodyContent
 
-                if library.loadState == .ready, !library.isAlbumOpen {
-                    olderFooter
+                    if library.loadState == .ready, !library.isAlbumOpen {
+                        olderFooter
+                    }
                 }
+                .padding(.horizontal, isCompact ? 0 : 32)
+                .padding(.top, isCompact ? 0 : 26)
+                .padding(.bottom, isCompact ? 154 : 60)
+                .frame(maxWidth: Tokens.Layout.contentMaxWidth, alignment: .leading)
             }
-            .padding(.horizontal, isCompact ? 0 : 32)
-            .padding(.top, isCompact ? 0 : 26)
-            .padding(.bottom, isCompact ? 154 : 60)
-            .frame(maxWidth: Tokens.Layout.contentMaxWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .center)
         }
+        .coordinateSpace(name: TimelineSpace.name)
         .refreshable {
             await library.reload()
         }
         .background(Palette.bg.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom) {
+            if model.backup.isRunning || model.backup.isFinished {
+                BackupProgressCard(model: model.backup) {
+                    model.backup.dismiss()
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .fullScreenCover(isPresented: $backupPickerOpen) {
+            BackupPicker { picked in
+                backupPickerOpen = false
+                guard !picked.isEmpty else {
+                    model.notify(Strings.backupEmpty)
+                    return
+                }
+                let jobs = picked.map {
+                    CloudBackupModel.Job(
+                        name: $0.name,
+                        mime: $0.mime,
+                        url: $0.url,
+                        size: $0.size
+                    )
+                }
+                Task {
+                    await model.backup.upload(jobs, client: model.client)
+                    await library.reload()
+                }
+            }
+            .ignoresSafeArea()
+        }
+        .onPreferenceChange(TimelineScrollOffsetKey.self) { offset in
+            scrollOffset = offset
+            updateTimelineTopDate()
+        }
+        .onPreferenceChange(TimelineTileFramesKey.self) { frames in
+            tileFrames = frames.frames
+            updateTimelineTopDate()
+        }
+    }
+
+    /// The header shows the date of the photo at the top of the grid while the
+    /// library is scrolled, and the item count otherwise.
+    private func updateTimelineTopDate() {
+        guard library.filters.isTimeline, !library.isAlbumOpen, scrollOffset > 6 else {
+            library.setTimelineTopDate(nil)
+            return
+        }
+        let visible = tileFrames.filter { $0.value.width > 0.5 && $0.value.height > 0.5 }
+        guard !visible.isEmpty else {
+            library.setTimelineTopDate(nil)
+            return
+        }
+        // The topmost row: the smallest `minY` that still starts at or below
+        // the top edge, and the leftmost tile of that row.
+        let below = visible.filter { $0.value.minY >= -1 }
+        let top = below.min { lhs, rhs in
+            let dy = lhs.value.minY - rhs.value.minY
+            if abs(dy) > 0.5 { return dy < 0 }
+            return lhs.value.minX < rhs.value.minX
+        } ?? visible.min { lhs, rhs in
+            lhs.value.maxY < rhs.value.maxY
+        }
+        guard let top else { return }
+        library.setTimelineTopDate(library.timelineDate(for: top.key))
     }
 
     // MARK: - Body states
@@ -120,24 +207,26 @@ struct LibraryView: View {
 
     // MARK: - Timeline
 
+    /// One continuous grid: the month labels are gone, so the photos flow
+    /// into each other and every row keeps the same height.
     private var timeline: some View {
-        let sections = LibraryGrouping.byMonth(library.page.items)
-        return ForEach(sections) { section in
-            Section {
-                LazyVGrid(columns: timelineColumns, spacing: timelineGap) {
-                    ForEach(section.items) { item in
-                        TileView(model: model, item: item)
-                            .onAppear {
-                                guard item.id == library.page.items.last?.id else { return }
-                                Task { await library.loadOlderIfNeeded() }
-                            }
+        LazyVGrid(columns: timelineColumns, spacing: timelineGap) {
+            ForEach(library.page.items) { item in
+                TileView(model: model, item: item)
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: TimelineTileFramesKey.self,
+                                value: TimelineTileFrames(frames: [
+                                    item.id: proxy.frame(in: .named(TimelineSpace.name))
+                                ])
+                            )
+                        }
                     }
-                }
-            } header: {
-                MonthSectionHeader(
-                    title: MNGFormat.monthLabel(year: section.year, month: section.month),
-                    count: section.items.count
-                )
+                    .onAppear {
+                        guard item.id == library.page.items.last?.id else { return }
+                        Task { await library.loadOlderIfNeeded() }
+                    }
             }
         }
     }
@@ -259,6 +348,8 @@ struct LibraryView: View {
 
 private struct LibraryToolbar: View {
     let model: ShellModel
+    /// Opens the photo picker for "save into the library".
+    var onBackup: () -> Void = {}
 
     private var library: LibraryModel { model.library }
 
@@ -268,6 +359,8 @@ private struct LibraryToolbar: View {
                 layoutSegment
 
                 Spacer(minLength: 8)
+
+                backupButton
 
                 if library.canSelect, !library.selectionMode {
                     Button(Strings.select) {
@@ -343,6 +436,28 @@ private struct LibraryToolbar: View {
         .accessibilityLabel(Strings.layoutLabel)
     }
 
+    /// "Save into the library": pick photos from the device and upload them to
+    /// the owner's cloud library.
+    private var backupButton: some View {
+        Button(action: onBackup) {
+            HStack(spacing: 5) {
+                Image(systemName: "square.and.arrow.up")
+                    .font(Font.mng(12, weight: .semibold))
+                Text(Strings.backupToLibrary)
+                    .font(Font.mng(13, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .foregroundStyle(Palette.accent)
+            .padding(.horizontal, 11)
+            .frame(height: 32)
+            .background(Palette.accentSoft, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Strings.backupToLibrary)
+    }
+
     private func kindChip(_ kind: ItemKindFilter) -> some View {
         let active = library.filters.kind == kind
         return Button {
@@ -392,27 +507,6 @@ private struct LibraryToolbar: View {
 }
 
 // MARK: - Sections and states
-
-private struct MonthSectionHeader: View {
-    let title: String
-    let count: Int
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(title)
-                .font(Font.mng(13, weight: .bold))
-                .foregroundStyle(Palette.text2)
-            Text(Strings.itemCount(count))
-                .font(Font.mng(13))
-                .foregroundStyle(Palette.text3)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 2)
-        .padding(.top, 8)
-        .padding(.bottom, 9)
-        .background(Palette.bg.opacity(0.94))
-    }
-}
 
 private struct LibraryEmptyState: View {
     let icon: String
@@ -464,5 +558,35 @@ private struct SkeletonGrid: View {
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Scroll tracking
+
+/// The coordinate space the library grid is measured in.
+enum TimelineSpace {
+    static let name = "mng.library.timeline"
+}
+
+/// Scroll offset of the library grid, measured from the top of the scroll
+/// view.
+private struct TimelineScrollOffsetKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+/// Frames of the realized timeline tiles.
+private struct TimelineTileFrames: Equatable {
+    var frames: [Int64: CGRect] = [:]
+}
+
+private struct TimelineTileFramesKey: PreferenceKey {
+    static let defaultValue = TimelineTileFrames()
+
+    static func reduce(value: inout TimelineTileFrames, nextValue: () -> TimelineTileFrames) {
+        value.frames.merge(nextValue().frames) { _, new in new }
     }
 }

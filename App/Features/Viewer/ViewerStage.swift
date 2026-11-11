@@ -1,3 +1,4 @@
+import ImageIO
 import MNGKit
 import SwiftUI
 import UIKit
@@ -11,6 +12,8 @@ struct ViewerStage: View {
     let server: MNGServer
     let item: Item
     let chromeHidden: Bool
+    /// Reports the outcome of a Live Text recognition started by a long press.
+    var onLiveText: ((LiveTextOutcome) -> Void)? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -29,6 +32,12 @@ struct ViewerStage: View {
     @State private var lastTap = Date.distantPast
     @State private var tapSequence = 0
     @State private var tapTask: Task<Void, Never>?
+    /// Aspect ratio the player renders at. It wins over the stored dimensions
+    /// because a portrait clip is stored as 1920x1080 with a rotation.
+    @State private var videoAspect: CGFloat = 0
+    /// Owned here so the viewer can draw the play/pause affordance over the
+    /// video without reaching into the player view.
+    @State private var videoController = ViewerVideoController()
 
     private enum DragMode {
         case idle
@@ -41,6 +50,17 @@ struct ViewerStage: View {
     private var isVideo: Bool { item.isVideo }
     private var isLiveVideo: Bool { item.live && model.liveMode }
     private var isPlayingVideo: Bool { isVideo || isLiveVideo }
+
+    /// Width divided by height of the media as it is displayed.
+    private var mediaAspect: CGFloat {
+        if isPlayingVideo {
+            if videoAspect > 0 { return videoAspect }
+            guard item.width > 0, item.height > 0 else { return 16.0 / 9.0 }
+            return CGFloat(item.width) / CGFloat(item.height)
+        }
+        guard item.width > 0, item.height > 0 else { return 1.0 }
+        return CGFloat(item.width) / CGFloat(item.height)
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -56,6 +76,7 @@ struct ViewerStage: View {
                 }
                 .onDisappear {
                     tapTask?.cancel()
+                    videoController.teardown()
                 }
         }
         .background(Color.black)
@@ -67,34 +88,54 @@ struct ViewerStage: View {
             layer(size: size)
                 .contentShape(Rectangle())
                 .simultaneousGesture(videoDragGesture(size: size))
+                .simultaneousGesture(magnifyGesture)
         } else {
             layer(size: size)
                 .contentShape(Rectangle())
                 .gesture(imageDragGesture(size: size))
                 .simultaneousGesture(magnifyGesture)
+                // A long press reads the text of the photo, the way iOS Photos
+                // does. It never reaches the tap handler: a hold lasts longer
+                // than the 0.45 s a tap may take.
+                .onLongPressGesture(minimumDuration: 0.5) {
+                    recognizeLiveText()
+                }
         }
     }
 
+    /// The media fills the whole stage. The chrome floats on top of it, so a
+    /// video is no longer squeezed into a band above the filmstrip.
     private func layer(size: CGSize) -> some View {
-        let mediaHeight = isVideo ? max(1, size.height - 150) : size.height
-        return ZStack {
+        ZStack {
             Color.black
 
-            VStack(spacing: 0) {
-                media(
-                    size: CGSize(width: size.width, height: mediaHeight)
-                )
-                .frame(width: size.width, height: mediaHeight)
+            media(size: size)
+                .frame(width: size.width, height: size.height)
 
-                if isVideo {
-                    Color.clear
-                        .frame(height: 150)
-                }
+            if isPlayingVideo {
+                pausedIndicator
             }
-            .frame(width: size.width, height: size.height)
         }
         .frame(width: size.width, height: size.height)
         .clipped()
+    }
+
+    /// The play badge of a paused video. It only reports the state: a tap
+    /// anywhere on the video starts or pauses it.
+    @ViewBuilder
+    private var pausedIndicator: some View {
+        if videoController.hasStarted, !videoController.isPlaying {
+            Image(systemName: "play.fill")
+                .font(Font.mng(26, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 76, height: 76)
+                .background(.black.opacity(0.42), in: Circle())
+                .overlay {
+                    Circle().stroke(.white.opacity(0.26), lineWidth: 0.5)
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 
     @ViewBuilder
@@ -105,15 +146,20 @@ struct ViewerStage: View {
                 server: server,
                 item: item,
                 live: false,
-                autoplay: false
+                autoplay: false,
+                controller: videoController,
+                onPresentationSize: { presentation in
+                    guard presentation.width > 0, presentation.height > 0 else { return }
+                    videoAspect = presentation.width / presentation.height
+                }
             )
             .id("video-\(item.id)")
-            .frame(
-                width: videoSize(in: size).width,
-                height: videoSize(in: size).height
+            .aspectRatio(mediaAspect, contentMode: .fit)
+            .scaleEffect(scale * swipeScale)
+            .offset(
+                x: offset.width + swipeX,
+                y: offset.height + swipeY
             )
-            .scaleEffect(swipeScale)
-            .offset(x: swipeX, y: swipeY)
             .opacity(swipeOpacity)
         } else if isLiveVideo {
             ViewerVideo(
@@ -121,15 +167,20 @@ struct ViewerStage: View {
                 server: server,
                 item: item,
                 live: true,
-                autoplay: true
+                autoplay: true,
+                controller: videoController,
+                onPresentationSize: { presentation in
+                    guard presentation.width > 0, presentation.height > 0 else { return }
+                    videoAspect = presentation.width / presentation.height
+                }
             )
             .id("live-\(item.id)")
-            .frame(
-                width: videoSize(in: size).width,
-                height: videoSize(in: size).height
+            .aspectRatio(mediaAspect, contentMode: .fit)
+            .scaleEffect(scale * swipeScale)
+            .offset(
+                x: offset.width + swipeX,
+                y: offset.height + swipeY
             )
-            .scaleEffect(swipeScale)
-            .offset(x: swipeX, y: swipeY)
             .opacity(swipeOpacity)
         } else if let image {
             Image(uiImage: image)
@@ -166,28 +217,6 @@ struct ViewerStage: View {
         return abs(mediaAspect / viewAspect - 1) <= 0.04
     }
 
-    private func videoSize(in container: CGSize) -> CGSize {
-        guard !shouldFill(container),
-              item.width > 0,
-              item.height > 0,
-              container.width > 0,
-              container.height > 0
-        else {
-            return container
-        }
-        let aspect = CGFloat(item.width) / CGFloat(item.height)
-        if container.width / container.height > aspect {
-            return CGSize(
-                width: container.height * aspect,
-                height: container.height
-            )
-        }
-        return CGSize(
-            width: container.width,
-            height: container.width / aspect
-        )
-    }
-
     // MARK: - Gestures
 
     private func imageDragGesture(size: CGSize) -> some Gesture {
@@ -200,15 +229,16 @@ struct ViewerStage: View {
             }
     }
 
-    /// Videos keep their native controls: no zoom or tap-to-hide handlers,
-    /// but the PWA still allows swipe navigation and swipe-down dismissal.
+    /// Videos keep the same gestures as photos: a tap hides the chrome, a
+    /// double tap zooms and a swipe navigates. The bare player layer has no
+    /// controls of its own, so nothing competes with them.
     private func videoDragGesture(size: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 20)
+        DragGesture(minimumDistance: 0)
             .onChanged { value in
-                updateDrag(value, size: size, allowTap: false)
+                updateDrag(value, size: size, allowTap: true)
             }
             .onEnded { value in
-                finishDrag(value, size: size, allowTap: false)
+                finishDrag(value, size: size, allowTap: true)
             }
     }
 
@@ -326,16 +356,40 @@ struct ViewerStage: View {
             }
         case .idle:
             if allowTap {
-                handleTap(started: started, value: value)
+                if isPlayingVideo {
+                    handleTap(started: started, value: value, action: .videoPlayback)
+                } else {
+                    handleTap(started: started, value: value, action: .chrome)
+                }
             }
         case .ignored:
             break
         }
     }
 
+    /// A tap on a video plays or pauses it. When the chrome is hidden the tap
+    /// brings it back instead, so the person can always get out of the
+    /// full-screen mode.
+    private func toggleVideoPlayback() {
+        if chromeHidden {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
+                model.toggleChrome()
+            }
+            return
+        }
+        videoController.togglePlayback()
+    }
+
+    /// What a single tap does. A double tap always zooms.
+    private enum TapAction {
+        case chrome
+        case videoPlayback
+    }
+
     private func handleTap(
         started: Date?,
-        value: DragGesture.Value
+        value: DragGesture.Value,
+        action: TapAction
     ) {
         let dx = value.translation.width
         let dy = value.translation.height
@@ -376,8 +430,13 @@ struct ViewerStage: View {
             else {
                 return
             }
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
-                model.toggleChrome()
+            switch action {
+            case .chrome:
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) {
+                    model.toggleChrome()
+                }
+            case .videoPlayback:
+                toggleVideoPlayback()
             }
         }
     }
@@ -450,6 +509,19 @@ struct ViewerStage: View {
         dragMode = .idle
         dragStarted = nil
         pinching = false
+        videoAspect = 0
+    }
+
+    // MARK: - Live Text
+
+    /// Read the text of the photo with the Vision framework.
+    private func recognizeLiveText() {
+        guard let image else { return }
+        onLiveText?(.working)
+        Task { @MainActor in
+            let outcome = await LiveTextService.shared.recognize(image)
+            onLiveText?(outcome)
+        }
     }
 
     // MARK: - Loading
@@ -458,6 +530,18 @@ struct ViewerStage: View {
         guard !item.isVideo else { return }
         let id = item.id
         image = nil
+
+        // iOS decodes the HEIF family natively, so a HEIC photo is read from
+        // the original instead of the lossy JPEG preview the server renders
+        // for browsers.
+        if item.isHeif {
+            if let original = await loadOriginalImage() {
+                guard !Task.isCancelled, item.id == id else { return }
+                image = original
+                return
+            }
+            guard !Task.isCancelled, item.id == id else { return }
+        }
 
         if let preview = await PreviewCache.shared.image(
             for: item.previewPath,
@@ -492,4 +576,57 @@ struct ViewerStage: View {
             }
         }
     }
+
+    /// Download the original file and decode it with ImageIO, which reads
+    /// HEIC without any extra library.
+    ///
+    /// The pixels are downsampled to a size the viewer can zoom into, so a
+    /// 48 megapixel original does not have to live in memory as one bitmap.
+    private func loadOriginalImage() async -> UIImage? {
+        do {
+            let file = try await client.mediaFile(
+                path: item.mediaPath(),
+                suggestedName: item.name
+            )
+            defer {
+                try? FileManager.default.removeItem(
+                    at: file.url.deletingLastPathComponent()
+                )
+            }
+            let data = try Data(contentsOf: file.url)
+            return ViewerStage.decode(data)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Decode an image file into a bounded bitmap.
+    static func decode(_ data: Data) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0
+        else {
+            return nil
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 2400,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(
+            source,
+            0,
+            options as CFDictionary
+        ) else {
+            return UIImage(data: data)
+        }
+        return UIImage(cgImage: cgImage)
+    }
+}
+
+/// The outcome of a Live Text recognition.
+enum LiveTextOutcome: Equatable {
+    case working
+    case text(String)
+    case empty
+    case failed
 }

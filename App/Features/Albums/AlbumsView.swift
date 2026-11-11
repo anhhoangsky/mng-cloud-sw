@@ -567,34 +567,38 @@ private struct AlbumPhotoTile: View {
 
     var body: some View {
         Button(action: onOpen) {
-            ZStack(alignment: .bottomLeading) {
-                ThumbnailView(
-                    client: model.client,
-                    path: item.thumbnailPath(size: 360)
-                )
+            Color.clear
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    ZStack(alignment: .bottomLeading) {
+                        ThumbnailView(
+                            client: model.client,
+                            path: item.thumbnailPath(size: 360)
+                        )
 
-                HStack(spacing: 5) {
-                    if item.isVideo {
-                        badge(icon: "play.fill", text: MNGFormat.duration(item.duration))
+                        HStack(spacing: 5) {
+                            if item.isVideo {
+                                badge(icon: "play.fill", text: MNGFormat.duration(item.duration))
+                            }
+                            if item.live {
+                                badge(icon: "livephoto", text: "LIVE")
+                            }
+                            Spacer(minLength: 0)
+                            if item.favorite {
+                                Image(systemName: "heart.fill")
+                                    .font(Font.mng(11, weight: .semibold))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                        .padding(.horizontal, 5)
+                        .padding(.bottom, 5)
+                        .shadow(color: .black.opacity(0.55), radius: 4, y: 1)
                     }
-                    if item.live {
-                        badge(icon: "livephoto", text: "LIVE")
-                    }
-                    Spacer(minLength: 0)
-                    if item.favorite {
-                        Image(systemName: "heart.fill")
-                            .font(Font.mng(11, weight: .semibold))
-                            .foregroundStyle(.white)
-                    }
+                    .clipped()
                 }
-                .padding(.horizontal, 5)
-                .padding(.bottom, 5)
-                .shadow(color: .black.opacity(0.55), radius: 4, y: 1)
-            }
-            .aspectRatio(1, contentMode: .fit)
-            .background(Palette.fill)
-            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-            .contentShape(Rectangle())
+                .background(Palette.fill)
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(item.name.isEmpty ? Strings.kindPhoto : item.name)

@@ -95,12 +95,63 @@ enum Strings {
     static let viewerStrip = "Danh sách ảnh"
     static let liveBadge = "LIVE"
     static let viewerPlay = "Phát"
+    static let viewerShare = "Chia sẻ"
+    static let viewerSaveToPhotos = "Lưu vào Ảnh"
+    static let viewerLiveText = "Live Text"
+    static let viewerLiveTextWorking = "Đang nhận dạng chữ…"
+    static let viewerLiveTextEmpty = "Không tìm thấy chữ trong ảnh này."
+    static let viewerLiveTextFailed = "Không nhận dạng được chữ trong ảnh này."
+    static let savedToPhotos = "Đã lưu vào thư viện Ảnh."
+    static let saveToPhotosFailed = "Không lưu được vào thư viện Ảnh."
 
     // Selection and confirmations
     static let deselect = "Bỏ chọn"
     static let preparingZip = "Đang chuẩn bị tập ZIP."
     static let downloadFailed = "Không tải xuống được."
     static let zipFailed = "Không tạo được tập ZIP."
+
+    // Saving into the cloud library
+    static let backupToLibrary = "Lưu vào thư viện"
+    static let backupTitle = "Đang lưu vào thư viện"
+    static let backupDone = "Đã lưu vào thư viện"
+    static let backupEmpty = "Không có ảnh nào để lưu."
+
+    static func backupProgress(_ done: Int, _ total: Int) -> String {
+        "\(done)/\(total)"
+    }
+
+    static func backupSummary(uploaded: Int, skipped: Int, failed: Int) -> String {
+        "Đã lưu \(uploaded) mục · \(skipped) mục đã có sẵn · \(failed) mục chưa lưu được."
+    }
+
+    // Automatic photo backup
+    static let backupSection = "Sao lưu ảnh"
+    static let backupAutoTitle = "Sao lưu ảnh tự động"
+    static let backupToggleBody = "Ảnh và video mới trên máy được tải lên thư viện ở nền."
+    static let backupNote = "Sao lưu chạy trong nền và tiếp tục khi bạn đóng ảnh. Ảnh đã có trong thư viện được bỏ qua."
+    static let backupStatus = "Trạng thái"
+    static let backupStatusOff = "Đang tắt."
+    static let backupStatusPermission = "Cần quyền truy cập thư viện ảnh."
+    static let backupStatusScanning = "Đang tìm ảnh mới…"
+    static let backupWifiOnly = "Chỉ khi có Wi-Fi"
+    static let backupWifiOnlyBody = "Không dùng dữ liệu di động để sao lưu."
+    static let backupVideos = "Sao lưu video"
+    static let backupVideosBody = "Video mới trên máy cũng được tải lên."
+    static let backupRunNow = "Sao lưu ngay"
+    static let backupRunNowBody = "Quét thư viện ảnh và tải những gì còn thiếu."
+
+    static func backupPending(_ count: Int) -> String {
+        "\(count) mục đang chờ"
+    }
+
+    static func backupLastRun(_ date: Date) -> String {
+        let parts = Calendar.current.dateComponents([.day, .month, .year], from: date)
+        return "Lần cuối \(MNGFormat.itemDate(
+            day: parts.day ?? 1,
+            month: parts.month ?? 1,
+            year: parts.year ?? 0
+        ))"
+    }
 
     static func selectedCount(_ count: Int) -> String {
         "\(count) đã chọn"
@@ -343,6 +394,8 @@ enum Strings {
     static let editorLoading = "Đang tải ảnh…"
     static let editorUnsupported = "Ảnh này không chỉnh sửa được."
     static let editorEditAction = "Chỉnh sửa"
+    static let editorAurumTitle = "Aurum"
+    static let editorAurumAction = "Aurum"
 
     // Administration
     static let adminTitle = "Quản trị người dùng"

@@ -68,6 +68,11 @@ final class LibraryModel {
     private(set) var isLoadingInfo = false
     private(set) var isDownloading = false
 
+    /// The date of the photo at the top of the visible timeline. The compact
+    /// header shows it instead of the item count once the library is scrolled,
+    /// like iOS Photos.
+    private(set) var timelineTopDate: String?
+
     /// Snapshot list used by the full-screen viewer. It is independent of
     /// `page`, so paging or filtering can never reorder an open viewer.
     let viewer = ViewerModel()
@@ -111,6 +116,11 @@ final class LibraryModel {
             self?.openInfo(item)
         }
         viewer.onDownload = { [weak self] item in
+            self?.download(item)
+        }
+        viewer.onShare = { [weak self] item in
+            // The share sheet needs a real file on disk, so the original is
+            // fetched first and handed to `UIActivityViewController`.
             self?.download(item)
         }
         viewer.onDelete = { [weak self] item in
@@ -731,6 +741,7 @@ final class LibraryModel {
         }
     }
 
+    /// Stream a ZIP of the selected items to a temporary file.
     func downloadArchive(ids: [Int64]) {
         guard !ids.isEmpty, !isDownloading else { return }
         isDownloading = true
@@ -756,6 +767,21 @@ final class LibraryModel {
     }
 
     // MARK: - Info
+
+    /// Publish the date the compact header shows while the timeline is
+    /// scrolled. `nil` restores the item count.
+    func setTimelineTopDate(_ date: String?) {
+        if timelineTopDate != date {
+            timelineTopDate = date
+        }
+    }
+
+    /// The date of one timeline item, used by the header when the grid is
+    /// scrolled.
+    func timelineDate(for id: Int64) -> String? {
+        guard let item = page.items.first(where: { $0.id == id }) else { return nil }
+        return MNGFormat.itemDate(item)
+    }
 
     func openInfo(_ item: Item) {
         infoItem = item
