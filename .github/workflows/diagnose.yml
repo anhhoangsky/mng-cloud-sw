@@ -52,6 +52,21 @@ jobs:
 
       # The build error is reported as a workflow annotation, because the
       # plain log of a public run is only readable when signed in.
+      - name: Report the test errors
+        run: |
+          set -o pipefail
+          swift test --package-path Packages/MNGEdit > test.log 2>&1 || true
+          grep -E "error:|failed|XCTAssert|Executed" test.log | head -40 | while IFS= read -r line; do
+            echo "::error title=MNGEdit test::${line}"
+          done || true
+          {
+            echo '### the test tail'
+            echo '```'
+            tail -60 test.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
       - name: Report the build errors
         run: |
           set -o pipefail
