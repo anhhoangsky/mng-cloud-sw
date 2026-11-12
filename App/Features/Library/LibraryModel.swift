@@ -48,6 +48,9 @@ final class LibraryModel {
     private(set) var filters: LibraryFilterState
 
     private(set) var page = LibraryPage()
+    /// Bumped every time a reload finishes replacing the page. The grid uses
+    /// it to ignore the scroll clamp of a shorter page as a gesture.
+    private(set) var revision = 0
     private(set) var years: [YearBucket] = []
     private(set) var months: [MonthBucket] = []
     private(set) var loadState: LoadState = .idle
@@ -141,6 +144,11 @@ final class LibraryModel {
         olderState = .idle
         olderExhausted = false
         loadState = .loading
+        defer {
+            if seq == requestSeq {
+                revision &+= 1
+            }
+        }
 
         switch filters.layout {
         case .all:
@@ -251,14 +259,18 @@ final class LibraryModel {
             olderState = .idle
         } catch let error as APIError {
             guard seq == requestSeq else { return }
+            olderState = .idle
             if error.status == 401 {
                 onEvent?(.unauthorized)
                 return
             }
-            olderState = .failed(APIMessages.olderPage(error))
+            // The web has no loading footer: a failed page is a toast and
+            // the scroll trigger may ask again.
+            onEvent?(.toast(APIMessages.olderPage(error)))
         } catch {
             guard seq == requestSeq else { return }
-            olderState = .failed(APIMessages.olderPage(.network()))
+            olderState = .idle
+            onEvent?(.toast(APIMessages.olderPage(.network())))
         }
     }
 
@@ -325,7 +337,9 @@ final class LibraryModel {
     func selectKind(_ kind: ItemKindFilter) async {
         exitSelection()
         filters.selectKind(kind)
-        page = LibraryPage()
+        // Keep the old grid on screen until the new page arrives, so the
+        // scroll offset stays where the person left it, like the web's
+        // `keep_scroll` reload.
         years = []
         months = []
         await reload()
@@ -359,7 +373,8 @@ final class LibraryModel {
         exitSelection()
         activeAlbum = nil
         filters.clearFilters()
-        page = LibraryPage()
+        // Same `keep_scroll` behaviour as the kind chips: the old page stays
+        // until the new one is ready.
         await reload()
     }
 

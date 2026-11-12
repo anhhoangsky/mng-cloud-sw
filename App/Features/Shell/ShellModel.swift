@@ -95,10 +95,17 @@ final class ShellModel {
     /// time through the library, the same way the native shell does. The pill
     /// shows the date of the photos on screen instead of the tab labels.
     var isTabBarCompact = false
-    /// The header gets its soft material while the photos scroll under it,
+    /// The header gets its soft material while the page scrolls under it,
     /// the same way the native shell does. The library keeps the title
-    /// floating over the photos, so it never gets the material.
+    /// floating over the photos, so it never gets the material there.
     var isHeaderFaded = false
+    /// The bottom edge of the floating header in screen coordinates. The
+    /// library uses it to find the first photo that clears the title.
+    var headerBottom: CGFloat = 0
+    /// Tapping the active tab of a condensed dock expands it; this suppresses
+    /// the scroll accumulator for a moment so the expansion is not undone by
+    /// the same gesture, matching the web's `scroll_guard`.
+    var compactGuardUntil = Date.distantPast
     /// The dropdown of the filters is open.
     var isFilterMenuOpen = false
     /// The person asked to upload photos from the device.
@@ -382,10 +389,12 @@ final class ShellModel {
     func selectTab(_ next: ShellTab) {
         if next != .library {
             library.exitSelection()
-            isHeaderFaded = false
             isTabBarCompact = false
             isFilterMenuOpen = false
         }
+        // Only the library floats its title over the grid. Every other view
+        // keeps the soft material behind the header.
+        isHeaderFaded = next != .library
         // Switching away from an album (or tapping Library) leaves the
         // drill-down, clears its filters/layout and refreshes the grid.
         if library.isAlbumOpen {

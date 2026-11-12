@@ -4,16 +4,19 @@ import SwiftUI
 struct SelectionBar: View {
     let model: ShellModel
 
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
     private var library: LibraryModel { model.library }
+    private var isCompact: Bool { sizeClass == .compact }
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 4) {
             Text(Strings.selectedCount(library.selection.count))
-                .font(Font.mng(13, weight: .semibold))
+                .font(Font.mng(isCompact ? 13 : 14, weight: .semibold))
                 .foregroundStyle(Palette.text)
                 .fixedSize()
-                .padding(.leading, 8)
-                .padding(.trailing, 4)
+                .padding(.leading, isCompact ? 14 : 16)
+                .padding(.trailing, isCompact ? 2 : 6)
 
             iconButton(
                 icon: "heart",
@@ -46,14 +49,9 @@ struct SelectionBar: View {
                 action: library.exitSelection
             )
         }
-        .padding(.horizontal, 8)
+        .padding(.trailing, 8)
         .padding(.vertical, 6)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay {
-            Capsule().stroke(Palette.hairline, lineWidth: 0.5)
-        }
-        .shadow(color: .black.opacity(0.24), radius: 20, y: 10)
-        .opacity(library.selection.isEmpty ? 0.92 : 1)
+        .background { GlassSurface(shape: Capsule()) }
         .animation(Tokens.Motion.fade, value: library.selection)
     }
 
@@ -65,12 +63,12 @@ struct SelectionBar: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(Font.mng(18, weight: .medium))
+                .font(Font.mng(20, weight: .medium))
                 .foregroundStyle(tint)
-                .frame(width: 38, height: 38)
+                .frame(width: isCompact ? 38 : 40, height: isCompact ? 38 : 40)
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(GlassPressStyle(scale: 0.92))
         .disabled(library.selection.isEmpty)
         .opacity(library.selection.isEmpty ? 0.32 : 1)
         .accessibilityLabel(label)

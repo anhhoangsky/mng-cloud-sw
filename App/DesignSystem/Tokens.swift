@@ -63,6 +63,10 @@ enum Tokens {
         static let ease = Animation.timingCurve(0.32, 0.72, 0, 1, duration: 0.32)
         static let fade = Animation.easeOut(duration: 0.2)
         static let viewer = Animation.easeOut(duration: 0.24)
+        /// `--glass-ease` + `--glass-dur` from `app.css`.
+        static let glass = Animation.timingCurve(1, 0, 0.4, 1, duration: 0.32)
+        /// `--spring` used by the compact thumb and the press states.
+        static let spring = Animation.spring(response: 0.34, dampingFraction: 0.72)
     }
 }
 

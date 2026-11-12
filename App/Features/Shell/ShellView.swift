@@ -66,63 +66,34 @@ struct ShellView: View {
             Palette.bgGrouped.ignoresSafeArea()
 
             if isCompact {
-                VStack(spacing: 0) {
-                    // The library keeps its title floating over the photo
-                    // grid, the way the native shell does; the other views
-                    // hold the header in the flow.
-                    if model.tab != .library {
+                content
+                    // The header is a sticky inset: the first photo starts
+                    // below it, and the grid slides underneath the floating
+                    // title as soon as the person scrolls, exactly like the
+                    // web's `position: sticky` header.
+                    .safeAreaInset(edge: .top, spacing: 0) {
                         CompactShellHeader(model: model)
-                            .background(alignment: .bottom) {
-                                // The soft material sleeps behind the title
-                                // while the page is at the top and fades in
-                                // as soon as the page scrolls underneath it.
-                                Rectangle()
-                                    .fill(.ultraThinMaterial)
-                                    .opacity(model.isHeaderFaded ? 1 : 0)
-                                    .animation(
-                                        Tokens.Motion.fade,
-                                        value: model.isHeaderFaded
-                                    )
-                                    .allowsHitTesting(false)
-                            }
                     }
-
-                    ZStack(alignment: .top) {
-                        content
-                            .safeAreaInset(edge: .bottom) {
-                                compactBottomChrome
-                                    .animation(Tokens.Motion.fade, value: model.tab)
-                                    .animation(
-                                        Tokens.Motion.fade,
-                                        value: model.library.selectionMode
-                                    )
-                                    .animation(
-                                        Tokens.Motion.fade,
-                                        value: model.isTabBarCompact
-                                    )
-                            }
-                            .overlay(alignment: .bottom) {
-                                // The switcher of the layout floats above
-                                // the dock, the way the native shell does.
-                                if model.tab == .library, !model.library.selectionMode {
-                                    LibraryLayoutSwitcher(model: model)
-                                        .padding(.bottom, 66)
-                                        .opacity(model.isTabBarCompact ? 1 : 0)
-                                        .animation(
-                                            Tokens.Motion.fade,
-                                            value: model.isTabBarCompact
-                                        )
-                                        .allowsHitTesting(
-                                            model.isTabBarCompact
-                                        )
-                                }
-                            }
-
-                        if model.tab == .library {
-                            CompactShellHeader(model: model)
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        compactBottomChrome
+                            .animation(Tokens.Motion.fade, value: model.tab)
+                            .animation(
+                                Tokens.Motion.fade,
+                                value: model.library.selectionMode
+                            )
+                    }
+                    // The switcher of the year/month cards floats above the
+                    // dock; in the timeline it takes the dock's centre slot.
+                    .overlay(alignment: .bottom) {
+                        floatingLayoutSwitcher
+                    }
+                    .onPreferenceChange(ShellHeaderBottomKey.self) { bottom in
+                        // The library needs the measured header edge to pick
+                        // the photo that is visible underneath the title.
+                        if bottom > 0, abs(bottom - model.headerBottom) > 0.5 {
+                            model.headerBottom = bottom
                         }
                     }
-                }
             } else {
                 HStack(spacing: 0) {
                     ShellSidebar(model: model)
@@ -184,14 +155,36 @@ struct ShellView: View {
 
     @ViewBuilder
     private var compactBottomChrome: some View {
-        if model.tab == .library, model.library.selectionMode {
-            SelectionBar(model: model)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 10)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-        } else {
-            CompactTabBar(model: model)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+        ZStack(alignment: .bottom) {
+            if model.tab == .library, model.library.selectionMode {
+                SelectionBar(model: model)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                CompactTabBar(model: model)
+                    .padding(.bottom, 10)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        // The content padding in the web is constant (154 px) while the dock
+        // changes shape, so the inset keeps the height of the expanded dock
+        // and only the bar inside it condenses.
+        .frame(height: 70, alignment: .bottom)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// The layout switcher floats above the dock in the year/month cards.
+    /// The timeline keeps it inside the dock's centre slot instead.
+    @ViewBuilder
+    private var floatingLayoutSwitcher: some View {
+        if model.tab == .library,
+           !model.library.selectionMode,
+           model.library.filters.layout != .all {
+            LibraryLayoutSwitcher(model: model)
+                .padding(.bottom, 78)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .animation(Tokens.Motion.fade, value: model.library.filters.layout)
         }
     }
 
@@ -233,33 +226,39 @@ struct ShellView: View {
 private struct CompactShellHeader: View {
     let model: ShellModel
 
-    private var showsBack: Bool {
-        model.canGoBack
+    /// The measured height of the whole header, used to hang the filter
+    /// dropdown below it.
+    @State private var height: CGFloat = 79
+
+    private var library: LibraryModel { model.library }
+
+    private var showsBack: Bool { model.canGoBack }
+
+    private var showsFilter: Bool {
+        model.tab == .library
+            && !library.selectionMode
+            && !library.isAlbumOpen
+    }
+
+    private var showsSelect: Bool {
+        model.tab == .library
+            && library.canSelect
+            && !library.selectionMode
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            if showsBack {
-                Button {
-                    Task { await model.goBack() }
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(Font.mng(15, weight: .semibold))
-                        .foregroundStyle(Palette.text2)
-                        .frame(width: 36, height: 36)
-                        .background(Palette.fill, in: Circle())
-                        .overlay {
-                            Circle().stroke(Palette.hairline, lineWidth: 0.5)
-                        }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Strings.back)
-            }
+        // The web header is a three-column grid: back, title, actions, with
+        // the subtitle and the filter summary spanning the title and action
+        // columns underneath. A SwiftUI `Grid` keeps the same geometry.
+        Grid(horizontalSpacing: 8, verticalSpacing: 3) {
+            GridRow {
+                leftControls
+                    .gridColumnAlignment(.leading)
 
-            VStack(alignment: .leading, spacing: 3) {
                 Text(model.title)
                     .font(Font.mng(36, weight: .semibold))
-                    .tracking(-0.035)
+                    // `letter-spacing: -0.035em` at 36 px.
+                    .tracking(-1.26)
                     .foregroundStyle(Palette.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -269,10 +268,19 @@ private struct CompactShellHeader: View {
                         color: Palette.bg.opacity(0.86),
                         radius: 6
                     )
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                if !model.library.selectionMode {
+                rightControls
+                    .gridColumnAlignment(.trailing)
+            }
+
+            if !library.selectionMode {
+                GridRow {
+                    Color.clear
+                        .frame(width: 0, height: 0)
                     Text(model.subtitle)
                         .font(Font.mng(13, weight: .medium))
+                        .tracking(-0.13)
                         .foregroundStyle(Palette.text3)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -280,74 +288,58 @@ private struct CompactShellHeader: View {
                             color: Palette.bg.opacity(0.86),
                             radius: 5
                         )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .gridCellColumns(2)
                 }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
-            // The right side of the header carries the two controls the
-            // native shell keeps there: the filters of the library and the
-            // server picker of the settings.
-            if model.tab == .library {
-                Button {
-                    model.isFilterMenuOpen.toggle()
-                } label: {
-                    Image(systemName: "line.3.horizontal.decrease")
-                        .font(Font.mng(15, weight: .semibold))
-                        .foregroundStyle(
-                            model.isFilterMenuOpen ? Palette.accent : Palette.text2
-                        )
-                        .frame(width: 36, height: 36)
-                        .background(Palette.fill, in: Circle())
-                        .overlay {
-                            Circle().stroke(Palette.hairline, lineWidth: 0.5)
+                // The active filter summary lives in its own row under the
+                // count, matching `.mh-filter-summary` in the web.
+                if let summary = library.filters.summary,
+                   model.tab == .library,
+                   !library.isAlbumOpen {
+                    GridRow {
+                        Color.clear
+                            .frame(width: 0, height: 0)
+                        HStack(spacing: 0) {
+                            filterSummaryChip(summary)
+                            Spacer(minLength: 0)
                         }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Strings.editorFilterTab)
-
-                if model.library.canSelect, !model.library.selectionMode {
-                    Button {
-                        model.library.enterSelection()
-                    } label: {
-                        Text(Strings.select)
-                            .font(Font.mng(13, weight: .semibold))
-                            .foregroundStyle(Palette.text)
-                            .padding(.horizontal, 13)
-                            .frame(height: 36)
-                            .background(Palette.fill, in: Capsule())
-                            .overlay {
-                                Capsule().stroke(Palette.hairline, lineWidth: 0.5)
-                            }
+                        .gridCellColumns(2)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Strings.select)
                 }
-            } else if model.tab == .settings {
-                Button {
-                    model.presentConnections()
-                } label: {
-                    Image(systemName: "cloud.fill")
-                        .font(Font.mng(15, weight: .semibold))
-                        .foregroundStyle(Palette.accent)
-                        .frame(width: 36, height: 36)
-                        .background(Palette.accentSoft, in: Circle())
-                        .overlay {
-                            Circle().stroke(Palette.hairline, lineWidth: 0.5)
-                        }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(Strings.switchCloud) · \(model.activeCloudLabel)")
             }
         }
         .padding(.horizontal, 16)
-        .padding(.top, 10)
-        .padding(.bottom, 12)
+        // The inset itself already starts below the status bar, which is the
+        // web's `max(10px, env(safe-area-inset-top))`, so no extra top pad.
+        .padding(.top, 0)
+        .padding(.bottom, library.selectionMode ? 10 : 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(alignment: .top) { headerScrim }
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .preference(
+                        key: ShellHeaderHeightKey.self,
+                        value: proxy.size.height
+                    )
+                    .preference(
+                        key: ShellHeaderBottomKey.self,
+                        value: proxy.frame(in: .global).maxY
+                    )
+            }
+        }
+        .onPreferenceChange(ShellHeaderHeightKey.self) { value in
+            if value > 0, abs(value - height) > 0.5 {
+                height = value
+            }
+        }
         .overlay(alignment: .topTrailing) {
-            // The dropdown of the filters hangs under the button of the
-            // header, the way the native shell does.
-            if model.tab == .library, model.isFilterMenuOpen {
+            // The dropdown hangs under the whole header, like the fixed
+            // `#libraryFilters` panel in the web.
+            if showsFilter, model.isFilterMenuOpen {
                 LibraryFilterMenu(model: model)
-                    .padding(.top, 62)
+                    .padding(.top, height + 2)
                     .padding(.trailing, 12)
                     .transition(
                         .opacity.combined(
@@ -356,6 +348,185 @@ private struct CompactShellHeader: View {
                     )
             }
         }
+        .animation(Tokens.Motion.fade, value: model.isFilterMenuOpen)
+    }
+
+    /// The web header keeps the back button in the left column and hides it
+    /// when there is nowhere to return to.
+    @ViewBuilder
+    private var leftControls: some View {
+        if showsBack {
+            Button {
+                model.isFilterMenuOpen = false
+                Task { await model.goBack() }
+            } label: {
+                ZStack {
+                    GlassSurface(shape: Circle())
+                    Image(systemName: "chevron.left")
+                        .font(Font.mng(20, weight: .semibold))
+                        .foregroundStyle(Palette.text2)
+                }
+                .frame(width: 36, height: 36)
+                .contentShape(Circle())
+            }
+            .buttonStyle(GlassPressStyle(scale: 0.93))
+            .accessibilityLabel(Strings.back)
+        }
+    }
+
+    /// The right side only carries the two controls the compact web header
+    /// has: the filter button and "Chọn".
+    @ViewBuilder
+    private var rightControls: some View {
+        HStack(spacing: 4) {
+            if showsFilter {
+                filterButton
+            }
+            if showsSelect {
+                selectButton
+            }
+        }
+    }
+
+    /// The translucent gradient behind the header on every view except the
+    /// Library. The library floats its title directly over the photos.
+    @ViewBuilder
+    private var headerScrim: some View {
+        if model.tab != .library {
+            ZStack {
+                Rectangle().fill(.ultraThinMaterial)
+                LinearGradient(
+                    stops: [
+                        .init(color: Palette.bg.opacity(0.96), location: 0),
+                        .init(color: Palette.bg.opacity(0.88), location: 0.72),
+                        .init(color: .clear, location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black, location: 0.78),
+                        .init(color: .clear, location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            // The web header paints from the top of the screen, behind the
+            // status bar. The inset starts below it, so reach back up.
+            .ignoresSafeArea(edges: .top)
+            .opacity(model.isHeaderFaded ? 1 : 0)
+            .animation(.easeOut(duration: 0.18), value: model.isHeaderFaded)
+            .allowsHitTesting(false)
+        }
+    }
+
+    private var filterButton: some View {
+        Button {
+            model.isFilterMenuOpen.toggle()
+        } label: {
+            ZStack {
+                GlassSurface(shape: Circle())
+                Image(systemName: "line.3.horizontal.decrease")
+                    .font(Font.mng(19, weight: .semibold))
+                    .foregroundStyle(
+                        model.isFilterMenuOpen ? Palette.accent : Palette.text2
+                    )
+                    .rotationEffect(.degrees(model.isFilterMenuOpen ? 90 : 0))
+            }
+            .frame(width: 36, height: 36)
+            .overlay(alignment: .topTrailing) {
+                if library.filters.summary != nil {
+                    Circle()
+                        .fill(Palette.accent)
+                        .frame(width: 6, height: 6)
+                        .overlay {
+                            Circle().stroke(Palette.bgElevated, lineWidth: 2)
+                        }
+                        .padding(7)
+                }
+            }
+            .contentShape(Circle())
+        }
+        .buttonStyle(GlassPressStyle())
+        .animation(
+            .spring(response: 0.32, dampingFraction: 0.7),
+            value: model.isFilterMenuOpen
+        )
+        .accessibilityLabel(Strings.editorFilterTab)
+    }
+
+    private var selectButton: some View {
+        Button {
+            model.isFilterMenuOpen = false
+            library.enterSelection()
+        } label: {
+            Text(Strings.select)
+                .font(Font.mng(13, weight: .semibold))
+                .tracking(-0.13)
+                .foregroundStyle(Palette.text)
+                .padding(.horizontal, 13)
+                .frame(height: 36)
+                .background { GlassSurface(shape: Capsule()) }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(GlassPressStyle())
+        .accessibilityLabel(Strings.select)
+    }
+
+    private func filterSummaryChip(_ summary: String) -> some View {
+        Button {
+            model.isFilterMenuOpen = false
+            Task { await library.clearFilters() }
+        } label: {
+            HStack(spacing: 4) {
+                Text(summary)
+                    .lineLimit(1)
+                Image(systemName: "xmark")
+                    .font(Font.mng(9, weight: .bold))
+            }
+            .font(Font.mng(12, weight: .semibold))
+            .tracking(-0.12)
+            .foregroundStyle(Palette.accent)
+            .padding(.horizontal, 9)
+            .frame(height: 27)
+            .background {
+                ZStack {
+                    Capsule().fill(.ultraThinMaterial)
+                    Capsule().fill(Palette.accent.opacity(0.14))
+                    Capsule().stroke(
+                        Palette.accent.opacity(0.24),
+                        lineWidth: 0.5
+                    )
+                }
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(GlassPressStyle(scale: 0.96))
+        .accessibilityLabel(Strings.clearFilters)
+    }
+}
+
+/// Height of the compact header, consumed by the filter dropdown.
+struct ShellHeaderHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 79
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+/// Bottom edge of the compact header in screen coordinates, consumed by the
+/// library to find the first photo that clears the title.
+struct ShellHeaderBottomKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
@@ -368,61 +539,68 @@ private struct LibraryFilterMenu: View {
     var body: some View {
         VStack(spacing: 3) {
             ForEach(ItemKindFilter.allCases, id: \.self) { kind in
+                let active = library.filters.kind == kind
                 Button {
                     Task { await library.selectKind(kind) }
                     model.isFilterMenuOpen = false
                 } label: {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 5) {
                         Image(systemName: kindIcon(kind))
-                            .font(Font.mng(14, weight: .semibold))
-                            .frame(width: 20)
+                            .font(Font.mng(16, weight: .semibold))
+                            .frame(width: 18)
                         Text(kindLabel(kind))
                             .font(Font.mng(14, weight: .semibold))
                         Spacer(minLength: 0)
                     }
-                    .foregroundStyle(
-                        library.filters.kind == kind ? Palette.accent : Palette.text2
-                    )
+                    .foregroundStyle(active ? Palette.accent : Palette.text2)
                     .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity)
                     .frame(height: 40)
                     .background(
-                        library.filters.kind == kind ? Palette.accentSoft : .clear,
+                        active ? Palette.accentSoft : Palette.fill,
                         in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    )
+                    .contentShape(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(active ? .isSelected : [])
             }
 
+            // The upload is an icon-only chip at the end of the filter row,
+            // in the same place the web keeps it.
             Button {
                 model.isUploadRequested = true
                 model.isFilterMenuOpen = false
             } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: 5) {
                     Image(systemName: "square.and.arrow.up")
-                        .font(Font.mng(14, weight: .semibold))
-                        .frame(width: 20)
-                    Text(Strings.backupToLibrary)
-                        .font(Font.mng(14, weight: .semibold))
+                        .font(Font.mng(16, weight: .semibold))
                     Spacer(minLength: 0)
                 }
                 .foregroundStyle(Palette.text2)
                 .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity)
                 .frame(height: 40)
                 .background(
-                    Color.clear,
+                    Palette.fill,
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                )
+                .contentShape(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
                 )
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(Strings.backupToLibrary)
         }
         .padding(6)
         .frame(width: 182)
-        .background(Palette.bgElevated, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Palette.hairline, lineWidth: 0.5)
+        .background {
+            GlassSurface(
+                shape: RoundedRectangle(cornerRadius: 18, style: .continuous)
+            )
         }
-        .shadow(color: .black.opacity(0.28), radius: 22, y: 10)
     }
 
     private func kindIcon(_ kind: ItemKindFilter) -> String {
@@ -444,47 +622,63 @@ private struct LibraryFilterMenu: View {
     }
 }
 
-/// The switcher of the layout, floating above the dock.
+/// The switcher of the layout, floating above the dock or sitting in its
+/// centre slot while the dock is condensed.
 private struct LibraryLayoutSwitcher: View {
     let model: ShellModel
 
+    @Namespace private var thumb
+
+    private var library: LibraryModel { model.library }
+
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 0) {
             ForEach(LibraryLayout.allCases, id: \.self) { layout in
+                let active = library.filters.layout == layout
                 Button {
-                    Task { await model.library.selectLayout(layout) }
+                    guard !active else { return }
+                    // Leaving the timeline expands the dock and clears the
+                    // date the condensed bar was showing.
+                    model.isTabBarCompact = false
+                    model.isFilterMenuOpen = false
+                    model.compactGuardUntil = Date().addingTimeInterval(1.2)
+                    library.setTimelineTopDate(nil)
+                    Task { await library.selectLayout(layout) }
                 } label: {
                     Text(title(layout))
                         .font(Font.mng(12.5, weight: .semibold))
-                        .foregroundStyle(
-                            model.library.filters.layout == layout
-                                ? Palette.text
-                                : Palette.text3
-                        )
+                        .tracking(-0.12)
+                        .foregroundStyle(active ? Palette.text : Palette.text3)
                         .padding(.horizontal, 14)
                         .frame(height: 32)
                         .background {
-                            if model.library.filters.layout == layout {
-                                RoundedRectangle(cornerRadius: 999, style: .continuous)
-                                    .fill(Palette.bgElevated)
+                            if active {
+                                Capsule()
+                                    .fill(Palette.bgElevated.opacity(0.86))
                                     .shadow(
                                         color: .black.opacity(0.13),
                                         radius: 3,
                                         y: 1
                                     )
+                                    .overlay {
+                                        Capsule().stroke(
+                                            Color.white.opacity(0.3),
+                                            lineWidth: 0.5
+                                        )
+                                    }
+                                    .matchedGeometryEffect(id: "thumb", in: thumb)
                             }
                         }
-                        .contentShape(Rectangle())
+                        .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(active ? .isSelected : [])
             }
         }
         .padding(3)
-        .background(Palette.bgElevated, in: Capsule())
-        .overlay {
-            Capsule().stroke(Palette.hairline, lineWidth: 0.5)
-        }
-        .shadow(color: .black.opacity(0.2), radius: 18, y: 8)
+        .frame(height: 40)
+        .background { GlassSurface(shape: Capsule()) }
+        .animation(Tokens.Motion.glass, value: library.filters.layout)
     }
 
     private func title(_ layout: LibraryLayout) -> String {
@@ -498,93 +692,173 @@ private struct LibraryLayoutSwitcher: View {
 
 /// The bottom bar of the compact layout.
 ///
-/// It is a full-width bar with the three tabs and the search circle. While
-/// the person walks back in time through the library it collapses into a
-/// pill that shows the date of the photos on screen instead of the tab
-/// labels, the same way the native shell does.
+/// The web dock is two separate glass objects, a tab capsule and a search
+/// circle, and the condensed form keeps only the open tab on the left, the
+/// layout switcher in the centre and the search circle on the right.
 private struct CompactTabBar: View {
     let model: ShellModel
 
-    /// The bar is a pill while the library is scrolled back in time.
+    @Namespace private var thumb
+
+    /// The dock is condensed while the person walks back in time.
     private var isCompact: Bool { model.isTabBarCompact }
 
-    /// The pill only keeps the tab that is open.
-    private var visibleTabs: [ShellTab] {
-        guard isCompact else { return ShellTab.tabBarTabs }
-        let active = ShellTab.tabBarTabs.first { model.isTabActive($0) }
-        return active.map { [$0] } ?? [model.tab]
+    /// The only tab the condensed dock keeps.
+    private var activeTab: ShellTab {
+        ShellTab.tabBarTabs.first { model.isTabActive($0) } ?? model.tab
     }
 
-    /// The date the pill shows instead of the tab labels.
-    private var compactLabel: String {
-        model.library.timelineTopDate ?? model.subtitle
-    }
+    private var searchActive: Bool { model.isTabActive(.search) }
 
     var body: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 0) {
-                ForEach(visibleTabs) { tab in
-                    let active = model.isTabActive(tab)
-                    Button {
-                        model.selectTab(tab)
-                    } label: {
-                        VStack(spacing: 2) {
-                            Image(systemName: tab.icon)
-                                .font(Font.mng(20, weight: .medium))
-                            Text(tab.tabLabel)
-                                .font(Font.mng(10, weight: .semibold))
-                                .lineLimit(1)
-                        }
-                        .foregroundStyle(active ? Palette.accent : Palette.text3)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 46)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(active ? .isSelected : [])
+        HStack(spacing: isCompact ? 6 : 8) {
+            tabGroup
+
+            if isCompact {
+                // The switcher takes the centre slot of the dock, between
+                // the open tab and the search circle, exactly like the
+                // fixed `#layoutSegment` over the condensed bar.
+                Spacer(minLength: 0)
+                LibraryLayoutSwitcher(model: model)
+                    .layoutPriority(1)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                Spacer(minLength: 0)
+            }
+
+            searchButton
+        }
+        .padding(.horizontal, isCompact ? 16 : 12)
+        // The outer width is the web's `min(430px, 100vw - 24px)` and
+        // `min(366px, 100vw - 32px)`.
+        .frame(maxWidth: isCompact ? 398 : 454)
+        .frame(maxWidth: .infinity)
+        .animation(Tokens.Motion.glass, value: isCompact)
+        .animation(Tokens.Motion.spring, value: model.tab)
+    }
+
+    // MARK: - Tab group
+
+    private var tabGroup: some View {
+        HStack(spacing: 0) {
+            if isCompact {
+                compactTab(activeTab)
+                    .transition(.opacity)
+            } else {
+                ForEach(ShellTab.tabBarTabs) { tab in
+                    fullTab(tab)
+                        .transition(.opacity)
                 }
             }
-            .padding(4)
-            .background(
-                Palette.bgElevated,
-                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Palette.hairline, lineWidth: 0.5)
-            }
-
-            // The date of the photos on screen, in place of the tab labels
-            // while the bar is a pill.
-            if isCompact {
-                Text(compactLabel)
-                    .font(Font.mng(13, weight: .semibold))
-                    .foregroundStyle(Palette.text3)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            let searchActive = model.isTabActive(.search)
-            Button {
-                model.selectTab(.search)
-            } label: {
-                Image(systemName: "magnifyingglass")
-                    .font(Font.mng(19, weight: .medium))
-                    .foregroundStyle(searchActive ? Palette.accent : Palette.text2)
-                    .frame(width: 44, height: 44)
-                    .background(Palette.bgElevated, in: Circle())
-                    .overlay {
-                        Circle().stroke(Palette.hairline, lineWidth: 0.5)
-                    }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Strings.navSearch)
-            .accessibilityAddTraits(searchActive ? .isSelected : [])
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(.ultraThinMaterial)
+        .padding(isCompact ? 4 : 5)
+        // The condensed group is a 48 pt square; the expanded one fills the
+        // row beside the 60 pt search circle.
+        .frame(maxWidth: isCompact ? 48 : .infinity)
+        .frame(height: isCompact ? 48 : 60)
+        .background {
+            GlassSurface(
+                shape: RoundedRectangle(cornerRadius: 999, style: .continuous)
+            )
+        }
+        .animation(Tokens.Motion.spring, value: model.tab)
+    }
+
+    /// A tab of the expanded dock: icon over a 10 pt label, with the rounded
+    /// accent thumb sliding behind the open one.
+    private func fullTab(_ tab: ShellTab) -> some View {
+        let active = model.isTabActive(tab)
+        return Button {
+            tap(tab)
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: tab.icon)
+                    .font(Font.mng(23, weight: .medium))
+                Text(tab.tabLabel)
+                    .font(Font.mng(10, weight: .semibold))
+                    .tracking(-0.1)
+                    .lineLimit(1)
+                    .frame(maxWidth: 82)
+            }
+            .foregroundStyle(active ? Palette.accent : Palette.text3)
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background {
+                if active {
+                    Capsule()
+                        .fill(Palette.accent.opacity(0.14))
+                        .overlay {
+                            Capsule().stroke(
+                                Palette.accent.opacity(0.24),
+                                lineWidth: 0.5
+                            )
+                        }
+                        .matchedGeometryEffect(id: "thumb", in: thumb)
+                }
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(active ? .isSelected : [])
+    }
+
+    /// The condensed dock only keeps the open tab, as a glass circle with the
+    /// icon of that tab.
+    private func compactTab(_ tab: ShellTab) -> some View {
+        Button {
+            tap(tab)
+        } label: {
+            Image(systemName: tab.icon)
+                .font(Font.mng(22, weight: .medium))
+                .foregroundStyle(Palette.accent)
+                .frame(width: 40, height: 40)
+                .contentShape(Circle())
+        }
+        .buttonStyle(GlassPressStyle(scale: 0.92))
+        .accessibilityLabel(tab.tabLabel)
+        .accessibilityAddTraits(.isSelected)
+    }
+
+    // MARK: - Search
+
+    private var searchButton: some View {
+        Button {
+            if isCompact, searchActive { return }
+            model.selectTab(.search)
+        } label: {
+            ZStack {
+                GlassSurface(shape: Circle())
+                if searchActive {
+                    Circle().fill(Palette.accent.opacity(0.14))
+                }
+                Image(systemName: "magnifyingglass")
+                    .font(Font.mng(isCompact ? 22 : 24, weight: .medium))
+                    .foregroundStyle(
+                        searchActive ? Palette.accent : Palette.text2
+                    )
+            }
+            .frame(
+                width: isCompact ? 48 : 60,
+                height: isCompact ? 48 : 60
+            )
+            .contentShape(Circle())
+        }
+        .buttonStyle(GlassPressStyle(scale: 0.94))
+        .accessibilityLabel(Strings.navSearch)
+        .accessibilityAddTraits(searchActive ? .isSelected : [])
+    }
+
+    // MARK: - Actions
+
+    private func tap(_ tab: ShellTab) {
+        // Tapping the open tab of a condensed dock brings the full dock back
+        // instead of leaving the screen, and the guard keeps the scroll
+        // gesture from condensing it again, like `scroll_guard` in the web.
+        if isCompact, model.isTabActive(tab) {
+            model.isTabBarCompact = false
+            model.compactGuardUntil = Date().addingTimeInterval(1.2)
+            return
+        }
+        model.selectTab(tab)
     }
 }
 

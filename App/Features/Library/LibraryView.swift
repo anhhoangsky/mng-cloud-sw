@@ -15,7 +15,26 @@ struct LibraryView: View {
     /// Scroll offset of the library grid, used to swap the header subtitle
     /// between the item count and the date of the photo at the top.
     @State private var scrollOffset: CGFloat = 0
-    /// Frames of the realized timeline tiles, in the library scroll space.
+    /// The offset of the previous scroll callback, for the direction of the
+    /// gesture.
+    @State private var lastScrollOffset: CGFloat = 0
+    /// The accumulated drag, so the dock condenses after a deliberate
+    /// 26 pt move toward older photos, like the web's `scroll_accum`.
+    @State private var scrollAccum: CGFloat = 0
+    /// The largest offset seen, which is the bottom of the timeline where the
+    /// newest photo sits.
+    @State private var maxSeenOffset: CGFloat = 0
+    /// Suppresses the scroll accumulator while a replaced page clamps the
+    /// offset, matching the web's `scroll_guard`.
+    @State private var scrollGuardUntil = Date.distantPast
+    /// Set after one older page is requested; re-armed once the person scrolls
+    /// away from the top, so a journal replacement cannot cascade.
+    @State private var olderRequestArmed = true
+    /// The tile to keep under the header when an older page is prepended.
+    @State private var pendingOlderAnchorID: Int64?
+    /// The bottom edge of the scroll view in screen coordinates.
+    @State private var viewportGlobalMaxY: CGFloat = 0
+    /// Frames of the realized timeline tiles, in screen coordinates.
     @State private var tileFrames: [Int64: CGRect] = [:]
     /// The photo picker for "save into the library".
     @State private var backupPickerOpen = false
@@ -38,37 +57,69 @@ struct LibraryView: View {
                 .padding(.bottom, 12)
             }
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    // Scroll probe. It sits directly above the content, so its
-                    // frame in the named space is exactly the negated offset.
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        // Scroll probe. It sits directly above the content, so
+                        // its frame in the named space is exactly the negated
+                        // offset.
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: TimelineScrollOffsetKey.self,
+                                value: -proxy.frame(in: .named(TimelineSpace.name)).minY
+                            )
+                        }
+                        .frame(height: 0)
+
+                        bodyContent
+                    }
+                    .padding(.horizontal, isCompact ? 0 : 32)
+                    .padding(.top, isCompact ? 0 : 26)
+                    // The dock takes 70 pt of the safe area; the web's content
+                    // keeps another 84 pt below the last row (154 in total).
+                    .padding(.bottom, isCompact ? 84 : 60)
+                    .frame(maxWidth: Tokens.Layout.contentMaxWidth, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .background {
                     GeometryReader { proxy in
                         Color.clear.preference(
-                            key: TimelineScrollOffsetKey.self,
-                            value: -proxy.frame(in: .named(TimelineSpace.name)).minY
+                            key: TimelineViewportKey.self,
+                            value: proxy.frame(in: .global)
                         )
                     }
-                    .frame(height: 0)
-
-                    bodyContent
-
-                    if library.loadState == .ready, !library.isAlbumOpen {
-                        olderFooter
+                }
+                // The timeline is chronological, so its last row is the newest
+                // photo. The scroll view opens there and walks back in time as
+                // the person scrolls up.
+                .defaultScrollAnchor(library.filters.isTimeline ? .bottom : .top)
+                .coordinateSpace(name: TimelineSpace.name)
+                .refreshable {
+                    await library.reload()
+                }
+                .onChange(of: library.revision) { _, _ in
+                    // The new page just replaced the old one. Whatever offset
+                    // change follows is the browser-style clamp of a shorter
+                    // page, not a drag.
+                    scrollGuardUntil = Date().addingTimeInterval(0.35)
+                    scrollAccum = 0
+                    lastScrollOffset = scrollOffset
+                }
+                .onChange(of: library.page.count) { old, new in
+                    // An older page is inserted above the viewport. Keep the
+                    // photo the person was reading where it was, like the
+                    // web's `anchor_y + delta` restore after a page prepend.
+                    guard new > old, let anchor = pendingOlderAnchorID else {
+                        return
+                    }
+                    pendingOlderAnchorID = nil
+                    scrollGuardUntil = Date().addingTimeInterval(0.35)
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        scrollProxy.scrollTo(anchor, anchor: .top)
                     }
                 }
-                .padding(.horizontal, isCompact ? 0 : 32)
-                .padding(.top, isCompact ? 0 : 26)
-                .padding(.bottom, isCompact ? 12 : 60)
-                .frame(maxWidth: Tokens.Layout.contentMaxWidth, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .center)
-            }
-            // The timeline is chronological, so its last row is the newest
-            // photo. The scroll view opens there and walks back in time as
-            // the person scrolls up.
-            .defaultScrollAnchor(library.filters.isTimeline ? .bottom : .top)
-            .coordinateSpace(name: TimelineSpace.name)
-            .refreshable {
-                await library.reload()
             }
         }
         .background(Palette.bg.ignoresSafeArea())
@@ -103,13 +154,33 @@ struct LibraryView: View {
             .ignoresSafeArea()
         }
         .onPreferenceChange(TimelineScrollOffsetKey.self) { offset in
-            updateTabBarState(offset: offset)
-            scrollOffset = offset
-            updateTimelineTopDate()
+            updateChrome(offset: offset)
         }
         .onPreferenceChange(TimelineTileFramesKey.self) { frames in
             tileFrames = frames.frames
             updateTimelineTopDate()
+        }
+        .onPreferenceChange(TimelineViewportKey.self) { rect in
+            if abs(rect.maxY - viewportGlobalMaxY) > 0.5 {
+                viewportGlobalMaxY = rect.maxY
+                updateTimelineTopDate()
+            }
+        }
+        .onChange(of: model.headerBottom) { _, _ in
+            updateTimelineTopDate()
+        }
+        .onChange(of: library.filters) { _, filters in
+            // A filter keeps the grid at the same offset until the new page
+            // arrives, exactly like the web's `keep_scroll` reload.
+            scrollAccum = 0
+            lastScrollOffset = scrollOffset
+            pendingOlderAnchorID = nil
+            olderRequestArmed = true
+            model.isFilterMenuOpen = false
+            if !filters.isTimeline {
+                model.isTabBarCompact = false
+                library.setTimelineTopDate(nil)
+            }
         }
         .onChange(of: model.isUploadRequested) { _, requested in
             guard requested else { return }
@@ -118,52 +189,127 @@ struct LibraryView: View {
         }
     }
 
-    /// The bottom bar collapses into a pill while the person walks back in
-    /// time and expands again when they come back to the present.
+    /// The dock condenses after a deliberate drag toward older photos and
+    /// expands at either end of the timeline or when the person scrolls back
+    /// toward the present, mirroring the web's scroll accumulator.
     ///
     /// The timeline is chronological and opens at the newest photo, so the
     /// scroll offset grows towards the past.
-    private func updateTabBarState(offset: CGFloat) {
+    private func updateChrome(offset: CGFloat) {
+        let delta = offset - lastScrollOffset
+        lastScrollOffset = offset
+        scrollOffset = offset
+        maxSeenOffset = max(maxSeenOffset, offset)
+
         guard library.filters.isTimeline, !library.isAlbumOpen else {
+            scrollAccum = 0
             model.isTabBarCompact = false
             model.isHeaderFaded = false
+            library.setTimelineTopDate(nil)
             return
         }
-        let delta = offset - scrollOffset
-        if delta < -12 {
-            model.isTabBarCompact = true
-        } else if delta > 12 {
-            model.isTabBarCompact = false
-        }
-        // The header gets its material while the photos scroll under it.
+
+        // The header gets its material while the page scrolls under it.
         model.isHeaderFaded = offset > 6
+
+        if abs(delta) > 0.5 {
+            model.isFilterMenuOpen = false
+        }
+
+        if offset <= 40 {
+            // Back at the oldest loaded photo: show the full dock again.
+            scrollAccum = 0
+            model.isTabBarCompact = false
+        } else if Date() < scrollGuardUntil || Date() < model.compactGuardUntil {
+            // A page was just replaced, an older page was anchored, or the
+            // dock was just expanded from its handle. Ignore the offset jump;
+            // only a clamp to a shorter page forces the full dock back.
+            scrollAccum = 0
+            if delta < -320 {
+                maxSeenOffset = offset
+                model.isTabBarCompact = false
+            }
+        } else if maxSeenOffset > 24, offset >= maxSeenOffset - 24 {
+            // The newest photo is in view.
+            scrollAccum = 0
+            model.isTabBarCompact = false
+        } else {
+            if delta.signum() == scrollAccum.signum() {
+                scrollAccum += delta
+            } else {
+                scrollAccum = delta
+            }
+            if scrollAccum > 26 {
+                scrollAccum = 0
+                model.isTabBarCompact = false
+            } else if scrollAccum < -26 {
+                scrollAccum = 0
+                model.isTabBarCompact = true
+            }
+        }
+
+        updateTimelineTopDate()
+
+        // Silent paging: the web asks for the page above when it gets near
+        // the top of the loaded timeline. There is no visible footer.
+        if offset > 900 {
+            olderRequestArmed = true
+        }
+        if library.olderState == .loading {
+            // The response may take a moment; keep the anchor on whatever the
+            // person is reading right now, like the web's capture at render
+            // time rather than at request time.
+            if let current = topVisibleTileID() {
+                pendingOlderAnchorID = current
+            }
+        } else if offset < 700,
+                  olderRequestArmed,
+                  !library.page.items.isEmpty,
+                  library.page.hasMore,
+                  !library.olderExhausted,
+                  let anchor = topVisibleTileID() {
+            olderRequestArmed = false
+            pendingOlderAnchorID = anchor
+            Task { await library.loadOlderIfNeeded() }
+        }
     }
 
     /// The header shows the date of the photo at the top of the grid while the
     /// library is scrolled, and the item count otherwise.
+    ///
+    /// The web picks the first tile in DOM order whose bottom edge clears the
+    /// sticky header. The grid is chronological, so that is the oldest photo
+    /// on screen.
     private func updateTimelineTopDate() {
         guard library.filters.isTimeline, !library.isAlbumOpen, scrollOffset > 6 else {
             library.setTimelineTopDate(nil)
             return
         }
-        let visible = tileFrames.filter { $0.value.width > 0.5 && $0.value.height > 0.5 }
-        guard !visible.isEmpty else {
+        guard let top = topVisibleTileID() else {
             library.setTimelineTopDate(nil)
             return
         }
-        // The topmost row: the smallest `minY` that still starts at or below
-        // the top edge, and the leftmost tile of that row. The grid is
-        // chronological, so this is the oldest photo on screen.
-        let below = visible.filter { $0.value.minY >= -1 }
-        let top = below.min { lhs, rhs in
-            let dy = lhs.value.minY - rhs.value.minY
+        library.setTimelineTopDate(library.timelineDate(for: top))
+    }
+
+    /// The first tile, in grid order, whose bottom edge clears the header.
+    /// The grid is chronological, so this is the oldest photo on screen.
+    private func topVisibleTileID() -> Int64? {
+        let headerBottom = model.headerBottom > 0 ? model.headerBottom : 120
+        let viewportBottom = viewportGlobalMaxY > 0
+            ? viewportGlobalMaxY
+            : CGFloat.greatestFiniteMagnitude
+        let visible = tileFrames.filter {
+            $0.value.width > 1 && $0.value.height > 1
+        }
+        let below = visible.filter {
+            $0.value.maxY > headerBottom + 2 && $0.value.minY < viewportBottom
+        }
+        return below.min(by: { lhs, rhs in
+            let dy = lhs.value.maxY - rhs.value.maxY
             if abs(dy) > 0.5 { return dy < 0 }
             return lhs.value.minX < rhs.value.minX
-        } ?? visible.min { lhs, rhs in
-            lhs.value.maxY < rhs.value.maxY
-        }
-        guard let top else { return }
-        library.setTimelineTopDate(library.timelineDate(for: top.key))
+        })?.key
     }
 
     // MARK: - Body states
@@ -256,22 +402,16 @@ struct LibraryView: View {
         LazyVGrid(columns: timelineColumns, spacing: timelineGap) {
             ForEach(library.page.items.reversed()) { item in
                 TileView(model: model, item: item)
+                    .id(item.id)
                     .background {
                         GeometryReader { proxy in
                             Color.clear.preference(
                                 key: TimelineTileFramesKey.self,
                                 value: TimelineTileFrames(frames: [
-                                    item.id: proxy.frame(in: .named(TimelineSpace.name))
+                                    item.id: proxy.frame(in: .global)
                                 ])
                             )
                         }
-                    }
-                    .onAppear {
-                        // The oldest photo of the page is the first row, so
-                        // reaching it means the person walked back far enough
-                        // to ask for the next page.
-                        guard item.id == library.page.items.last?.id else { return }
-                        Task { await library.loadOlderIfNeeded() }
                     }
             }
         }
@@ -289,39 +429,6 @@ struct LibraryView: View {
 
     private var timelineGap: CGFloat {
         isCompact ? Tokens.Layout.gridGap : 3
-    }
-
-    @ViewBuilder
-    private var olderFooter: some View {
-        if library.filters.isTimeline, !library.page.items.isEmpty {
-            if case .failed(let message) = library.olderState {
-                VStack(spacing: 8) {
-                    Text(message)
-                        .font(Font.mng(13))
-                        .foregroundStyle(Palette.text3)
-                    Button(Strings.retry) {
-                        Task { await library.loadOlder() }
-                    }
-                    .font(Font.mng(13, weight: .semibold))
-                    .foregroundStyle(Palette.accent)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 22)
-            } else if library.page.hasMore, !library.olderExhausted {
-                VStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(Strings.loadOlder)
-                        .font(Font.mng(12))
-                        .foregroundStyle(Palette.text3)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 22)
-                .onAppear {
-                    Task { await library.loadOlderIfNeeded() }
-                }
-            }
-        }
     }
 
     // MARK: - Buckets
@@ -620,6 +727,15 @@ private struct TimelineScrollOffsetKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+/// Frame of the scroll view in screen coordinates.
+private struct TimelineViewportKey: PreferenceKey {
+    static let defaultValue = CGRect.zero
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
         value = nextValue()
     }
 }
