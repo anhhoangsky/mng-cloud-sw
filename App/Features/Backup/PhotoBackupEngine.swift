@@ -641,8 +641,24 @@ final class PhotoBackupEngine {
         var failed = 0
         var lastRun: Date?
 
-        init() {
+        init(
+            fresh: Void = (),
+            jobs: [Job] = [],
+            scannedUntil: Date? = nil,
+            handled: [String: Date] = [:],
+            uploaded: Int = 0,
+            skipped: Int = 0,
+            failed: Int = 0,
+            lastRun: Date? = nil
+        ) {
             version = PhotoBackupEngine.stateVersion
+            self.jobs = jobs
+            self.scannedUntil = scannedUntil
+            self.handled = handled
+            self.uploaded = uploaded
+            self.skipped = skipped
+            self.failed = failed
+            self.lastRun = lastRun
         }
 
         /// A state file without the version comes from an app that filed the
@@ -669,6 +685,7 @@ final class PhotoBackupEngine {
 
     private func saveState() {
         let state = State(
+            fresh: (),
             jobs: queue,
             scannedUntil: scannedUntil,
             handled: handled,
@@ -690,12 +707,12 @@ final class PhotoBackupEngine {
         guard let data = try? Data(contentsOf: stateURL),
               let state = try? JSONDecoder().decode(State.self, from: data)
         else {
-            return State()
+            return State(fresh: ())
         }
         guard state.version == stateVersion else {
             // The bookkeeping of an older version cannot be trusted, so the
             // library is scanned again from the start.
-            return State()
+            return State(fresh: ())
         }
         return state
     }
