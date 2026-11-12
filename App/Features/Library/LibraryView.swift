@@ -234,7 +234,9 @@ struct LibraryView: View {
             scrollAccum = 0
             model.isTabBarCompact = false
         } else {
-            if delta.signum() == scrollAccum.signum() {
+            let sameDirection = (delta >= 0 && scrollAccum >= 0)
+                || (delta < 0 && scrollAccum < 0)
+            if sameDirection {
                 scrollAccum += delta
             } else {
                 scrollAccum = delta
