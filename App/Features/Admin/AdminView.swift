@@ -94,22 +94,8 @@ struct AdminView: View {
         .sheet(item: $deleting) { user in
             AdminDeleteSheet(model: model, user: user)
         }
-        .alert(
-            Strings.adminRenameTitle,
-            isPresented: Binding(
-                get: { renaming != nil },
-                set: { if !$0 { renaming = nil } }
-            ),
-            presenting: renaming
-        ) { user in
-            Button(Strings.cancel, role: .cancel) { renaming = nil }
-            Button(Strings.adminSave) {
-                let target = user
-                renaming = nil
-                Task { await admin.rename(target.displayName, for: target) }
-            }
-        } message: { _ in
-            Text(Strings.adminRenameMessage)
+        .sheet(item: $renaming) { user in
+            AdminRenameSheet(model: model, user: user)
         }
         .alert(
             passwordAction?.title ?? "",
