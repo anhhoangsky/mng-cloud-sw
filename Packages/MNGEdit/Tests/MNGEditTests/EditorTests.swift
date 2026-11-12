@@ -24,8 +24,8 @@ final class EditorTests: XCTestCase {
     /// written as a PNG and read back. The first row of the buffer has to
     /// be the blue one, otherwise the editor shows the photo upside down.
     func testTheDecoderKeepsTheRowsTopDown() throws {
-        let width = 2
-        let height = 2
+        let width = 64
+        let height = 64
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         guard let context = CGContext(
             data: nil,
@@ -41,9 +41,9 @@ final class EditorTests: XCTestCase {
         // The context draws from the bottom left, so the blue half is the
         // top of the picture.
         context.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
-        context.fill(CGRect(x: 0, y: 1, width: width, height: 1))
+        context.fill(CGRect(x: 0, y: height / 2, width: width, height: height / 2))
         context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
-        context.fill(CGRect(x: 0, y: 0, width: width, height: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height / 2))
         guard let image = context.makeImage() else {
             return XCTFail("the image could not be made")
         }
@@ -69,8 +69,9 @@ final class EditorTests: XCTestCase {
         XCTAssertEqual(decoded.height, UInt32(height))
         // The first row is the blue one.
         XCTAssertEqual(Array(decoded.rgba[0..<4]), [0, 0, 255, 255])
-        // The second row is the red one.
-        XCTAssertEqual(Array(decoded.rgba[4..<8]), [255, 0, 0, 255])
+        // The row in the middle is the red one.
+        let middle = (height / 2) * width * 4
+        XCTAssertEqual(Array(decoded.rgba[middle..<(middle + 4)]), [255, 0, 0, 255])
     }
 
     func testRejectsInvalidBuffersAndDimensions() {
