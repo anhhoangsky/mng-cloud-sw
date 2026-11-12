@@ -62,6 +62,9 @@ struct LibraryView: View {
     /// A vertical drag must keep scrolling; once a gesture is classified as a
     /// scroll it stays a scroll until the finger lifts.
     @State private var marqueeRejected = false
+    /// Where the rejected drag started, so a cancelled gesture cannot keep
+    /// the marquee disabled for the next one.
+    @State private var marqueeRejectedStart: CGPoint?
     /// The tap that ends a marquee drag must not toggle its starting tile.
     @State private var suppressTileTapUntil = Date.distantPast
     /// The photo picker for "save into the library".
@@ -621,6 +624,22 @@ struct LibraryView: View {
                 guard library.selectionMode else { return }
 
                 if marquee == nil {
+                    if marqueeRejected {
+                        // A cancelled drag must not lock the marquee forever:
+                        // a new start location means a new gesture.
+                        if let last = marqueeRejectedStart {
+                            let dx = value.startLocation.x - last.x
+                            let dy = value.startLocation.y - last.y
+                            if dx * dx + dy * dy > 16 {
+                                marqueeRejected = false
+                                marqueeRejectedStart = nil
+                            } else {
+                                return
+                            }
+                        } else {
+                            return
+                        }
+                    }
                     guard !marqueeRejected else { return }
                     let dx = value.translation.width
                     let dy = value.translation.height
@@ -634,6 +653,7 @@ struct LibraryView: View {
                     } else if abs(dy) > 7 {
                         // A vertical drag belongs to the scroll view.
                         marqueeRejected = true
+                        marqueeRejectedStart = value.startLocation
                     }
                     guard marquee != nil else { return }
                 }
@@ -646,8 +666,11 @@ struct LibraryView: View {
                     width: abs(current.x - state.start.x),
                     height: abs(current.y - state.start.y)
                 )
-                if rect.width > 4 || rect.height > 4 {
+                if !state.moved, rect.width > 4 || rect.height > 4 {
                     state.moved = true
+                    // Stamp the guard once: writing a fresh date on every
+                    // frame would re-render the whole grid during the drag.
+                    suppressTileTapUntil = Date().addingTimeInterval(0.6)
                 }
 
                 var hits: Set<Int64> = []
@@ -664,9 +687,6 @@ struct LibraryView: View {
                 }
                 library.replaceSelection(next)
                 marquee = state
-                if state.moved {
-                    suppressTileTapUntil = Date().addingTimeInterval(0.45)
-                }
             }
             .onEnded { _ in
                 if let state = marquee, state.moved {
@@ -674,6 +694,7 @@ struct LibraryView: View {
                 }
                 marquee = nil
                 marqueeRejected = false
+                marqueeRejectedStart = nil
             }
     }
 
