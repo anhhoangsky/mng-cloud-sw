@@ -15,15 +15,21 @@ struct LibraryView: View {
     /// Scroll offset of the library grid, used to swap the header subtitle
     /// between the item count and the date of the photo at the top.
     @State private var scrollOffset: CGFloat = 0
+    /// The web keeps the item count until the first scroll gesture: the
+    /// initial jump to the newest photo does not count. Only then does the
+    /// header start following the top photo.
+    @State private var hasScrolled = false
     /// The offset of the previous scroll callback, for the direction of the
     /// gesture.
     @State private var lastScrollOffset: CGFloat = 0
     /// The accumulated drag, so the dock condenses after a deliberate
     /// 26 pt move toward older photos, like the web's `scroll_accum`.
     @State private var scrollAccum: CGFloat = 0
-    /// The largest offset seen, which is the bottom of the timeline where the
-    /// newest photo sits.
-    @State private var maxSeenOffset: CGFloat = 0
+    /// Height of the scrollable content, so the dock knows the real bottom of
+    /// the timeline the way the web reads `scrollHeight - innerHeight`.
+    @State private var contentHeight: CGFloat = 0
+    /// Height of the scroll viewport in screen coordinates.
+    @State private var viewportHeight: CGFloat = 0
     /// Suppresses the scroll accumulator while a replaced page clamps the
     /// offset, matching the web's `scroll_guard`.
     @State private var scrollGuardUntil = Date.distantPast
@@ -80,6 +86,14 @@ struct LibraryView: View {
                     .padding(.bottom, isCompact ? 84 : 60)
                     .frame(maxWidth: Tokens.Layout.contentMaxWidth, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .center)
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: TimelineContentHeightKey.self,
+                                value: proxy.size.height
+                            )
+                        }
+                    }
                 }
                 .background {
                     GeometryReader { proxy in
@@ -104,6 +118,8 @@ struct LibraryView: View {
                     scrollGuardUntil = Date().addingTimeInterval(0.35)
                     scrollAccum = 0
                     lastScrollOffset = scrollOffset
+                    pendingOlderAnchorID = nil
+                    olderRequestArmed = true
                 }
                 .onChange(of: library.page.count) { old, new in
                     // An older page is inserted above the viewport. Keep the
@@ -165,6 +181,21 @@ struct LibraryView: View {
                 viewportGlobalMaxY = rect.maxY
                 updateTimelineTopDate()
             }
+            if abs(rect.height - viewportHeight) > 0.5 {
+                viewportHeight = rect.height
+            }
+        }
+        .onPreferenceChange(TimelineContentHeightKey.self) { height in
+            guard abs(height - contentHeight) > 0.5 else { return }
+            contentHeight = height
+            // The new page changed the bottom of the timeline. Re-check the
+            // dock now, so a shorter page expands it even if no scroll
+            // callback follows the clamp.
+            let maxOffset = max(0, height - viewportHeight)
+            if maxOffset > 24, scrollOffset >= maxOffset - 24 {
+                scrollAccum = 0
+                model.isTabBarCompact = false
+            }
         }
         .onChange(of: model.headerBottom) { _, _ in
             updateTimelineTopDate()
@@ -199,7 +230,7 @@ struct LibraryView: View {
         let delta = offset - lastScrollOffset
         lastScrollOffset = offset
         scrollOffset = offset
-        maxSeenOffset = max(maxSeenOffset, offset)
+        let maxOffset = max(0, contentHeight - viewportHeight)
 
         guard library.filters.isTimeline, !library.isAlbumOpen else {
             scrollAccum = 0
@@ -212,6 +243,15 @@ struct LibraryView: View {
         // The header gets its material while the page scrolls under it.
         model.isHeaderFaded = offset > 6
 
+        // The initial jump to the newest photo is not a gesture. Any smaller
+        // movement afterwards is a real scroll and starts the date readout.
+        if abs(delta) > 0.5,
+           abs(delta) < 320,
+           Date() >= scrollGuardUntil,
+           Date() >= model.compactGuardUntil {
+            hasScrolled = true
+        }
+
         if abs(delta) > 0.5 {
             model.isFilterMenuOpen = false
         }
@@ -223,13 +263,12 @@ struct LibraryView: View {
         } else if Date() < scrollGuardUntil || Date() < model.compactGuardUntil {
             // A page was just replaced, an older page was anchored, or the
             // dock was just expanded from its handle. Ignore the offset jump;
-            // only a clamp to a shorter page forces the full dock back.
+            // a clamp to a shorter page still lands at the new bottom.
             scrollAccum = 0
-            if delta < -320 {
-                maxSeenOffset = offset
+            if maxOffset > 24, offset >= maxOffset - 24 {
                 model.isTabBarCompact = false
             }
-        } else if maxSeenOffset > 24, offset >= maxSeenOffset - 24 {
+        } else if maxOffset > 24, offset >= maxOffset - 24 {
             // The newest photo is in view.
             scrollAccum = 0
             model.isTabBarCompact = false
@@ -283,7 +322,11 @@ struct LibraryView: View {
     /// sticky header. The grid is chronological, so that is the oldest photo
     /// on screen.
     private func updateTimelineTopDate() {
-        guard library.filters.isTimeline, !library.isAlbumOpen, scrollOffset > 6 else {
+        guard library.filters.isTimeline,
+              !library.isAlbumOpen,
+              hasScrolled,
+              scrollOffset > 6
+        else {
             library.setTimelineTopDate(nil)
             return
         }
@@ -738,6 +781,16 @@ private struct TimelineViewportKey: PreferenceKey {
     static let defaultValue = CGRect.zero
 
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
+    }
+}
+
+/// Full height of the scrollable content, used to find the bottom of the
+/// timeline without waiting for the person to scroll there.
+private struct TimelineContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
     }
 }
