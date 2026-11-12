@@ -91,6 +91,10 @@ final class ShellModel {
     /// Saving photos and videos from the device into the cloud library.
     let backup = CloudBackupModel()
     var tab: ShellTab = .library
+    /// The bottom bar collapses to a pill while the person walks back in
+    /// time through the library, the same way the native shell does. The pill
+    /// shows the date of the photos on screen instead of the tab labels.
+    var isTabBarCompact = false
     var toast: String?
     var shareFile: DownloadedFile?
     var activeSheet: ShellSheet?

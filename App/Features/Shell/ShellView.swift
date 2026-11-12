@@ -69,11 +69,12 @@ struct ShellView: View {
                 VStack(spacing: 0) {
                     CompactShellHeader(model: model)
                     content
-                }
-                .overlay(alignment: .bottom) {
-                    compactBottomChrome
-                        .animation(Tokens.Motion.fade, value: model.tab)
-                        .animation(Tokens.Motion.fade, value: model.library.selectionMode)
+                        .safeAreaInset(edge: .bottom) {
+                            compactBottomChrome
+                                .animation(Tokens.Motion.fade, value: model.tab)
+                                .animation(Tokens.Motion.fade, value: model.library.selectionMode)
+                                .animation(Tokens.Motion.fade, value: model.isTabBarCompact)
+                        }
                 }
             } else {
                 HStack(spacing: 0) {
@@ -143,8 +144,6 @@ struct ShellView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         } else {
             CompactTabBar(model: model)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 10)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
@@ -228,8 +227,9 @@ private struct CompactShellHeader: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // The server picker belongs to the settings; the library header
-            // only shows the count and the date of the photo on top.
+            // The right side of the header carries the two controls the
+            // native shell keeps there: the server picker in the settings
+            // and the multi-select button in the library.
             if model.tab == .settings {
                 Button {
                     model.presentConnections()
@@ -245,6 +245,24 @@ private struct CompactShellHeader: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(Strings.switchCloud) · \(model.activeCloudLabel)")
+            } else if model.tab == .library,
+                      model.library.canSelect,
+                      !model.library.selectionMode {
+                Button {
+                    model.library.enterSelection()
+                } label: {
+                    Text(Strings.select)
+                        .font(Font.mng(13, weight: .semibold))
+                        .foregroundStyle(Palette.text)
+                        .padding(.horizontal, 13)
+                        .frame(height: 36)
+                        .background(Palette.fill, in: Capsule())
+                        .overlay {
+                            Capsule().stroke(Palette.hairline, lineWidth: 0.5)
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Strings.select)
             }
         }
         .padding(.horizontal, 16)
@@ -253,58 +271,95 @@ private struct CompactShellHeader: View {
     }
 }
 
+/// The bottom bar of the compact layout.
+///
+/// It is a full-width bar with the three tabs and the search circle. While
+/// the person walks back in time through the library it collapses into a
+/// pill that shows the date of the photos on screen instead of the tab
+/// labels, the same way the native shell does.
 private struct CompactTabBar: View {
     let model: ShellModel
+
+    /// The bar is a pill while the library is scrolled back in time.
+    private var isCompact: Bool { model.isTabBarCompact }
+
+    /// The pill only keeps the tab that is open.
+    private var visibleTabs: [ShellTab] {
+        guard isCompact else { return ShellTab.tabBarTabs }
+        let active = ShellTab.tabBarTabs.first { model.isTabActive($0) }
+        return active.map { [$0] } ?? [model.tab]
+    }
+
+    /// The date the pill shows instead of the tab labels.
+    private var compactLabel: String {
+        model.library.timelineTopDate ?? model.subtitle
+    }
 
     var body: some View {
         HStack(spacing: 8) {
             HStack(spacing: 0) {
-                ForEach(ShellTab.tabBarTabs) { tab in
+                ForEach(visibleTabs) { tab in
                     let active = model.isTabActive(tab)
                     Button {
                         model.selectTab(tab)
                     } label: {
                         VStack(spacing: 2) {
                             Image(systemName: tab.icon)
-                                .font(Font.mng(21, weight: .medium))
+                                .font(Font.mng(20, weight: .medium))
                             Text(tab.tabLabel)
                                 .font(Font.mng(10, weight: .semibold))
                                 .lineLimit(1)
                         }
                         .foregroundStyle(active ? Palette.accent : Palette.text3)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 50)
+                        .frame(height: 46)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(active ? .isSelected : [])
                 }
             }
-            .padding(5)
-            .background(.ultraThinMaterial, in: Capsule())
+            .padding(4)
+            .background(
+                Palette.bgElevated,
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            )
             .overlay {
-                Capsule().stroke(Palette.hairline, lineWidth: 0.5)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Palette.hairline, lineWidth: 0.5)
             }
-            .shadow(color: .black.opacity(0.16), radius: 18, y: 8)
+
+            // The date of the photos on screen, in place of the tab labels
+            // while the bar is a pill.
+            if isCompact {
+                Text(compactLabel)
+                    .font(Font.mng(13, weight: .semibold))
+                    .foregroundStyle(Palette.text3)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             let searchActive = model.isTabActive(.search)
             Button {
                 model.selectTab(.search)
             } label: {
                 Image(systemName: "magnifyingglass")
-                    .font(Font.mng(21, weight: .medium))
+                    .font(Font.mng(19, weight: .medium))
                     .foregroundStyle(searchActive ? Palette.accent : Palette.text2)
-                    .frame(width: 60, height: 60)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .frame(width: 44, height: 44)
+                    .background(Palette.bgElevated, in: Circle())
                     .overlay {
                         Circle().stroke(Palette.hairline, lineWidth: 0.5)
                     }
-                    .shadow(color: .black.opacity(0.16), radius: 18, y: 8)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Strings.navSearch)
             .accessibilityAddTraits(searchActive ? .isSelected : [])
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(.ultraThinMaterial)
     }
 }
 

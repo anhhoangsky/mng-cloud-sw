@@ -3,6 +3,10 @@ import SwiftUI
 
 /// Library screen: grouping toolbar, 120-item timeline paging, kind filters,
 /// year/month cards and empty/error/skeleton states.
+///
+/// The timeline is chronological and starts at the newest photo, so the grid
+/// grows upwards: the newest photo sits at the bottom of the screen and
+/// scrolling up walks back in time, exactly like the native shell.
 struct LibraryView: View {
     let model: ShellModel
 
@@ -20,27 +24,30 @@ struct LibraryView: View {
     private var isCompact: Bool { sizeClass == .compact }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                // Scroll probe. It sits directly above the content, so its
-                // frame in the named space is exactly the negated offset.
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: TimelineScrollOffsetKey.self,
-                        value: -proxy.frame(in: .named(TimelineSpace.name)).minY
-                    )
+        VStack(spacing: 0) {
+            // The toolbar is pinned above the grid. The timeline scrolls
+            // under it, so the grid can start at the newest photo instead of
+            // pushing the controls out of sight.
+            if !library.isAlbumOpen {
+                LibraryToolbar(model: model) {
+                    backupPickerOpen = true
                 }
-                .frame(height: 0)
+                .padding(.horizontal, isCompact ? 16 : 0)
+                .padding(.top, isCompact ? 6 : 0)
+                .padding(.bottom, 12)
+            }
 
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if !library.isAlbumOpen {
-                        LibraryToolbar(model: model) {
-                            backupPickerOpen = true
-                        }
-                        .padding(.horizontal, isCompact ? 16 : 0)
-                        .padding(.top, isCompact ? 6 : 0)
-                        .padding(.bottom, 16)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Scroll probe. It sits directly above the content, so its
+                    // frame in the named space is exactly the negated offset.
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: TimelineScrollOffsetKey.self,
+                            value: -proxy.frame(in: .named(TimelineSpace.name)).minY
+                        )
                     }
+                    .frame(height: 0)
 
                     bodyContent
 
@@ -50,14 +57,18 @@ struct LibraryView: View {
                 }
                 .padding(.horizontal, isCompact ? 0 : 32)
                 .padding(.top, isCompact ? 0 : 26)
-                .padding(.bottom, isCompact ? 154 : 60)
+                .padding(.bottom, isCompact ? 12 : 60)
                 .frame(maxWidth: Tokens.Layout.contentMaxWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
-            .frame(maxWidth: .infinity, alignment: .center)
-        }
-        .coordinateSpace(name: TimelineSpace.name)
-        .refreshable {
-            await library.reload()
+            // The timeline is chronological, so its last row is the newest
+            // photo. The scroll view opens there and walks back in time as
+            // the person scrolls up.
+            .defaultScrollAnchor(library.filters.isTimeline ? .bottom : .top)
+            .coordinateSpace(name: TimelineSpace.name)
+            .refreshable {
+                await library.reload()
+            }
         }
         .background(Palette.bg.ignoresSafeArea())
         .safeAreaInset(edge: .bottom) {
@@ -91,12 +102,31 @@ struct LibraryView: View {
             .ignoresSafeArea()
         }
         .onPreferenceChange(TimelineScrollOffsetKey.self) { offset in
+            updateTabBarState(offset: offset)
             scrollOffset = offset
             updateTimelineTopDate()
         }
         .onPreferenceChange(TimelineTileFramesKey.self) { frames in
             tileFrames = frames.frames
             updateTimelineTopDate()
+        }
+    }
+
+    /// The bottom bar collapses into a pill while the person walks back in
+    /// time and expands again when they come back to the present.
+    ///
+    /// The timeline is chronological and opens at the newest photo, so the
+    /// scroll offset grows towards the past.
+    private func updateTabBarState(offset: CGFloat) {
+        guard library.filters.isTimeline, !library.isAlbumOpen else {
+            model.isTabBarCompact = false
+            return
+        }
+        let delta = offset - scrollOffset
+        if delta < -12 {
+            model.isTabBarCompact = true
+        } else if delta > 12 {
+            model.isTabBarCompact = false
         }
     }
 
@@ -113,7 +143,8 @@ struct LibraryView: View {
             return
         }
         // The topmost row: the smallest `minY` that still starts at or below
-        // the top edge, and the leftmost tile of that row.
+        // the top edge, and the leftmost tile of that row. The grid is
+        // chronological, so this is the oldest photo on screen.
         let below = visible.filter { $0.value.minY >= -1 }
         let top = below.min { lhs, rhs in
             let dy = lhs.value.minY - rhs.value.minY
@@ -209,9 +240,12 @@ struct LibraryView: View {
 
     /// One continuous grid: the month labels are gone, so the photos flow
     /// into each other and every row keeps the same height.
+    ///
+    /// The rows are chronological, so the newest photo is the last one and
+    /// sits at the bottom of the screen. The scroll view opens there.
     private var timeline: some View {
         LazyVGrid(columns: timelineColumns, spacing: timelineGap) {
-            ForEach(library.page.items) { item in
+            ForEach(library.page.items.reversed()) { item in
                 TileView(model: model, item: item)
                     .background {
                         GeometryReader { proxy in
@@ -224,6 +258,9 @@ struct LibraryView: View {
                         }
                     }
                     .onAppear {
+                        // The oldest photo of the page is the first row, so
+                        // reaching it means the person walked back far enough
+                        // to ask for the next page.
                         guard item.id == library.page.items.last?.id else { return }
                         Task { await library.loadOlderIfNeeded() }
                     }
@@ -351,7 +388,12 @@ private struct LibraryToolbar: View {
     /// Opens the photo picker for "save into the library".
     var onBackup: () -> Void = {}
 
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
     private var library: LibraryModel { model.library }
+    /// The compact layout keeps the multi-select button in the header, so the
+    /// toolbar only carries it on the wide layout.
+    private var isCompact: Bool { sizeClass == .compact }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
@@ -360,7 +402,7 @@ private struct LibraryToolbar: View {
 
                 Spacer(minLength: 8)
 
-                if library.canSelect, !library.selectionMode {
+                if !isCompact, library.canSelect, !library.selectionMode {
                     Button {
                         library.enterSelection()
                     } label: {
