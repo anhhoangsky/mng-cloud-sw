@@ -669,19 +669,32 @@ private struct CropOverlay: View {
                                         gesture.translation.height / max(geometry.size.height, 1)
                                     )
                                     var next = start
-                                    if corner.affectsX {
-                                        next.width = min(max(start.width + dx, 0.08), 1)
-                                        next.x = min(
-                                            max(start.x + (corner.inX ? dx : 0), 0),
-                                            1 - next.width
+                                    // A corner that sits on the left edge
+                                    // moves towards the right when the
+                                    // rectangle grows to the left.
+                                    if corner.isRight {
+                                        next.width = min(
+                                            max(start.width + dx, 0.08),
+                                            1 - start.x
                                         )
+                                    } else {
+                                        next.width = min(
+                                            max(start.width - dx, 0.08),
+                                            1 - start.x
+                                        )
+                                        next.x = start.x + (start.width - next.width)
                                     }
-                                    if corner.affectsY {
-                                        next.height = min(max(start.height + dy, 0.08), 1)
-                                        next.y = min(
-                                            max(start.y + (corner.inY ? dy : 0), 0),
-                                            1 - next.height
+                                    if corner.isBottom {
+                                        next.height = min(
+                                            max(start.height + dy, 0.08),
+                                            1 - start.y
                                         )
+                                    } else {
+                                        next.height = min(
+                                            max(start.height - dy, 0.08),
+                                            1 - start.y
+                                        )
+                                        next.y = start.y + (start.height - next.height)
                                     }
                                     onChange(next)
                                 }
@@ -701,11 +714,10 @@ private struct CropOverlay: View {
         case bottomLeft
         case bottomRight
 
-        var affectsX: Bool { true }
-        var affectsY: Bool { true }
-        /// The corner that moves towards the inside of the rectangle.
-        var inX: Bool { self == .topRight || self == .bottomRight }
-        var inY: Bool { self == .topLeft || self == .bottomRight }
+        /// The corner sits on the right edge of the rectangle.
+        var isRight: Bool { self == .topRight || self == .bottomRight }
+        /// The corner sits on the bottom edge of the rectangle.
+        var isBottom: Bool { self == .bottomLeft || self == .bottomRight }
 
         func point(in rect: CGRect) -> CGPoint {
             switch self {

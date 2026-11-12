@@ -226,6 +226,9 @@ final class EditorModel {
     @ObservationIgnored private var loadSeq = 0
     @ObservationIgnored private var undoStack: [Snapshot] = []
     @ObservationIgnored private var redoStack: [Snapshot] = []
+    /// The moment of the last step of the history, so the steps of a slider
+    /// can be merged.
+    @ObservationIgnored private var lastHistoryAt: TimeInterval = 0
     @ObservationIgnored private var thumbnailTask: Task<Void, Never>?
 
     init(client: MNGAPIClient) {
@@ -404,6 +407,9 @@ final class EditorModel {
     // MARK: - Adjustments and filters
 
     func setAdjustment(_ key: Adjustment, value: Float) {
+        // A drag of the slider is one step of the history, not one per
+        // pixel, so the steps close to each other are merged.
+        pushHistory(coalescing: true)
         var values = adjustments
         key.set(value, in: &values)
         adjustments = values
@@ -506,7 +512,19 @@ final class EditorModel {
     // MARK: - History
 
     /// Remember the state before a change, so it can be undone.
-    private func pushHistory() {
+    ///
+    /// The steps of a slider are merged when they follow each other
+    /// closely, so a drag of the slider is one step and not hundreds.
+    private func pushHistory(coalescing: Bool = false) {
+        if coalescing {
+            let now = Date().timeIntervalSince1970
+            if now - lastHistoryAt < 0.9 {
+                return
+            }
+            lastHistoryAt = now
+        } else {
+            lastHistoryAt = Date().timeIntervalSince1970
+        }
         undoStack.append(
             Snapshot(
                 adjustments: adjustments,
