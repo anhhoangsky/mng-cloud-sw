@@ -95,6 +95,9 @@ final class ShellModel {
     /// time through the library, the same way the native shell does. The pill
     /// shows the date of the photos on screen instead of the tab labels.
     var isTabBarCompact = false
+    /// The header gets its soft material while the photos scroll under it,
+    /// the same way the native shell does.
+    var isHeaderFaded = false
     var toast: String?
     var shareFile: DownloadedFile?
     var activeSheet: ShellSheet?
@@ -374,6 +377,8 @@ final class ShellModel {
     func selectTab(_ next: ShellTab) {
         if next != .library {
             library.exitSelection()
+            isHeaderFaded = false
+            isTabBarCompact = false
         }
         // Switching away from an album (or tapping Library) leaves the
         // drill-down, clears its filters/layout and refreshes the grid.

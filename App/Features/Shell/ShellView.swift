@@ -68,6 +68,16 @@ struct ShellView: View {
             if isCompact {
                 VStack(spacing: 0) {
                     CompactShellHeader(model: model)
+                        .background(alignment: .bottom) {
+                            // The soft material sleeps behind the title while
+                            // the page is at the top and fades in as soon as
+                            // the photos scroll underneath it.
+                            Rectangle()
+                                .fill(.ultraThinMaterial)
+                                .opacity(model.isHeaderFaded ? 1 : 0)
+                                .animation(Tokens.Motion.fade, value: model.isHeaderFaded)
+                                .allowsHitTesting(false)
+                        }
                     content
                         .safeAreaInset(edge: .bottom) {
                             compactBottomChrome

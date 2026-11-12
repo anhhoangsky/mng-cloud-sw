@@ -120,6 +120,7 @@ struct LibraryView: View {
     private func updateTabBarState(offset: CGFloat) {
         guard library.filters.isTimeline, !library.isAlbumOpen else {
             model.isTabBarCompact = false
+            model.isHeaderFaded = false
             return
         }
         let delta = offset - scrollOffset
@@ -128,6 +129,8 @@ struct LibraryView: View {
         } else if delta > 12 {
             model.isTabBarCompact = false
         }
+        // The header gets its material while the photos scroll under it.
+        model.isHeaderFaded = offset > 6
     }
 
     /// The header shows the date of the photo at the top of the grid while the
