@@ -331,9 +331,9 @@ struct EditorView: View {
             TickSlider(
                 value: Binding(
                     get: {
-                        Double(editor.activeAdjustment.value(in: editor.adjustments))
+                        editor.activeAdjustment.value(in: editor.adjustments)
                     },
-                    set: { editor.setActiveAdjustment(value: Float($0)) }
+                    set: { editor.setActiveAdjustment(value: $0) }
                 )
             )
             .padding(.horizontal, 12)
@@ -384,7 +384,7 @@ struct EditorView: View {
                                         .foregroundStyle(Aurum.muted)
                                 }
                             }
-                            Text(EditorView.filterTitle(filter))
+                            Text(Strings.editorFilterTitle(filter))
                                 .font(Font.mng(10, weight: .semibold))
                                 .lineLimit(1)
                         }
@@ -523,24 +523,6 @@ struct EditorView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-
-    /// The name of a preset.
-    static func filterTitle(_ filter: EditorFilter) -> String {
-        switch filter {
-        case .original: return Strings.editorFilterOriginal
-        case .vivid: return Strings.editorFilterVivid
-        case .dramatic: return Strings.editorFilterDramatic
-        case .mono: return Strings.editorFilterMono
-        case .vintage: return Strings.editorFilterVintage
-        case .warm: return Strings.editorFilterWarm
-        case .cool: return Strings.editorFilterCool
-        case .fade: return Strings.editorFilterFade
-        case .natural: return Strings.editorFilterNatural
-        case .korea: return Strings.editorFilterKorea
-        case .japan: return Strings.editorFilterJapan
-        case .skin: return Strings.editorFilterSkin
-        }
     }
 }
 

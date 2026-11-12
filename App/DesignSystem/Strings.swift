@@ -591,10 +591,16 @@ enum Strings {
         switch filter {
         case .original: return editorFilterOriginal
         case .vivid: return editorFilterVivid
+        case .dramatic: return editorFilterDramatic
+        case .mono: return editorFilterMono
+        case .vintage: return editorFilterVintage
         case .warm: return editorFilterWarm
         case .cool: return editorFilterCool
-        case .mono: return editorFilterMono
         case .fade: return editorFilterFade
+        case .natural: return editorFilterNatural
+        case .korea: return editorFilterKorea
+        case .japan: return editorFilterJapan
+        case .skin: return editorFilterSkin
         }
     }
 
