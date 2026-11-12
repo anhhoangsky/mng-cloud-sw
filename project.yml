@@ -35,11 +35,6 @@ targets:
       - path: App
         excludes:
           - "Resources/Info.plist"
-          # The Aurum bundle is a plain script, so it has to be copied into the
-          # app bundle instead of being compiled.
-          - "Resources/aurum.min.js"
-      - path: App/Resources/aurum.min.js
-        buildPhase: resources
     info:
       path: App/Resources/Info.plist
       properties:

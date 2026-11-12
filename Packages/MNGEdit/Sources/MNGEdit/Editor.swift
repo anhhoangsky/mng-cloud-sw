@@ -79,6 +79,14 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
     public var highlights: Float
     public var shadows: Float
     public var vignette: Float
+    /// The top end of the tone scale, like the whites of a raw file.
+    public var whites: Float
+    /// The bottom end of the tone scale.
+    public var blacks: Float
+    /// The saturation of the colours that are not saturated yet.
+    public var vibrance: Float
+    /// The midtones of the tone curve.
+    public var gamma: Float
 
     public init(
         brightness: Float = 0,
@@ -89,7 +97,11 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         tint: Float = 0,
         highlights: Float = 0,
         shadows: Float = 0,
-        vignette: Float = 0
+        vignette: Float = 0,
+        whites: Float = 0,
+        blacks: Float = 0,
+        vibrance: Float = 0,
+        gamma: Float = 0
     ) {
         self.brightness = brightness
         self.contrast = contrast
@@ -100,6 +112,10 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         self.highlights = highlights
         self.shadows = shadows
         self.vignette = vignette
+        self.whites = whites
+        self.blacks = blacks
+        self.vibrance = vibrance
+        self.gamma = gamma
     }
 
     public static let zero = EditorAdjustments()
@@ -111,6 +127,7 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case brightness, contrast, saturation, exposure, warmth
         case tint, highlights, shadows, vignette
+        case whites, blacks, vibrance, gamma
     }
 
     public init(from decoder: Decoder) throws {
@@ -124,6 +141,10 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         highlights = try container.decodeIfPresent(Float.self, forKey: .highlights) ?? 0
         shadows = try container.decodeIfPresent(Float.self, forKey: .shadows) ?? 0
         vignette = try container.decodeIfPresent(Float.self, forKey: .vignette) ?? 0
+        whites = try container.decodeIfPresent(Float.self, forKey: .whites) ?? 0
+        blacks = try container.decodeIfPresent(Float.self, forKey: .blacks) ?? 0
+        vibrance = try container.decodeIfPresent(Float.self, forKey: .vibrance) ?? 0
+        gamma = try container.decodeIfPresent(Float.self, forKey: .gamma) ?? 0
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -137,6 +158,10 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         try container.encode(highlights, forKey: .highlights)
         try container.encode(shadows, forKey: .shadows)
         try container.encode(vignette, forKey: .vignette)
+        try container.encode(whites, forKey: .whites)
+        try container.encode(blacks, forKey: .blacks)
+        try container.encode(vibrance, forKey: .vibrance)
+        try container.encode(gamma, forKey: .gamma)
     }
 
     /// Non-finite values become zero and every value is clamped to ±100.
@@ -145,6 +170,7 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         let fields: [WritableKeyPath<EditorAdjustments, Float>] = [
             \.brightness, \.contrast, \.saturation, \.exposure, \.warmth,
             \.tint, \.highlights, \.shadows, \.vignette,
+            \.whites, \.blacks, \.vibrance, \.gamma,
         ]
         for field in fields {
             var value = copy[keyPath: field]
@@ -170,23 +196,38 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
     }
 }
 
-/// The six one-tap filters.
+/// The one-tap presets of the editor.
+///
+/// The names and the recipes are the ones of the Aurum release, so the
+/// photo looks the same in the app and in the browser.
 public enum EditorFilter: String, Equatable, CaseIterable, Sendable {
     case original
     case vivid
+    case dramatic
+    case mono
+    case vintage
     case warm
     case cool
-    case mono
     case fade
+    case natural
+    case korea
+    case japan
+    case skin
 
     public init(key: String) throws {
         switch key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "", "original": self = .original
         case "vivid": self = .vivid
+        case "dramatic": self = .dramatic
         case "warm": self = .warm
         case "cool": self = .cool
         case "mono": self = .mono
+        case "vintage": self = .vintage
         case "fade": self = .fade
+        case "natural", "meitu-natural": self = .natural
+        case "korea", "meitu-korea": self = .korea
+        case "japan", "meitu-japan": self = .japan
+        case "skin", "meitu-skin": self = .skin
         default: throw MNGEditError.unknownFilter(key)
         }
     }
@@ -488,12 +529,23 @@ public struct Editor: Sendable {
     private func effectiveAdjustments() -> Effective {
         var values = adjustments
         var grayscale = false
+        var matrix: [Float]?
+        var offset: [Float]?
         switch filter {
         case .original:
             break
         case .vivid:
             values.saturation += 25
             values.contrast += 8
+        case .dramatic:
+            values.contrast += 27
+            values.saturation -= 18
+            matrix = [
+                1.05, 0, 0,
+                0, 1.02, 0,
+                0, 0, 1.08,
+            ]
+            offset = [-0.012, -0.008, 0.012]
         case .warm:
             values.warmth += 35
             values.saturation += 8
@@ -502,17 +554,41 @@ public struct Editor: Sendable {
         case .mono:
             grayscale = true
             values.contrast += 10
+        case .vintage:
+            matrix = [
+                0.92, 0.32, 0.08,
+                0.14, 0.86, 0.11,
+                0.06, 0.19, 0.72,
+            ]
+            offset = [0.035, 0.02, 0]
+            values.contrast -= 5
         case .fade:
             values.contrast -= 18
             values.brightness += 4
             values.saturation -= 18
             values.shadows += 12
+        case .natural:
+            values.brightness += 4
+            values.saturation += 12
+        case .korea:
+            values.brightness += 6
+            values.saturation += 15
+            values.contrast -= 3
+        case .japan:
+            values.brightness += 3
+            values.saturation += 6
+            values.contrast -= 8
+        case .skin:
+            values.brightness += 14
+            values.saturation += 5
         }
         let clamped = values.clamped()
         return Effective(
             adjustments: clamped,
             grayscale: grayscale,
-            identity: clamped.isIdentity
+            identity: clamped.isIdentity && matrix == nil,
+            matrix: matrix,
+            offset: offset
         )
     }
 
@@ -520,6 +596,10 @@ public struct Editor: Sendable {
         var adjustments: EditorAdjustments
         var grayscale: Bool
         var identity: Bool
+        /// The colour matrix of the preset, row major.
+        var matrix: [Float]?
+        /// The offset of the preset, one value per channel.
+        var offset: [Float]?
     }
 
     // MARK: - Math
@@ -550,6 +630,22 @@ public struct Editor: Sendable {
         var red = Float(r) / 255
         var green = Float(g) / 255
         var blue = Float(b) / 255
+
+        // The colour matrix of the preset comes first, the adjustments of
+        // the person are applied on top of it.
+        if let matrix = effective.matrix {
+            let sourceRed = red
+            let sourceGreen = green
+            let sourceBlue = blue
+            red = matrix[0] * sourceRed + matrix[1] * sourceGreen + matrix[2] * sourceBlue
+            green = matrix[3] * sourceRed + matrix[4] * sourceGreen + matrix[5] * sourceBlue
+            blue = matrix[6] * sourceRed + matrix[7] * sourceGreen + matrix[8] * sourceBlue
+            if let offset = effective.offset {
+                red += offset[0]
+                green += offset[1]
+                blue += offset[2]
+            }
+        }
 
         if a.exposure != 0 {
             let factor = pow(Float(2), a.exposure / 50)
@@ -601,6 +697,34 @@ public struct Editor: Sendable {
             red = luma + (red - luma) * factor
             green = luma + (green - luma) * factor
             blue = luma + (blue - luma) * factor
+        }
+        if a.vibrance != 0 {
+            // The colours that are not saturated yet get more of the
+            // saturation than the ones that already have it.
+            let luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+            let current = min(max(abs(red - luma) + abs(green - luma) + abs(blue - luma), 0), 1)
+            let factor = 1 + a.vibrance / 100 * 0.6 * (1 - current)
+            red = luma + (red - luma) * factor
+            green = luma + (green - luma) * factor
+            blue = luma + (blue - luma) * factor
+        }
+        if a.gamma != 0 {
+            let exponent = 1 / (1 + a.gamma / 100)
+            red = pow(max(red, 0), exponent)
+            green = pow(max(green, 0), exponent)
+            blue = pow(max(blue, 0), exponent)
+        }
+        if a.whites != 0 || a.blacks != 0 {
+            let luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+            let clampedLuma = min(max(luma, 0), 1)
+            // The whites move the top of the tone scale, the blacks the
+            // bottom of it.
+            let whiteLift = a.whites / 100 * 0.20 * pow(clampedLuma, 3)
+            let blackLift = a.blacks / 100 * 0.20 * pow(1 - clampedLuma, 3)
+            let lift = min(max(whiteLift + blackLift, -0.3), 0.3)
+            red += lift
+            green += lift
+            blue += lift
         }
         if effective.grayscale {
             let luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue

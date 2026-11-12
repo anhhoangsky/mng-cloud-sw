@@ -63,8 +63,8 @@ struct ViewerView: View {
             close()
             return .handled
         }
-        .sheet(item: $editingItem) { item in
-            AurumEditorView(model: model, item: item)
+        .fullScreenCover(item: $editingItem) { item in
+            EditorView(model: model, item: item)
         }
     }
 
