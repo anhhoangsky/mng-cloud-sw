@@ -622,7 +622,17 @@ final class PhotoBackupEngine {
 
     // MARK: - Persistence
 
+    /// The version of the bookkeeping.
+    ///
+    /// The photos that were backed up before the capture date travelled with
+    /// the upload are filed under the time of the upload. When the version
+    /// changes, the scan starts over, so every photo is offered to the
+    /// server again; the server recognises the file that is already in the
+    /// library and refreshes its date.
+    private static let stateVersion = 2
+
     private struct State: Codable {
+        var version: Int
         var jobs: [Job] = []
         var scannedUntil: Date?
         var handled: [String: Date] = [:]
@@ -630,6 +640,25 @@ final class PhotoBackupEngine {
         var skipped = 0
         var failed = 0
         var lastRun: Date?
+
+        init() {
+            version = PhotoBackupEngine.stateVersion
+        }
+
+        /// A state file without the version comes from an app that filed the
+        /// photos under the time of the upload, so it counts as the oldest
+        /// version and the library is scanned again.
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+            jobs = try container.decodeIfPresent([Job].self, forKey: .jobs) ?? []
+            scannedUntil = try container.decodeIfPresent(Date.self, forKey: .scannedUntil)
+            handled = try container.decodeIfPresent([String: Date].self, forKey: .handled) ?? [:]
+            uploaded = try container.decodeIfPresent(Int.self, forKey: .uploaded) ?? 0
+            skipped = try container.decodeIfPresent(Int.self, forKey: .skipped) ?? 0
+            failed = try container.decodeIfPresent(Int.self, forKey: .failed) ?? 0
+            lastRun = try container.decodeIfPresent(Date.self, forKey: .lastRun)
+        }
     }
 
     private static var stateURL: URL {
@@ -661,6 +690,11 @@ final class PhotoBackupEngine {
         guard let data = try? Data(contentsOf: stateURL),
               let state = try? JSONDecoder().decode(State.self, from: data)
         else {
+            return State()
+        }
+        guard state.version == stateVersion else {
+            // The bookkeeping of an older version cannot be trusted, so the
+            // library is scanned again from the start.
             return State()
         }
         return state
