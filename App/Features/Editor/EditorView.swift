@@ -1017,7 +1017,7 @@ private struct CropOverlay: View {
                 }
 
                 // The four edges, which resize one side.
-                ForEach(Edge.allCases, id: \.self) { edge in
+                ForEach(Side.allCases, id: \.self) { edge in
                     let point = edge.point(in: rect)
                     edgeBar(edge)
                         .frame(width: 42, height: 42)
@@ -1075,7 +1075,7 @@ private struct CropOverlay: View {
     }
 
     @ViewBuilder
-    private func edgeBar(_ edge: Edge) -> some View {
+    private func edgeBar(_ edge: Side) -> some View {
         if edge.isHorizontalBar {
             Capsule()
                 .fill(Aurum.gold)
@@ -1210,7 +1210,7 @@ private struct CropOverlay: View {
         }
     }
 
-    private enum Edge: CaseIterable {
+    private enum Side: CaseIterable {
         case top
         case bottom
         case leading
