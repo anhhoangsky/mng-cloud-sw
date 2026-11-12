@@ -21,7 +21,7 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 | Settings | Kết nối / iCloud / Thư viện / Tài khoản / Giới thiệu; test, rescan, retry thumbs, clear temp | 🟡 ported: cloud probe rows, iCloud status, scan/thumbs/tmp actions, storage, duplicates entry, account/about; device check pending |
 | Duplicates | legacy summary, 30 groups per page, open group in viewer | 🟡 ported: summary + pending-thumbnail note, 30 groups per page, 128 pt grid, group-seeded viewer; device check pending |
 | Vault | native list/unlock/browse/upload/folder/delete/auto-lock (the Seafile E2EE reader was removed from the web app) | 🟡 ported: vault list, unlock, browser with folders/search, 4 MiB chunked upload, encrypted preview, rename, delete, library → vault move, 15-minute auto-lock; device check pending |
-| Editor | rotate → flip → crop, adjustments, filters, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, three tabs, nine sliders, six filters, six crop ratios, two save modes, multipart upload; the four draggable crop corners are missing; device check pending |
+| Editor | rotate → flip → crop, adjustments, filters, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, three tabs, thirteen sliders, twelve filters, six crop ratios, edge/corner crop handles, hold-to-compare, export sheet with quality and the two save modes, multipart upload; AI/beauty/text/perspective are not ported; device check pending |
 | Admin | lazy mount, users, password, activate, admin, delete, scan | 🟡 ported: Settings row for admins only, lazy list, create/reset/reprovision/update/delete/scan; device check pending |
 | iCloud | honest status, 2.2 s job poll, login/2FA/start/save/pause/cancel/logout | 🟡 ported: full importer sheet with the 2.2 s poll that stops with the sheet; device check pending |
 | PWA-only surfaces | service worker, Trusted Types, extension | ➖ |
@@ -161,16 +161,25 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 ## P8 notes
 
 - The editor reuses the web editor's copy: the three tabs (Cắt, Chỉnh màu, Bộ
-  lọc), the rotate/flip group, the six crop ratios, the nine sliders, the six
-  filters and the two save modes.
+  lọc), the rotate/flip group, the six crop ratios, the thirteen sliders, the
+  twelve filters, the hold-to-compare button and the export sheet with the two
+  save modes.
 - The pixel pipeline is the ported `mng-edit` crate, so the preview and the
   exported file use the same order (rotate → flip → crop) and the same
   adjustment math. The container follows the source: PNG stays PNG, WebP stays
-  WebP, everything else becomes JPEG at quality 92.
+  WebP, everything else becomes JPEG; the export sheet shows the quality
+  (10…100, default 92) for JPEG/WebP and hides it for PNG.
+- The crop has four corner handles and four edge handles. A ratio preset keeps
+  the frame centred and grows it symmetrically, the way the web crop works; a
+  free frame moves one side at a time. The ratio is converted from pixels to
+  the normalized image space, so 1:1 on a 3:2 photo is a real square. A crop
+  drag records one undo step when it starts.
 - The source is decoded locally with ImageIO and the EXIF orientation applied,
   so HEIC works without the server's HEIC-only `edit-source` route.
-- Difference: the web crop overlay has four draggable corners; the app drags
-  the whole rectangle and applies one of the six ratios.
+- Difference: the web additionally offers AI 4×, background remove/blur/
+  replace, person cutout, retouch, beauty, text layers and perspective. Those
+  are not ported yet; the user-facing AI panel only appears on a deployment
+  with the models installed.
 
 ## P9 notes
 

@@ -28,6 +28,14 @@ final class EditorModel {
         case copy
 
         var id: String { rawValue }
+
+        /// The label of the action in the export sheet, the same words the
+        /// web editor uses.
+        var title: String {
+            self == .overwrite
+                ? Strings.editorSaveOverwrite
+                : Strings.editorSaveCopy
+        }
     }
 
     /// The groups of the adjustments, the order the Aurum release uses.
@@ -200,6 +208,8 @@ final class EditorModel {
     private(set) var state: State = .idle
     private(set) var item: Item?
     private(set) var preview: UIImage?
+    /// The untouched photo, shown while the person holds the compare button.
+    private(set) var originalPreview: UIImage?
     private(set) var tab: Tab = .adjust
     private(set) var rotation: UInt8 = 0
     private(set) var flipH = false
@@ -208,6 +218,8 @@ final class EditorModel {
     private(set) var adjustments: EditorAdjustments = .zero
     private(set) var filter: EditorFilter = .original
     private(set) var mode: SaveMode = .overwrite
+    /// The quality of a JPEG or WebP export, 10…100.
+    private(set) var saveQuality = 92
     private(set) var aspect: Aspect = .free
     /// The adjustment the pane shows.
     private(set) var activeAdjustment: Adjustment = .brightness
@@ -271,10 +283,14 @@ final class EditorModel {
             crop = .full
             adjustments = .zero
             filter = .original
+            mode = .overwrite
+            saveQuality = 92
             aspect = .free
             activeAdjustment = .brightness
             undoStack = []
             redoStack = []
+            preview = nil
+            originalPreview = nil
             filterThumbnails = [:]
             state = .ready
             renderPreview()
@@ -299,6 +315,7 @@ final class EditorModel {
         thumbnailTask = nil
         editor = nil
         preview = nil
+        originalPreview = nil
         item = nil
         filterThumbnails = [:]
         state = .idle
@@ -315,6 +332,65 @@ final class EditorModel {
 
     func selectMode(_ mode: SaveMode) {
         self.mode = mode
+    }
+
+    /// Choose the quality of the next JPEG or WebP export.
+    func setSaveQuality(_ value: Int) {
+        saveQuality = min(max(value, 10), 100)
+    }
+
+    // MARK: - Export sheet
+
+    /// The container of the export: the source keeps its own format, exactly
+    /// like the web editor, which is only offered the type of the item.
+    var exportFormat: EditorExportFormat {
+        item.map { EditorModel.exportContainer(for: $0) } ?? .jpeg
+    }
+
+    var exportFormatLabel: String {
+        switch exportFormat {
+        case .jpeg: return "JPEG"
+        case .png: return "PNG"
+        case .webp: return "WebP"
+        }
+    }
+
+    /// The name the server receives, with the extension of the container.
+    var exportFileName: String {
+        guard let item else {
+            return "edit.\(exportFormat.fileExtension)"
+        }
+        return exportName(for: item, format: exportFormat)
+    }
+
+    /// The size of the full-resolution export, after the crop.
+    var exportSize: (width: UInt32, height: UInt32) {
+        guard var copy = editor else { return (0, 0) }
+        copy.setCrop(crop)
+        return copy.outputSize()
+    }
+
+    /// The estimate the export sheet shows, using the same rough byte rates
+    /// as the web editor.
+    var exportEstimate: String {
+        let size = exportSize
+        let pixels = Double(size.width) * Double(size.height)
+        guard pixels > 0 else { return "0 KB" }
+        let quality = Double(saveQuality) / 100
+        let bytes: Double
+        switch exportFormat {
+        case .png:
+            // PNG is lossless: the quality has no effect.
+            bytes = pixels * 2.2
+        case .webp:
+            bytes = pixels * (0.08 + quality * 0.18)
+        case .jpeg:
+            bytes = pixels * (0.08 + quality * 0.22)
+        }
+        if bytes < 1024 * 1024 {
+            return "\(max(1, Int((bytes / 1024).rounded()))) KB"
+        }
+        return String(format: "%.1f MB", bytes / (1024 * 1024))
     }
 
     func selectAdjustment(_ adjustment: Adjustment) {
@@ -366,42 +442,51 @@ final class EditorModel {
         self.crop = crop
     }
 
-    func commitCrop() {
+    /// A crop drag changed the rectangle: record the state before the first
+    /// change, so the whole gesture is one undo step.
+    func beginCropEdit() {
         pushHistory()
     }
 
+    /// Leave the crop pane. The frame is applied live on export, so there is
+    /// nothing to bake when the person taps "Xong".
+    func finishCrop() {
+        selectTab(.adjust)
+    }
+
     func resetCrop() {
+        guard crop != .full || aspect != .free else { return }
         pushHistory()
         crop = .full
         aspect = .free
     }
 
     /// Apply one aspect preset to the current rectangle.
+    ///
+    /// The crop is normalized to the image, so the pixel ratio has to be
+    /// converted first: `width / height` of a 1:1 frame on a 3:2 photo is
+    /// `2/3`, not `1`. The frame is centred and as large as possible, the
+    /// way the web's `setAspect` resets `scale` to 1.
     func applyAspect(_ aspect: Aspect) {
         guard let ratio = aspect.ratio else {
             self.aspect = .free
             return
         }
+        guard self.aspect != aspect else { return }
+        pushHistory()
         self.aspect = aspect
-        var rect = crop
-        // Keep the centre of the current rectangle.
-        let centerX = rect.x + rect.width / 2
-        let centerY = rect.y + rect.height / 2
-        var width = rect.width
-        var height = width / ratio
-        if height > 1 {
-            height = 1
-            width = height * ratio
-        }
-        if width > 1 {
-            width = 1
-            height = width / ratio
-        }
-        rect.width = width
-        rect.height = height
-        rect.x = min(max(centerX - width / 2, 0), 1 - width)
-        rect.y = min(max(centerY - height / 2, 0), 1 - height)
-        crop = EditorCrop(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
+        let oriented = editor?.orientedSize() ?? (width: 1, height: 1)
+        let normalized = ratio
+            * Float(max(oriented.height, 1))
+            / Float(max(oriented.width, 1))
+        let width: Float = normalized >= 1 ? 1 : normalized
+        let height: Float = normalized >= 1 ? 1 / normalized : 1
+        crop = EditorCrop(
+            x: (1 - width) / 2,
+            y: (1 - height) / 2,
+            width: width,
+            height: height
+        )
     }
 
     // MARK: - Adjustments and filters
@@ -589,17 +674,31 @@ final class EditorModel {
     // MARK: - Saving
 
     /// Encode the edited image and upload it back to the item.
-    func save() async {
-        guard let item, let editor else { return }
-        guard state != .saving else { return }
+    ///
+    /// `mode` is the one the person picked in the export sheet: overwrite the
+    /// original, or keep it and store the edit next to it. The source
+    /// container decides the format; the quality only matters to JPEG/WebP.
+    @discardableResult
+    func save(
+        mode: SaveMode = .overwrite,
+        quality: Int = 92
+    ) async -> Bool {
+        guard let item, let editor else { return false }
+        guard state != .saving else { return false }
         state = .saving
-        let format = EditorModel.exportFormat(for: item)
+        self.mode = mode
+        saveQuality = min(max(quality, 10), 100)
+        let format = EditorModel.exportContainer(for: item)
+        let qualityByte = UInt8(saveQuality)
         var prepared = editor
         prepared.setCrop(crop)
         do {
             let data = try await Task.detached(priority: .userInitiated) { [prepared] in
                 var copy = prepared
-                return try copy.renderExport(format: format, quality: 92)
+                return try copy.renderExport(
+                    format: format,
+                    quality: qualityByte
+                )
             }.value
             let response = try await client.saveEdit(
                 id: item.id,
@@ -610,24 +709,30 @@ final class EditorModel {
             )
             state = .ready
             let message = response.message.trimmingCharacters(in: .whitespacesAndNewlines)
-            onToast?(message.isEmpty ? Strings.editorSaved : message)
+            let fallback = mode == .copy
+                ? Strings.editorSavedCopy
+                : Strings.editorSaved
+            onToast?(message.isEmpty ? fallback : message)
             onSaved?()
+            return true
         } catch let error as APIError {
             state = .ready
             if error.status == 401 {
                 onUnauthorized?()
-                return
+                return false
             }
             onToast?(error.message)
+            return false
         } catch {
             state = .ready
             onToast?(Strings.editorSaveFailed)
+            return false
         }
     }
 
     /// The web editor keeps the source container: PNG stays PNG, WebP stays
     /// WebP and everything else becomes JPEG.
-    static func exportFormat(for item: Item) -> EditorExportFormat {
+    static func exportContainer(for item: Item) -> EditorExportFormat {
         let mime = item.mime.lowercased()
         if mime == "image/png" {
             return .png
@@ -653,6 +758,13 @@ final class EditorModel {
     private func renderPreview() {
         guard let editor else { return }
         renderTask?.cancel()
+        // The first render of an untouched editor is also the photo the
+        // compare button shows.
+        let pristine = editor.currentAdjustments.isIdentity
+            && editor.currentFilter == .original
+            && rotation == 0
+            && !flipH
+            && !flipV
         renderTask = Task { [weak self] in
             // Debounce slider moves so the preview does not flicker.
             try? await Task.sleep(nanoseconds: 60_000_000)
@@ -678,7 +790,11 @@ final class EditorModel {
                 return
             }
             await MainActor.run {
-                self?.preview = image
+                guard let self else { return }
+                if pristine, self.originalPreview == nil {
+                    self.originalPreview = image
+                }
+                self.preview = image
             }
         }
     }
