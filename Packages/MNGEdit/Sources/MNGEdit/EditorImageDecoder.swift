@@ -34,9 +34,8 @@ public enum EditorImageDecoder {
         ) else {
             return nil
         }
-        // The bitmap context is bottom-up; flip it back to the natural order.
-        context.translateBy(x: 0, y: CGFloat(height))
-        context.scaleBy(x: 1, y: -1)
+        // The bitmap context keeps its rows in the order of the image, so the
+        // bytes can be handed to the editor as they are.
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
 
         guard let raw = context.data else { return nil }

@@ -96,8 +96,13 @@ final class ShellModel {
     /// shows the date of the photos on screen instead of the tab labels.
     var isTabBarCompact = false
     /// The header gets its soft material while the photos scroll under it,
-    /// the same way the native shell does.
+    /// the same way the native shell does. The library keeps the title
+    /// floating over the photos, so it never gets the material.
     var isHeaderFaded = false
+    /// The dropdown of the filters is open.
+    var isFilterMenuOpen = false
+    /// The person asked to upload photos from the device.
+    var isUploadRequested = false
     var toast: String?
     var shareFile: DownloadedFile?
     var activeSheet: ShellSheet?
@@ -379,6 +384,7 @@ final class ShellModel {
             library.exitSelection()
             isHeaderFaded = false
             isTabBarCompact = false
+            isFilterMenuOpen = false
         }
         // Switching away from an album (or tapping Library) leaves the
         // drill-down, clears its filters/layout and refreshes the grid.

@@ -25,10 +25,11 @@ struct LibraryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // The toolbar is pinned above the grid. The timeline scrolls
-            // under it, so the grid can start at the newest photo instead of
-            // pushing the controls out of sight.
-            if !library.isAlbumOpen {
+            // The toolbar is pinned above the grid. The compact layout has
+            // none: the filters live in the dropdown of the header and the
+            // switcher of the layout floats above the dock, the way the
+            // native shell does.
+            if !library.isAlbumOpen, !isCompact {
                 LibraryToolbar(model: model) {
                     backupPickerOpen = true
                 }
@@ -109,6 +110,11 @@ struct LibraryView: View {
         .onPreferenceChange(TimelineTileFramesKey.self) { frames in
             tileFrames = frames.frames
             updateTimelineTopDate()
+        }
+        .onChange(of: model.isUploadRequested) { _, requested in
+            guard requested else { return }
+            model.isUploadRequested = false
+            backupPickerOpen = true
         }
     }
 

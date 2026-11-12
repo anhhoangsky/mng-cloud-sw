@@ -1,3 +1,5 @@
+import CoreGraphics
+import ImageIO
 import XCTest
 @testable import MNGEdit
 
@@ -14,6 +16,61 @@ final class EditorTests: XCTestCase {
             out.append(255)
         }
         return out
+    }
+
+    /// The decoder has to keep the rows in the order of the image.
+    ///
+    /// A picture whose top half is blue and whose bottom half is red is
+    /// written as a PNG and read back. The first row of the buffer has to
+    /// be the blue one, otherwise the editor shows the photo upside down.
+    func testTheDecoderKeepsTheRowsTopDown() throws {
+        let width = 2
+        let height = 2
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return XCTFail("the context could not be made")
+        }
+        // The context draws from the bottom left, so the blue half is the
+        // top of the picture.
+        context.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 1, width: width, height: 1))
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: 1))
+        guard let image = context.makeImage() else {
+            return XCTFail("the image could not be made")
+        }
+
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            data,
+            "public.png" as CFString,
+            1,
+            nil
+        ) else {
+            return XCTFail("the destination could not be made")
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            return XCTFail("the picture could not be written")
+        }
+
+        guard let decoded = EditorImageDecoder.decode(data as Data) else {
+            return XCTFail("the picture could not be read")
+        }
+        XCTAssertEqual(decoded.width, UInt32(width))
+        XCTAssertEqual(decoded.height, UInt32(height))
+        // The first row is the blue one.
+        XCTAssertEqual(Array(decoded.rgba[0..<4]), [0, 0, 255, 255])
+        // The second row is the red one.
+        XCTAssertEqual(Array(decoded.rgba[4..<8]), [255, 0, 0, 255])
     }
 
     func testRejectsInvalidBuffersAndDimensions() {

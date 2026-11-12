@@ -67,24 +67,61 @@ struct ShellView: View {
 
             if isCompact {
                 VStack(spacing: 0) {
-                    CompactShellHeader(model: model)
-                        .background(alignment: .bottom) {
-                            // The soft material sleeps behind the title while
-                            // the page is at the top and fades in as soon as
-                            // the photos scroll underneath it.
-                            Rectangle()
-                                .fill(.ultraThinMaterial)
-                                .opacity(model.isHeaderFaded ? 1 : 0)
-                                .animation(Tokens.Motion.fade, value: model.isHeaderFaded)
-                                .allowsHitTesting(false)
+                    // The library keeps its title floating over the photo
+                    // grid, the way the native shell does; the other views
+                    // hold the header in the flow.
+                    if model.tab != .library {
+                        CompactShellHeader(model: model)
+                            .background(alignment: .bottom) {
+                                // The soft material sleeps behind the title
+                                // while the page is at the top and fades in
+                                // as soon as the page scrolls underneath it.
+                                Rectangle()
+                                    .fill(.ultraThinMaterial)
+                                    .opacity(model.isHeaderFaded ? 1 : 0)
+                                    .animation(
+                                        Tokens.Motion.fade,
+                                        value: model.isHeaderFaded
+                                    )
+                                    .allowsHitTesting(false)
+                            }
+                    }
+
+                    ZStack(alignment: .top) {
+                        content
+                            .safeAreaInset(edge: .bottom) {
+                                compactBottomChrome
+                                    .animation(Tokens.Motion.fade, value: model.tab)
+                                    .animation(
+                                        Tokens.Motion.fade,
+                                        value: model.library.selectionMode
+                                    )
+                                    .animation(
+                                        Tokens.Motion.fade,
+                                        value: model.isTabBarCompact
+                                    )
+                            }
+                            .overlay(alignment: .bottom) {
+                                // The switcher of the layout floats above
+                                // the dock, the way the native shell does.
+                                if model.tab == .library, !model.library.selectionMode {
+                                    LibraryLayoutSwitcher(model: model)
+                                        .padding(.bottom, 66)
+                                        .opacity(model.isTabBarCompact ? 1 : 0)
+                                        .animation(
+                                            Tokens.Motion.fade,
+                                            value: model.isTabBarCompact
+                                        )
+                                        .allowsHitTesting(
+                                            model.isTabBarCompact
+                                        )
+                                }
+                            }
+
+                        if model.tab == .library {
+                            CompactShellHeader(model: model)
                         }
-                    content
-                        .safeAreaInset(edge: .bottom) {
-                            compactBottomChrome
-                                .animation(Tokens.Motion.fade, value: model.tab)
-                                .animation(Tokens.Motion.fade, value: model.library.selectionMode)
-                                .animation(Tokens.Motion.fade, value: model.isTabBarCompact)
-                        }
+                    }
                 }
             } else {
                 HStack(spacing: 0) {
@@ -226,6 +263,12 @@ private struct CompactShellHeader: View {
                     .foregroundStyle(Palette.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
+                    // The title floats over the photo grid, so it needs the
+                    // soft halo the native shell puts behind it.
+                    .shadow(
+                        color: Palette.bg.opacity(0.86),
+                        radius: 6
+                    )
 
                 if !model.library.selectionMode {
                     Text(model.subtitle)
@@ -233,14 +276,53 @@ private struct CompactShellHeader: View {
                         .foregroundStyle(Palette.text3)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .shadow(
+                            color: Palette.bg.opacity(0.86),
+                            radius: 5
+                        )
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
             // The right side of the header carries the two controls the
-            // native shell keeps there: the server picker in the settings
-            // and the multi-select button in the library.
-            if model.tab == .settings {
+            // native shell keeps there: the filters of the library and the
+            // server picker of the settings.
+            if model.tab == .library {
+                Button {
+                    model.isFilterMenuOpen.toggle()
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease")
+                        .font(Font.mng(15, weight: .semibold))
+                        .foregroundStyle(
+                            model.isFilterMenuOpen ? Palette.accent : Palette.text2
+                        )
+                        .frame(width: 36, height: 36)
+                        .background(Palette.fill, in: Circle())
+                        .overlay {
+                            Circle().stroke(Palette.hairline, lineWidth: 0.5)
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Strings.editorFilterTab)
+
+                if model.library.canSelect, !model.library.selectionMode {
+                    Button {
+                        model.library.enterSelection()
+                    } label: {
+                        Text(Strings.select)
+                            .font(Font.mng(13, weight: .semibold))
+                            .foregroundStyle(Palette.text)
+                            .padding(.horizontal, 13)
+                            .frame(height: 36)
+                            .background(Palette.fill, in: Capsule())
+                            .overlay {
+                                Capsule().stroke(Palette.hairline, lineWidth: 0.5)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Strings.select)
+                }
+            } else if model.tab == .settings {
                 Button {
                     model.presentConnections()
                 } label: {
@@ -255,29 +337,162 @@ private struct CompactShellHeader: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("\(Strings.switchCloud) · \(model.activeCloudLabel)")
-            } else if model.tab == .library,
-                      model.library.canSelect,
-                      !model.library.selectionMode {
-                Button {
-                    model.library.enterSelection()
-                } label: {
-                    Text(Strings.select)
-                        .font(Font.mng(13, weight: .semibold))
-                        .foregroundStyle(Palette.text)
-                        .padding(.horizontal, 13)
-                        .frame(height: 36)
-                        .background(Palette.fill, in: Capsule())
-                        .overlay {
-                            Capsule().stroke(Palette.hairline, lineWidth: 0.5)
-                        }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Strings.select)
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 10)
         .padding(.bottom, 12)
+        .overlay(alignment: .topTrailing) {
+            // The dropdown of the filters hangs under the button of the
+            // header, the way the native shell does.
+            if model.tab == .library, model.isFilterMenuOpen {
+                LibraryFilterMenu(model: model)
+                    .padding(.top, 62)
+                    .padding(.trailing, 12)
+                    .transition(
+                        .opacity.combined(
+                            with: .scale(scale: 0.96, anchor: .topTrailing)
+                        )
+                    )
+            }
+        }
+    }
+}
+
+/// The dropdown of the filters: the kinds of the photo and the upload.
+private struct LibraryFilterMenu: View {
+    let model: ShellModel
+
+    private var library: LibraryModel { model.library }
+
+    var body: some View {
+        VStack(spacing: 3) {
+            ForEach(ItemKindFilter.allCases, id: \.self) { kind in
+                Button {
+                    Task { await library.selectKind(kind) }
+                    model.isFilterMenuOpen = false
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: kindIcon(kind))
+                            .font(Font.mng(14, weight: .semibold))
+                            .frame(width: 20)
+                        Text(kindLabel(kind))
+                            .font(Font.mng(14, weight: .semibold))
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(
+                        library.filters.kind == kind ? Palette.accent : Palette.text2
+                    )
+                    .padding(.horizontal, 12)
+                    .frame(height: 40)
+                    .background(
+                        library.filters.kind == kind ? Palette.accentSoft : .clear,
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
+            Button {
+                model.isUploadRequested = true
+                model.isFilterMenuOpen = false
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(Font.mng(14, weight: .semibold))
+                        .frame(width: 20)
+                    Text(Strings.backupToLibrary)
+                        .font(Font.mng(14, weight: .semibold))
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(Palette.text2)
+                .padding(.horizontal, 12)
+                .frame(height: 40)
+                .background(
+                    Color.clear,
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(6)
+        .frame(width: 182)
+        .background(Palette.bgElevated, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Palette.hairline, lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.28), radius: 22, y: 10)
+    }
+
+    private func kindIcon(_ kind: ItemKindFilter) -> String {
+        switch kind {
+        case .all: return "square.grid.2x2"
+        case .photo: return "photo"
+        case .video: return "video"
+        case .live: return "livephoto"
+        }
+    }
+
+    private func kindLabel(_ kind: ItemKindFilter) -> String {
+        switch kind {
+        case .all: return Strings.filterAll
+        case .photo: return Strings.filterPhotos
+        case .video: return Strings.filterVideos
+        case .live: return Strings.filterLive
+        }
+    }
+}
+
+/// The switcher of the layout, floating above the dock.
+private struct LibraryLayoutSwitcher: View {
+    let model: ShellModel
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(LibraryLayout.allCases, id: \.self) { layout in
+                Button {
+                    Task { await model.library.selectLayout(layout) }
+                } label: {
+                    Text(title(layout))
+                        .font(Font.mng(12.5, weight: .semibold))
+                        .foregroundStyle(
+                            model.library.filters.layout == layout
+                                ? Palette.text
+                                : Palette.text3
+                        )
+                        .padding(.horizontal, 14)
+                        .frame(height: 32)
+                        .background {
+                            if model.library.filters.layout == layout {
+                                RoundedRectangle(cornerRadius: 999, style: .continuous)
+                                    .fill(Palette.bgElevated)
+                                    .shadow(
+                                        color: .black.opacity(0.13),
+                                        radius: 3,
+                                        y: 1
+                                    )
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(Palette.bgElevated, in: Capsule())
+        .overlay {
+            Capsule().stroke(Palette.hairline, lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.2), radius: 18, y: 8)
+    }
+
+    private func title(_ layout: LibraryLayout) -> String {
+        switch layout {
+        case .years: return Strings.layoutYears
+        case .months: return Strings.layoutMonths
+        case .all: return Strings.layoutAll
+        }
     }
 }
 
