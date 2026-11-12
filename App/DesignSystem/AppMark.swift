@@ -1,23 +1,21 @@
 import SwiftUI
 
-/// Rounded cloud mark shared by the boot and login screens.
+/// The logo of the app.
+///
+/// The artwork carries its own rounded shape, so the mark is the logo
+/// itself and not a drawn square. The asset is a `512x512` PNG with the
+/// corners of the tile transparent.
 struct AppMark: View {
     var size: CGFloat = 84
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.333, style: .continuous)
-                .fill(Palette.accentSoft)
-                .frame(width: size, height: size)
-            Image(systemName: "cloud.fill")
-                .font(Font.mng(size * 0.45, weight: .medium))
-                .foregroundStyle(Palette.accent)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: size * 0.333, style: .continuous)
-                .stroke(Palette.hairline, lineWidth: 1)
-        }
-        .accessibilityLabel(Strings.appName)
+        Image("AppMark")
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
+            .frame(width: size, height: size)
+            .shadow(color: Color.black.opacity(0.26), radius: size * 0.14, y: size * 0.06)
+            .accessibilityLabel(Strings.appName)
     }
 }
 
