@@ -360,15 +360,19 @@ private struct LibraryToolbar: View {
 
                 Spacer(minLength: 8)
 
-                backupButton
-
                 if library.canSelect, !library.selectionMode {
-                    Button(Strings.select) {
+                    Button {
                         library.enterSelection()
+                    } label: {
+                        Image(systemName: "checkmark.circle")
+                            .font(Font.mng(15, weight: .semibold))
+                            .foregroundStyle(Palette.accent)
+                            .frame(width: 32, height: 32)
+                            .background(Palette.fill, in: Circle())
+                            .contentShape(Circle())
                     }
-                    .font(Font.mng(13, weight: .semibold))
-                    .foregroundStyle(Palette.accent)
                     .buttonStyle(.plain)
+                    .accessibilityLabel(Strings.select)
                 }
             }
 
@@ -377,6 +381,19 @@ private struct LibraryToolbar: View {
                     ForEach(ItemKindFilter.allCases, id: \.self) { kind in
                         kindChip(kind)
                     }
+
+                    // The upload is an icon chip in the filter row, the same
+                    // place the native shell keeps it.
+                    Button(action: onBackup) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(Font.mng(12, weight: .semibold))
+                            .foregroundStyle(Palette.text2)
+                            .frame(width: 32, height: 32)
+                            .background(Palette.fill, in: Circle())
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Strings.backupToLibrary)
 
                     if let summary = library.filters.summary {
                         Button {
@@ -434,28 +451,6 @@ private struct LibraryToolbar: View {
         .background(Palette.fill, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Strings.layoutLabel)
-    }
-
-    /// "Save into the library": pick photos from the device and upload them to
-    /// the owner's cloud library.
-    private var backupButton: some View {
-        Button(action: onBackup) {
-            HStack(spacing: 5) {
-                Image(systemName: "square.and.arrow.up")
-                    .font(Font.mng(12, weight: .semibold))
-                Text(Strings.backupToLibrary)
-                    .font(Font.mng(13, weight: .semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .foregroundStyle(Palette.accent)
-            .padding(.horizontal, 11)
-            .frame(height: 32)
-            .background(Palette.accentSoft, in: Capsule())
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Strings.backupToLibrary)
     }
 
     private func kindChip(_ kind: ItemKindFilter) -> some View {
