@@ -387,10 +387,12 @@ final class ShellModel {
     }
 
     func selectTab(_ next: ShellTab) {
+        // Any dock tap dismisses the filter dropdown, including tapping the
+        // already-open Library tab.
+        isFilterMenuOpen = false
         if next != .library {
             library.exitSelection()
             isTabBarCompact = false
-            isFilterMenuOpen = false
         }
         // Only the library floats its title over the grid. Every other view
         // keeps the soft material behind the header.

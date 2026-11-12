@@ -108,11 +108,13 @@ extension Font {
     ///
     /// The web client uses pixel sizes, so the app keeps them but scales them
     /// with the system text size. The growth is capped at 1.6× so the big
-    /// headlines stay usable at the accessibility sizes.
+    /// headlines stay usable at the accessibility sizes; a display title can
+    /// pass a lower cap when matching a fixed web size matters more.
     static func mng(
         _ size: CGFloat,
         weight: Weight = .regular,
-        design: Design? = nil
+        design: Design? = nil,
+        cap: CGFloat = 1.6
     ) -> Font {
         let base: UIFont
         if design == .monospaced {
@@ -123,7 +125,7 @@ extension Font {
         } else {
             base = UIFont.systemFont(ofSize: size, weight: mngUIWeight(weight))
         }
-        let factor = min(max(UIFontMetrics.default.scaledValue(for: 1), 1), 1.6)
+        let factor = min(max(UIFontMetrics.default.scaledValue(for: 1), 1), cap)
         return Font(base.withSize(size * factor))
     }
 

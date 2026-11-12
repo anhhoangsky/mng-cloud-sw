@@ -1,5 +1,6 @@
 import MNGKit
 import SwiftUI
+import UIKit
 
 /// Library screen: grouping toolbar, 120-item timeline paging, kind filters,
 /// year/month cards and empty/error/skeleton states.
@@ -29,9 +30,19 @@ struct LibraryView: View {
     @State private var contentHeight: CGFloat = 0
     /// Height of the scroll viewport, for the iOS 17 fallback metrics.
     @State private var viewportHeight: CGFloat = 0
+    /// Width of the scroll viewport, used to map a scroll offset back to a
+    /// row of the full-length placeholder grid.
+    @State private var viewportWidth: CGFloat = 0
     /// The largest possible scroll offset, so "at the newest photo" is a
     /// real measurement instead of a guess.
     @State private var maxScrollOffset: CGFloat = 0
+    /// The underlying scroll view, so opening the filter dropdown can stop
+    /// a deceleration that would otherwise close it again.
+    @State private var hostScrollView: UIScrollView?
+    /// True while the newest photo is in view. It survives the small spring
+    /// undershoot after a rubber-band, so reaching the bottom cannot make
+    /// the dock condense again on the next frame.
+    @State private var bottomLatch = false
     /// The first page has to be placed at the newest photo explicitly: the
     /// skeleton is replaced after the initial layout, so the scroll anchor
     /// cannot be left to SwiftUI's default. While this is true the scroll
@@ -59,12 +70,6 @@ struct LibraryView: View {
     /// The marquee drag in selection mode. The band is not painted; every
     /// intersected tile joins the selection, like the web's `Marquee`.
     @State private var marquee: MarqueeState?
-    /// A vertical drag must keep scrolling; once a gesture is classified as a
-    /// scroll it stays a scroll until the finger lifts.
-    @State private var marqueeRejected = false
-    /// Where the rejected drag started, so a cancelled gesture cannot keep
-    /// the marquee disabled for the next one.
-    @State private var marqueeRejectedStart: CGPoint?
     /// The tap that ends a marquee drag must not toggle its starting tile.
     @State private var suppressTileTapUntil = Date.distantPast
     /// The photo picker for "save into the library".
@@ -102,6 +107,22 @@ struct LibraryView: View {
                                 )
                             }
                             .frame(height: 0)
+
+                            // A horizontal-only pan on the scroll view
+                            // drives the marquee, so vertical drags keep
+                            // scrolling while selection mode is on.
+                            TimelineMarqueeBridge(
+                                isActive: library.selectionMode,
+                                begin: beginMarquee(at:),
+                                update: updateMarquee(to:),
+                                end: endMarquee,
+                                onScrollView: { scrollView in
+                                    if hostScrollView !== scrollView {
+                                        hostScrollView = scrollView
+                                    }
+                                }
+                            )
+                            .frame(width: 0, height: 0)
 
                             bodyContent
 
@@ -154,6 +175,7 @@ struct LibraryView: View {
                 }
                 .onChange(of: library.page.count) { old, new in
                     knownItemIDs = Set(library.page.items.map(\.id))
+                    olderRequestArmed = true
 
                     // The first page replaces the skeleton after the initial
                     // layout. SwiftUI's default anchor cannot follow that
@@ -163,10 +185,22 @@ struct LibraryView: View {
                         positionTimelineAtLatest(scrollProxy)
                     }
 
+                    guard new > old else { return }
+
+                    // With the full-length grid the prepended page never
+                    // changes the content height, so there is nothing to
+                    // re-anchor. Ask for the next page only if the viewport
+                    // is still sitting over the placeholders.
+                    if usesTimelinePlaceholders {
+                        pendingOlderAnchorID = nil
+                        maybeLoadOlderPage()
+                        return
+                    }
+
                     // An older page is inserted above the viewport. Keep the
                     // photo the person was reading where it was, like the
                     // web's `anchor_y + delta` restore after a page prepend.
-                    guard new > old, let anchor = pendingOlderAnchorID else {
+                    guard let anchor = pendingOlderAnchorID else {
                         return
                     }
                     pendingOlderAnchorID = nil
@@ -229,6 +263,9 @@ struct LibraryView: View {
                 viewportGlobalMaxY = rect.maxY
                 updateTimelineTopDate()
             }
+            if abs(rect.width - viewportWidth) > 0.5 {
+                viewportWidth = rect.width
+            }
             if abs(rect.height - viewportHeight) > 0.5 {
                 viewportHeight = rect.height
                 if !usesNativeScrollGeometry {
@@ -263,6 +300,12 @@ struct LibraryView: View {
             guard requested else { return }
             model.isUploadRequested = false
             backupPickerOpen = true
+        }
+        .onChange(of: model.isFilterMenuOpen) { _, open in
+            // Opening the menu over a decelerating grid would otherwise let
+            // the remaining momentum close it on the next scroll callback.
+            guard open, let scrollView = hostScrollView else { return }
+            scrollView.setContentOffset(scrollView.contentOffset, animated: false)
         }
     }
 
@@ -369,13 +412,20 @@ struct LibraryView: View {
     /// The timeline is chronological and opens at the newest photo, so the
     /// scroll offset grows towards the past.
     private func updateChrome(offset: CGFloat) {
-        let delta = offset - lastScrollOffset
-        lastScrollOffset = offset
-        scrollOffset = offset
         let maxOffset = maxScrollOffset
+        // Rubber-band travel beyond either end is not a scroll gesture.
+        // Clamping it stops the spring from looking like a deliberate drag
+        // toward older photos.
+        let clamped = maxOffset > 1
+            ? min(max(offset, 0), maxOffset)
+            : max(offset, 0)
+        let delta = clamped - lastScrollOffset
+        lastScrollOffset = clamped
+        scrollOffset = offset
 
         guard library.filters.isTimeline, !library.isAlbumOpen else {
             scrollAccum = 0
+            bottomLatch = false
             model.isTabBarCompact = false
             model.isHeaderFaded = false
             library.setTimelineTopDate(nil)
@@ -383,7 +433,7 @@ struct LibraryView: View {
         }
 
         // The header gets its material while the page scrolls under it.
-        model.isHeaderFaded = offset > 6
+        model.isHeaderFaded = clamped > 6
 
         // The initial jump to the newest photo is not a gesture. Any smaller
         // movement afterwards is a real scroll and starts the date readout.
@@ -394,67 +444,158 @@ struct LibraryView: View {
             hasScrolled = true
         }
 
-        if abs(delta) > 0.5 {
-            model.isFilterMenuOpen = false
-        }
-
         if offset <= 40 {
             // Back at the oldest loaded photo: show the full dock again.
+            bottomLatch = false
             scrollAccum = 0
             model.isTabBarCompact = false
-        } else if Date() < scrollGuardUntil || Date() < model.compactGuardUntil {
-            // A page was just replaced, an older page was anchored, or the
-            // dock was just expanded from its handle. Ignore the offset jump;
-            // a clamp to a shorter page still lands at the new bottom.
-            scrollAccum = 0
-            if maxOffset > 24, offset >= maxOffset - 24 {
-                model.isTabBarCompact = false
-            }
         } else if maxOffset > 24, offset >= maxOffset - 24 {
             // The newest photo is in view.
+            bottomLatch = true
+            scrollAccum = 0
+            model.isTabBarCompact = false
+        } else if bottomLatch, maxOffset > 24, offset > maxOffset - 120 {
+            // UIScrollView's rubber-band spring can undershoot the bottom by
+            // more than the 24 pt band. Keep the dock expanded until the
+            // person deliberately walks back into the timeline.
             scrollAccum = 0
             model.isTabBarCompact = false
         } else {
-            let sameDirection = (delta >= 0 && scrollAccum >= 0)
-                || (delta < 0 && scrollAccum < 0)
-            if sameDirection {
-                scrollAccum += delta
+            bottomLatch = false
+            if Date() < scrollGuardUntil || Date() < model.compactGuardUntil {
+                // A page was just replaced, an older page was anchored, or
+                // the dock was just expanded from its handle. Ignore the
+                // offset jump; a clamp to a shorter page still lands at the
+                // new bottom.
+                scrollAccum = 0
             } else {
-                scrollAccum = delta
-            }
-            if scrollAccum > 26 {
-                scrollAccum = 0
-                model.isTabBarCompact = false
-            } else if scrollAccum < -26 {
-                scrollAccum = 0
-                model.isTabBarCompact = true
+                let sameDirection = (delta >= 0 && scrollAccum >= 0)
+                    || (delta < 0 && scrollAccum < 0)
+                if sameDirection {
+                    scrollAccum += delta
+                } else {
+                    scrollAccum = delta
+                }
+                if scrollAccum > 26 {
+                    scrollAccum = 0
+                    model.isTabBarCompact = false
+                } else if scrollAccum < -26 {
+                    scrollAccum = 0
+                    model.isTabBarCompact = true
+                }
             }
         }
 
         updateTimelineTopDate()
 
-        // Silent paging: the web asks for the page above when it gets near
-        // the top of the loaded timeline. There is no visible footer.
-        if offset > 900 {
-            olderRequestArmed = true
-        }
-        if library.olderState == .loading {
-            // The response may take a moment; keep the anchor on whatever the
-            // person is reading right now, like the web's capture at render
-            // time rather than at request time.
-            if let current = topVisibleTileID() {
-                pendingOlderAnchorID = current
+        // Silent paging: the grid knows the total item count, so it renders
+        // a placeholder for every photo and asks for the next older page as
+        // soon as the viewport reaches the boundary between the loaded page
+        // and those placeholders. There is no visible footer.
+        if usesTimelinePlaceholders {
+            if !olderRequestArmed,
+               let firstVisibleIndex = timelineFirstVisibleIndex(),
+               firstVisibleIndex > timelineLoadedBoundary + 36 {
+                // The person went back toward the newest photos; arm the
+                // next request so a failed page can be retried.
+                olderRequestArmed = true
             }
-        } else if offset < 700,
-                  olderRequestArmed,
-                  !library.page.items.isEmpty,
-                  library.page.hasMore,
-                  !library.olderExhausted,
-                  let anchor = topVisibleTileID() {
-            olderRequestArmed = false
-            pendingOlderAnchorID = anchor
-            Task { await library.loadOlderIfNeeded() }
+            maybeLoadOlderPage()
+        } else {
+            if offset > 900 {
+                olderRequestArmed = true
+            }
+            if library.olderState == .loading {
+                // The response may take a moment; keep the anchor on whatever
+                // the person is reading right now, like the web's capture at
+                // render time rather than at request time.
+                if let current = topVisibleTileID() {
+                    pendingOlderAnchorID = current
+                }
+            } else if offset < 700,
+                      olderRequestArmed,
+                      !library.page.items.isEmpty,
+                      library.page.hasMore,
+                      !library.olderExhausted,
+                      let anchor = topVisibleTileID() {
+                olderRequestArmed = false
+                pendingOlderAnchorID = anchor
+                Task { await library.loadOlderIfNeeded() }
+            }
         }
+    }
+
+    // MARK: - Timeline placeholders
+
+    /// The total number of photos in the current timeline. The grid renders
+    /// exactly this many cells, so the scrollable height is complete before
+    /// every page has arrived and prepending older photos never moves the
+    /// content under the finger.
+    private var timelineTotal: Int {
+        max(library.page.count, Int(clamping: library.page.total))
+    }
+
+    /// Placeholders only exist in the compact timeline grid; the regular
+    /// adaptive grid keeps its incremental paging.
+    private var usesTimelinePlaceholders: Bool {
+        isCompact
+            && !library.isAlbumOpen
+            && library.filters.isTimeline
+            && timelineTotal > library.page.count
+    }
+
+    /// The loaded page is newest first, while the grid is chronological with
+    /// the newest photo at the bottom. Index 0 is the oldest photo.
+    private func timelineItem(at index: Int) -> Item? {
+        let apiIndex = timelineTotal - 1 - index
+        guard apiIndex >= 0, apiIndex < library.page.items.count else {
+            return nil
+        }
+        return library.page.items[apiIndex]
+    }
+
+    /// Ask for the page above the loaded one once the viewport top gets
+    /// within a few rows of the boundary. The same check runs after a page
+    /// arrives, so a fast fling fills every placeholder it jumped over.
+    private func maybeLoadOlderPage() {
+        guard !initialAnchorPending,
+              library.filters.isTimeline,
+              !library.isAlbumOpen,
+              olderRequestArmed,
+              !library.page.items.isEmpty,
+              library.page.hasMore,
+              !library.olderExhausted,
+              library.olderState != .loading
+        else { return }
+
+        let total = timelineTotal
+        guard total > library.page.count,
+              let firstVisibleIndex = timelineFirstVisibleIndex()
+        else { return }
+
+        // Three extra rows give the network request enough lead time that a
+        // stopped drag never shows an empty tile at the top of the screen.
+        guard firstVisibleIndex <= timelineLoadedBoundary + 9 else { return }
+        olderRequestArmed = false
+        Task { await library.loadOlderIfNeeded() }
+    }
+
+    /// The oldest loaded row in the full-length grid. Everything above it is
+    /// still a placeholder.
+    private var timelineLoadedBoundary: Int {
+        max(0, timelineTotal - library.page.count)
+    }
+
+    /// The chronological index of the first row under the viewport top.
+    private func timelineFirstVisibleIndex() -> Int? {
+        let columns = 3
+        let gap = Tokens.Layout.gridGap
+        guard viewportWidth > 1 else { return nil }
+        let itemWidth = (viewportWidth - gap * CGFloat(columns - 1))
+            / CGFloat(columns)
+        guard itemWidth > 1 else { return nil }
+        let rowHeight = itemWidth + gap
+        return Int(max(0, scrollOffset) / rowHeight) * columns
     }
 
     /// The header shows the date of the photo at the top of the grid while the
@@ -587,115 +728,114 @@ struct LibraryView: View {
     ///
     /// The rows are chronological, so the newest photo is the last one and
     /// sits at the bottom of the screen. The scroll view opens there.
+    ///
+    /// The item count is known before the pages are, so the grid renders the
+    /// full timeline up front: loaded photos for the tail of the list and
+    /// placeholders for the oldest pages. This keeps the content height (and
+    /// therefore the scroll position and the scrollbar) stable while older
+    /// pages arrive, which is what the web gets by prepending and re-anchoring.
     private var timeline: some View {
         LazyVGrid(columns: timelineColumns, spacing: timelineGap) {
-            ForEach(library.page.items.reversed()) { item in
-                TileView(
-                    model: model,
-                    item: item,
-                    isTapSuppressed: { Date() < suppressTileTapUntil }
-                )
-                .id(item.id)
-                .simultaneousGesture(
-                    marqueeGesture(for: item),
-                    including: library.selectionMode ? .all : .none
-                )
-                .background {
-                    GeometryReader { proxy in
-                        Color.clear.preference(
-                            key: TimelineTileFramesKey.self,
-                            value: TimelineTileFrames(frames: [
-                                item.id: proxy.frame(in: .global)
-                            ])
-                        )
+            if isCompact, !library.isAlbumOpen {
+                ForEach(0..<timelineTotal, id: \.self) { index in
+                    if let item = timelineItem(at: index) {
+                        timelineTile(item)
+                    } else {
+                        ShimmerTile()
+                            .aspectRatio(1, contentMode: .fill)
+                            .accessibilityHidden(true)
                     }
+                }
+            } else {
+                ForEach(library.page.items.reversed()) { item in
+                    timelineTile(item)
                 }
             }
         }
     }
 
-    /// Horizontal drag in selection mode. It never paints a band: every tile
-    /// whose rectangle intersects the path is added to (or removed from) the
-    /// selection snapshot taken when the drag started, exactly like the web's
-    /// marquee.
-    private func marqueeGesture(for item: Item) -> some Gesture {
-        DragGesture(minimumDistance: 7, coordinateSpace: .global)
-            .onChanged { value in
-                guard library.selectionMode else { return }
-
-                if marquee == nil {
-                    if marqueeRejected {
-                        // A cancelled drag must not lock the marquee forever:
-                        // a new start location means a new gesture.
-                        if let last = marqueeRejectedStart {
-                            let dx = value.startLocation.x - last.x
-                            let dy = value.startLocation.y - last.y
-                            if dx * dx + dy * dy > 16 {
-                                marqueeRejected = false
-                                marqueeRejectedStart = nil
-                            } else {
-                                return
-                            }
-                        } else {
-                            return
-                        }
-                    }
-                    guard !marqueeRejected else { return }
-                    let dx = value.translation.width
-                    let dy = value.translation.height
-                    if abs(dx) > abs(dy) {
-                        marquee = MarqueeState(
-                            base: library.selection,
-                            additive: !library.selection.contains(item.id),
-                            start: value.startLocation,
-                            moved: false
-                        )
-                    } else if abs(dy) > 7 {
-                        // A vertical drag belongs to the scroll view.
-                        marqueeRejected = true
-                        marqueeRejectedStart = value.startLocation
-                    }
-                    guard marquee != nil else { return }
-                }
-
-                guard var state = marquee else { return }
-                let current = value.location
-                let rect = CGRect(
-                    x: min(state.start.x, current.x),
-                    y: min(state.start.y, current.y),
-                    width: abs(current.x - state.start.x),
-                    height: abs(current.y - state.start.y)
+    private func timelineTile(_ item: Item) -> some View {
+        TileView(
+            model: model,
+            item: item,
+            isTapSuppressed: { Date() < suppressTileTapUntil }
+        )
+        .id(item.id)
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: TimelineTileFramesKey.self,
+                    value: TimelineTileFrames(frames: [
+                        item.id: proxy.frame(in: .global)
+                    ])
                 )
-                if !state.moved, rect.width > 4 || rect.height > 4 {
-                    state.moved = true
-                    // Stamp the guard once: writing a fresh date on every
-                    // frame would re-render the whole grid during the drag.
-                    suppressTileTapUntil = Date().addingTimeInterval(0.6)
-                }
-
-                var hits: Set<Int64> = []
-                for (id, frame) in tileFrames
-                where knownItemIDs.contains(id) && frame.intersects(rect) {
-                    hits.insert(id)
-                }
-
-                var next = state.base
-                if state.additive {
-                    next.formUnion(hits)
-                } else {
-                    next.subtract(hits)
-                }
-                library.replaceSelection(next)
-                marquee = state
             }
-            .onEnded { _ in
-                if let state = marquee, state.moved {
-                    suppressTileTapUntil = Date().addingTimeInterval(0.45)
-                }
-                marquee = nil
-                marqueeRejected = false
-                marqueeRejectedStart = nil
-            }
+        }
+    }
+
+    /// Starts a marquee at `point` (window coordinates). The additive mode is
+    /// taken from the tile under the finger, exactly like the web's snapshot
+    /// at drag start.
+    private func beginMarquee(at point: CGPoint) {
+        guard library.selectionMode else { return }
+        let hit = tileFrames.first {
+            knownItemIDs.contains($0.key) && $0.value.contains(point)
+        }?.key
+        let additive = hit.map { !library.selection.contains($0) } ?? true
+        marquee = MarqueeState(
+            base: library.selection,
+            additive: additive,
+            start: point,
+            moved: false
+        )
+    }
+
+    /// Every tile whose rectangle intersects the drag path is added to (or
+    /// removed from) the snapshot taken at drag start. No band is painted.
+    private func updateMarquee(to point: CGPoint) {
+        guard var state = marquee else { return }
+        let rect = CGRect(
+            x: min(state.start.x, point.x),
+            y: min(state.start.y, point.y),
+            width: abs(point.x - state.start.x),
+            height: abs(point.y - state.start.y)
+        )
+        if !state.moved, rect.width > 4 || rect.height > 4 {
+            state.moved = true
+            // Stamp the guard once: writing a fresh date on every frame
+            // would re-render the whole grid during the drag.
+            suppressTileTapUntil = Date().addingTimeInterval(0.6)
+        }
+
+        var hits: Set<Int64> = []
+        for (id, frame) in tileFrames
+        where knownItemIDs.contains(id) && frame.intersects(rect) {
+            hits.insert(id)
+        }
+
+        var next = state.base
+        if state.additive {
+            next.formUnion(hits)
+        } else {
+            next.subtract(hits)
+        }
+        library.replaceSelection(next)
+        if state.moved != (marquee?.moved ?? false) {
+            marquee = state
+        }
+
+        // The edge auto-scroll moves the grid without the pan recognizer
+        // receiving a new location, so paging has to be checked here too.
+        if isCompact {
+            maybeLoadOlderPage()
+        }
+    }
+
+    private func endMarquee() {
+        if let state = marquee, state.moved {
+            suppressTileTapUntil = Date().addingTimeInterval(0.45)
+        }
+        marquee = nil
     }
 
     private var timelineColumns: [GridItem] {

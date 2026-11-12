@@ -107,6 +107,24 @@ struct ShellView: View {
                 .overlay(alignment: .bottom) { regularBottomChrome }
             }
 
+            // The filter dropdown hangs below the measured header edge, over
+            // the whole shell. Its backdrop catches every tap outside the
+            // menu before it can reach a photo or the dock.
+            if isCompact {
+                GeometryReader { proxy in
+                    compactFilterMenu
+                        .padding(
+                            .top,
+                            max(
+                                0,
+                                model.headerBottom - proxy.frame(in: .global).minY
+                            )
+                        )
+                }
+                .zIndex(15)
+                .animation(Tokens.Motion.fade, value: model.isFilterMenuOpen)
+            }
+
             ZStack {
                 if model.library.viewer.isOpen {
                     ViewerView(model: model)
@@ -150,6 +168,45 @@ struct ShellView: View {
             SettingsView(model: model)
         case .vault:
             VaultView(model: model)
+        }
+    }
+
+    /// The filter dropdown and the tap-catching backdrop behind it. It lives
+    /// here, outside the header, so a tap on the grid closes the menu instead
+    /// of opening the photo underneath, and so a scroll that is still
+    /// decelerating when the button is tapped cannot deliver the same tap to
+    /// a tile.
+    @ViewBuilder
+    private var compactFilterMenu: some View {
+        if model.tab == .library,
+           model.isFilterMenuOpen,
+           !model.library.selectionMode,
+           !model.library.isAlbumOpen {
+            ZStack(alignment: .topTrailing) {
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        model.isFilterMenuOpen = false
+                    }
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 6)
+                            .onChanged { _ in
+                                model.isFilterMenuOpen = false
+                            }
+                    )
+
+                LibraryFilterMenu(model: model)
+                    .padding(.top, 2)
+                    .padding(.trailing, 12)
+                    .transition(
+                        .opacity.combined(
+                            with: .scale(scale: 0.96, anchor: .topTrailing)
+                        )
+                    )
+            }
+            .transition(.opacity)
+            .zIndex(10)
         }
     }
 
@@ -226,10 +283,6 @@ struct ShellView: View {
 private struct CompactShellHeader: View {
     let model: ShellModel
 
-    /// The measured height of the whole header, used to hang the filter
-    /// dropdown below it.
-    @State private var height: CGFloat = 79
-
     private var library: LibraryModel { model.library }
 
     private var showsBack: Bool { model.canGoBack }
@@ -248,22 +301,23 @@ private struct CompactShellHeader: View {
 
     var body: some View {
         // The web header is a three-column grid: back, title, actions, with
-        // the subtitle and the filter summary spanning the title and action
-        // columns underneath. A SwiftUI `Grid` keeps the same geometry.
-        Grid(horizontalSpacing: 8, verticalSpacing: 3) {
-            GridRow {
-                leftControls
-                    .gridColumnAlignment(.leading)
+        // the subtitle and the filter summary underneath the title. An HStack
+        // gives the title every point the actions do not need, which the
+        // previous Grid did not: with no back button the empty first cell
+        // squeezed the 36 pt title into a sliver ("T…").
+        HStack(alignment: .top, spacing: 8) {
+            leftControls
 
+            VStack(alignment: .leading, spacing: 3) {
                 Text(model.title)
-                    .font(Font.mng(36, weight: .semibold))
+                    // The web title is a fixed 36 px even at large Dynamic
+                    // Type; letting the system scale it to 57 pt was what
+                    // truncated the Vietnamese title on a phone.
+                    .font(Font.mng(36, weight: .semibold, cap: 1.0))
                     // `letter-spacing: -0.035em` at 36 px.
                     .tracking(-1.26)
                     .foregroundStyle(Palette.text)
                     .lineLimit(1)
-                    // The web ellipsizes a title that does not fit; scaling it
-                    // down made the whole header look like it shrank when the
-                    // "Chọn" button appeared at the same time as the count.
                     .truncationMode(.tail)
                     // The title floats over the photo grid, so it needs the
                     // soft halo the native shell puts behind it.
@@ -271,16 +325,8 @@ private struct CompactShellHeader: View {
                         color: Palette.bg.opacity(0.86),
                         radius: 6
                     )
-                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                rightControls
-                    .gridColumnAlignment(.trailing)
-            }
-
-            if !library.selectionMode {
-                GridRow {
-                    Color.clear
-                        .frame(width: 0, height: 0)
+                if !library.selectionMode {
                     Text(model.subtitle)
                         .font(Font.mng(13, weight: .medium))
                         .tracking(-0.13)
@@ -291,26 +337,23 @@ private struct CompactShellHeader: View {
                             color: Palette.bg.opacity(0.86),
                             radius: 5
                         )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .gridCellColumns(2)
-                }
 
-                // The active filter summary lives in its own row under the
-                // count, matching `.mh-filter-summary` in the web.
-                if let summary = library.filters.summary,
-                   model.tab == .library,
-                   !library.isAlbumOpen {
-                    GridRow {
-                        Color.clear
-                            .frame(width: 0, height: 0)
-                        HStack(spacing: 0) {
-                            filterSummaryChip(summary)
-                            Spacer(minLength: 0)
-                        }
-                        .gridCellColumns(2)
+                    // The active filter summary lives in its own row under
+                    // the count, matching `.mh-filter-summary` in the web.
+                    if let summary = library.filters.summary,
+                       model.tab == .library,
+                       !library.isAlbumOpen {
+                        filterSummaryChip(summary)
+                            .padding(.top, 2)
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // The title must keep every point it needs: the actions give way
+            // first, exactly like the web's `minmax(0, 1fr)` title column.
+            .layoutPriority(1)
+
+            rightControls
         }
         .padding(.horizontal, 16)
         // The inset itself already starts below the status bar, which is the
@@ -327,35 +370,11 @@ private struct CompactShellHeader: View {
             GeometryReader { proxy in
                 Color.clear
                     .preference(
-                        key: ShellHeaderHeightKey.self,
-                        value: proxy.size.height
-                    )
-                    .preference(
                         key: ShellHeaderBottomKey.self,
                         value: proxy.frame(in: .global).maxY
                     )
             }
         }
-        .onPreferenceChange(ShellHeaderHeightKey.self) { value in
-            if value > 0, abs(value - height) > 0.5 {
-                height = value
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            // The dropdown hangs under the whole header, like the fixed
-            // `#libraryFilters` panel in the web.
-            if showsFilter, model.isFilterMenuOpen {
-                LibraryFilterMenu(model: model)
-                    .padding(.top, height + 2)
-                    .padding(.trailing, 12)
-                    .transition(
-                        .opacity.combined(
-                            with: .scale(scale: 0.96, anchor: .topTrailing)
-                        )
-                    )
-            }
-        }
-        .animation(Tokens.Motion.fade, value: model.isFilterMenuOpen)
     }
 
     /// The web header keeps the back button in the left column and hides it
@@ -476,6 +495,7 @@ private struct CompactShellHeader: View {
                 .font(Font.mng(13, weight: .semibold))
                 .tracking(-0.13)
                 .foregroundStyle(Palette.text)
+                .lineLimit(1)
                 .padding(.horizontal, 13)
                 .frame(height: 36)
                 .background { GlassSurface(shape: Capsule()) }
@@ -515,15 +535,6 @@ private struct CompactShellHeader: View {
         }
         .buttonStyle(GlassPressStyle(scale: 0.96))
         .accessibilityLabel(Strings.clearFilters)
-    }
-}
-
-/// Height of the compact header, consumed by the filter dropdown.
-struct ShellHeaderHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 79
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
     }
 }
 
