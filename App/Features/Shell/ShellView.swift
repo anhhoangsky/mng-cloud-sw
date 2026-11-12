@@ -261,7 +261,10 @@ private struct CompactShellHeader: View {
                     .tracking(-1.26)
                     .foregroundStyle(Palette.text)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    // The web ellipsizes a title that does not fit; scaling it
+                    // down made the whole header look like it shrank when the
+                    // "Chọn" button appeared at the same time as the count.
+                    .truncationMode(.tail)
                     // The title floats over the photo grid, so it needs the
                     // soft halo the native shell puts behind it.
                     .shadow(
@@ -314,6 +317,10 @@ private struct CompactShellHeader: View {
         // web's `max(10px, env(safe-area-inset-top))`, so no extra top pad.
         .padding(.top, 0)
         .padding(.bottom, library.selectionMode ? 10 : 12)
+        // The title area must keep the same height while the count turns into
+        // a date (and while a page loads); a variable inset made the whole
+        // header feel like it shrank on entry.
+        .frame(minHeight: library.selectionMode ? 54 : 74, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(alignment: .top) { headerScrim }
         .background {

@@ -43,10 +43,13 @@ struct SelectionBar: View {
                 action: library.deleteSelection
             )
 
+            // Leaving selection must never depend on having picked a photo:
+            // the web keeps its close button active when the set is empty.
             iconButton(
                 icon: "xmark",
                 label: Strings.deselect,
-                action: library.exitSelection
+                action: library.exitSelection,
+                enabledWhenEmpty: true
             )
         }
         .padding(.trailing, 8)
@@ -59,9 +62,11 @@ struct SelectionBar: View {
         icon: String,
         label: String,
         tint: Color = Palette.text2,
-        action: @escaping () -> Void
+        action: @escaping () -> Void,
+        enabledWhenEmpty: Bool = false
     ) -> some View {
-        Button(action: action) {
+        let enabled = enabledWhenEmpty || !library.selection.isEmpty
+        return Button(action: action) {
             Image(systemName: icon)
                 .font(Font.mng(20, weight: .medium))
                 .foregroundStyle(tint)
@@ -69,8 +74,8 @@ struct SelectionBar: View {
                 .contentShape(Circle())
         }
         .buttonStyle(GlassPressStyle(scale: 0.92))
-        .disabled(library.selection.isEmpty)
-        .opacity(library.selection.isEmpty ? 0.32 : 1)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.32)
         .accessibilityLabel(label)
     }
 }

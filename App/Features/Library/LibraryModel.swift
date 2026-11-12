@@ -436,6 +436,16 @@ final class LibraryModel {
         }
     }
 
+    /// Replace the whole selection in one step, used by the marquee drag.
+    /// The empty set is valid: the person can start a drag on an empty
+    /// selection and the X must stay available until they leave.
+    func replaceSelection(_ ids: Set<Int64>) {
+        guard selectionMode else { return }
+        if selection != ids {
+            selection = ids
+        }
+    }
+
     func favoriteSelection() {
         let selected = selectedItems
         guard let first = selected.min(by: { $0.id < $1.id }) else { return }

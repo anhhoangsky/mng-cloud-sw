@@ -1,11 +1,15 @@
 import MNGKit
 import SwiftUI
 
-/// One square library tile with its PWA badges, selection check, context menu
-/// and optimistic favorite/delete actions.
+/// One square library tile with its PWA badges, context menu and optimistic
+/// favorite/delete actions. Selection is drawn as a square accent border, the
+/// way the iOS library marks a photo; there is no tick or circle overlay.
 struct TileView: View {
     let model: ShellModel
     let item: Item
+    /// The marquee drag swallows the tap that ends the drag, like the web's
+    /// `suppress_click_until` guard.
+    var isTapSuppressed: () -> Bool = { false }
     /// Search seeds the viewer with its own result list; Library keeps using
     /// the current timeline page.
     var onOpen: (() -> Void)? = nil
@@ -14,6 +18,7 @@ struct TileView: View {
 
     var body: some View {
         Button {
+            guard !isTapSuppressed() else { return }
             if library.selectionMode {
                 withAnimation(Tokens.Motion.fade) {
                     library.toggleSelection(item.id)
@@ -37,12 +42,6 @@ struct TileView: View {
                         )
 
                         badges
-
-                        if library.selectionMode {
-                            selectionCheck
-                                .padding(7)
-                                .transition(.opacity.combined(with: .scale(scale: 0.8)))
-                        }
                     }
                     .clipped()
                 }
@@ -100,26 +99,6 @@ struct TileView: View {
                 .font(Font.mng(10, weight: .bold))
         }
         .foregroundStyle(.white)
-    }
-
-    private var selectionCheck: some View {
-        ZStack {
-            Circle()
-                .fill(
-                    library.isSelected(item.id)
-                        ? Palette.accent
-                        : Color.white.opacity(0.18)
-                )
-            Circle()
-                .stroke(.white, lineWidth: 2)
-            if library.isSelected(item.id) {
-                Image(systemName: "checkmark")
-                    .font(Font.mng(11, weight: .bold))
-                    .foregroundStyle(.white)
-            }
-        }
-        .frame(width: 24, height: 24)
-        .shadow(color: .black.opacity(0.28), radius: 4, y: 1)
     }
 
     @ViewBuilder

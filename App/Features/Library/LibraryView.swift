@@ -25,11 +25,22 @@ struct LibraryView: View {
     /// The accumulated drag, so the dock condenses after a deliberate
     /// 26 pt move toward older photos, like the web's `scroll_accum`.
     @State private var scrollAccum: CGFloat = 0
-    /// Height of the scrollable content, so the dock knows the real bottom of
-    /// the timeline the way the web reads `scrollHeight - innerHeight`.
+    /// Height of the scrollable content, for the iOS 17 fallback metrics.
     @State private var contentHeight: CGFloat = 0
-    /// Height of the scroll viewport in screen coordinates.
+    /// Height of the scroll viewport, for the iOS 17 fallback metrics.
     @State private var viewportHeight: CGFloat = 0
+    /// The largest possible scroll offset, so "at the newest photo" is a
+    /// real measurement instead of a guess.
+    @State private var maxScrollOffset: CGFloat = 0
+    /// The first page has to be placed at the newest photo explicitly: the
+    /// skeleton is replaced after the initial layout, so the scroll anchor
+    /// cannot be left to SwiftUI's default. While this is true the scroll
+    /// callbacks are only used to find the bottom, never as gestures.
+    @State private var initialAnchorPending = true
+    /// A deadline so a failed anchor can never lock the chrome forever.
+    @State private var initialAnchorDeadline = Date.distantFuture
+    /// The anchor is scheduled once per view lifetime.
+    @State private var initialAnchorScheduled = false
     /// Suppresses the scroll accumulator while a replaced page clamps the
     /// offset, matching the web's `scroll_guard`.
     @State private var scrollGuardUntil = Date.distantPast
@@ -42,6 +53,17 @@ struct LibraryView: View {
     @State private var viewportGlobalMaxY: CGFloat = 0
     /// Frames of the realized timeline tiles, in screen coordinates.
     @State private var tileFrames: [Int64: CGRect] = [:]
+    /// The ids of the current page, so a stale frame from a replaced page can
+    /// never become the header date or the older-page anchor.
+    @State private var knownItemIDs: Set<Int64> = []
+    /// The marquee drag in selection mode. The band is not painted; every
+    /// intersected tile joins the selection, like the web's `Marquee`.
+    @State private var marquee: MarqueeState?
+    /// A vertical drag must keep scrolling; once a gesture is classified as a
+    /// scroll it stays a scroll until the finger lifts.
+    @State private var marqueeRejected = false
+    /// The tap that ends a marquee drag must not toggle its starting tile.
+    @State private var suppressTileTapUntil = Date.distantPast
     /// The photo picker for "save into the library".
     @State private var backupPickerOpen = false
 
@@ -64,37 +86,49 @@ struct LibraryView: View {
             }
 
             ScrollViewReader { scrollProxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        // Scroll probe. It sits directly above the content, so
-                        // its frame in the named space is exactly the negated
-                        // offset.
-                        GeometryReader { proxy in
-                            Color.clear.preference(
-                                key: TimelineScrollOffsetKey.self,
-                                value: -proxy.frame(in: .named(TimelineSpace.name)).minY
-                            )
-                        }
-                        .frame(height: 0)
+                observingScroll(
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            // Scroll probe for the iOS 17 fallback. On iOS 18
+                            // the native scroll geometry reports the offset
+                            // without a preference round-trip.
+                            GeometryReader { proxy in
+                                Color.clear.preference(
+                                    key: TimelineScrollOffsetKey.self,
+                                    value: -proxy.frame(in: .named(TimelineSpace.name)).minY
+                                )
+                            }
+                            .frame(height: 0)
 
-                        bodyContent
-                    }
-                    .padding(.horizontal, isCompact ? 0 : 32)
-                    .padding(.top, isCompact ? 0 : 26)
-                    // The dock takes 70 pt of the safe area; the web's content
-                    // keeps another 84 pt below the last row (154 in total).
-                    .padding(.bottom, isCompact ? 84 : 60)
-                    .frame(maxWidth: Tokens.Layout.contentMaxWidth, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .background {
-                        GeometryReader { proxy in
-                            Color.clear.preference(
-                                key: TimelineContentHeightKey.self,
-                                value: proxy.size.height
-                            )
+                            bodyContent
+
+                            // The dock takes 70 pt of the safe area; the web's
+                            // content keeps another 84 pt below the last row
+                            // (154 in total). The spacer carries that padding
+                            // so `TimelineAnchor.bottom` is the real end of the
+                            // scrollable content and "newest photo" can be
+                            // restored without guessing.
+                            Color.clear
+                                .frame(height: isCompact ? 84 : 60)
+                                .id(TimelineAnchor.bottom)
+                        }
+                        .padding(.horizontal, isCompact ? 0 : 32)
+                        .padding(.top, isCompact ? 0 : 26)
+                        .frame(maxWidth: Tokens.Layout.contentMaxWidth, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .background {
+                            GeometryReader { proxy in
+                                Color.clear.preference(
+                                    key: TimelineContentHeightKey.self,
+                                    value: proxy.size.height
+                                )
+                            }
                         }
                     }
-                }
+                    .refreshable {
+                        await library.reload()
+                    }
+                )
                 .background {
                     GeometryReader { proxy in
                         Color.clear.preference(
@@ -103,14 +137,7 @@ struct LibraryView: View {
                         )
                     }
                 }
-                // The timeline is chronological, so its last row is the newest
-                // photo. The scroll view opens there and walks back in time as
-                // the person scrolls up.
-                .defaultScrollAnchor(library.filters.isTimeline ? .bottom : .top)
                 .coordinateSpace(name: TimelineSpace.name)
-                .refreshable {
-                    await library.reload()
-                }
                 .onChange(of: library.revision) { _, _ in
                     // The new page just replaced the old one. Whatever offset
                     // change follows is the browser-style clamp of a shorter
@@ -120,8 +147,19 @@ struct LibraryView: View {
                     lastScrollOffset = scrollOffset
                     pendingOlderAnchorID = nil
                     olderRequestArmed = true
+                    knownItemIDs = Set(library.page.items.map(\.id))
                 }
                 .onChange(of: library.page.count) { old, new in
+                    knownItemIDs = Set(library.page.items.map(\.id))
+
+                    // The first page replaces the skeleton after the initial
+                    // layout. SwiftUI's default anchor cannot follow that
+                    // replacement, so jump to the newest photo once the grid
+                    // has been laid out.
+                    if old == 0, new > 0, library.filters.isTimeline {
+                        positionTimelineAtLatest(scrollProxy)
+                    }
+
                     // An older page is inserted above the viewport. Keep the
                     // photo the person was reading where it was, like the
                     // web's `anchor_y + delta` restore after a page prepend.
@@ -129,12 +167,22 @@ struct LibraryView: View {
                         return
                     }
                     pendingOlderAnchorID = nil
-                    scrollGuardUntil = Date().addingTimeInterval(0.35)
-                    var transaction = Transaction()
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) {
-                        scrollProxy.scrollTo(anchor, anchor: .top)
+                    scrollGuardUntil = Date().addingTimeInterval(0.45)
+                    Task { @MainActor in
+                        // Let the lazy grid realize the prepended rows before
+                        // anchoring, otherwise the scroll view clamps the jump.
+                        await Task.yield()
+                        try? await Task.sleep(nanoseconds: 40_000_000)
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            scrollProxy.scrollTo(anchor, anchor: .top)
+                        }
                     }
+                }
+                .onAppear {
+                    knownItemIDs = Set(library.page.items.map(\.id))
+                    positionTimelineAtLatest(scrollProxy)
                 }
             }
         }
@@ -169,9 +217,6 @@ struct LibraryView: View {
             }
             .ignoresSafeArea()
         }
-        .onPreferenceChange(TimelineScrollOffsetKey.self) { offset in
-            updateChrome(offset: offset)
-        }
         .onPreferenceChange(TimelineTileFramesKey.self) { frames in
             tileFrames = frames.frames
             updateTimelineTopDate()
@@ -183,18 +228,16 @@ struct LibraryView: View {
             }
             if abs(rect.height - viewportHeight) > 0.5 {
                 viewportHeight = rect.height
+                if !usesNativeScrollGeometry {
+                    refreshFallbackMaxOffset()
+                }
             }
         }
         .onPreferenceChange(TimelineContentHeightKey.self) { height in
             guard abs(height - contentHeight) > 0.5 else { return }
             contentHeight = height
-            // The new page changed the bottom of the timeline. Re-check the
-            // dock now, so a shorter page expands it even if no scroll
-            // callback follows the clamp.
-            let maxOffset = max(0, height - viewportHeight)
-            if maxOffset > 24, scrollOffset >= maxOffset - 24 {
-                scrollAccum = 0
-                model.isTabBarCompact = false
+            if !usesNativeScrollGeometry {
+                refreshFallbackMaxOffset()
             }
         }
         .onChange(of: model.headerBottom) { _, _ in
@@ -220,6 +263,102 @@ struct LibraryView: View {
         }
     }
 
+    // MARK: - Scroll measurement
+
+    /// iOS 18 reports the real scroll geometry during the gesture. The old
+    /// preference probe stays as the iOS 17 fallback.
+    @ViewBuilder
+    private func observingScroll<Content: View>(_ content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: TimelineScrollMetrics.self) { geometry in
+                let top = geometry.contentInsets.top
+                let bottom = geometry.contentInsets.bottom
+                let height = geometry.contentSize.height + top + bottom
+                return TimelineScrollMetrics(
+                    offset: max(0, geometry.contentOffset.y + top),
+                    maxOffset: max(0, height - geometry.containerSize.height),
+                    contentHeight: height,
+                    viewportHeight: geometry.containerSize.height
+                )
+            } action: { _, metrics in
+                contentHeight = metrics.contentHeight
+                viewportHeight = metrics.viewportHeight
+                if abs(metrics.maxOffset - maxScrollOffset) > 0.5 {
+                    maxScrollOffset = metrics.maxOffset
+                }
+                handleScroll(offset: metrics.offset)
+            }
+        } else {
+            content.onPreferenceChange(TimelineScrollOffsetKey.self) { offset in
+                handleScroll(offset: offset)
+            }
+        }
+    }
+
+    private var usesNativeScrollGeometry: Bool {
+        if #available(iOS 18.0, *) { return true }
+        return false
+    }
+
+    private func refreshFallbackMaxOffset() {
+        let next = max(0, contentHeight - viewportHeight)
+        guard abs(next - maxScrollOffset) > 0.5 else { return }
+        maxScrollOffset = next
+        handleScroll(offset: scrollOffset)
+    }
+
+    /// The first page must open at the newest photo. The skeleton is replaced
+    /// after the first layout, so the jump is explicit and retried once; the
+    /// offset callbacks are not gestures until it lands.
+    private func positionTimelineAtLatest(_ proxy: ScrollViewProxy) {
+        guard initialAnchorPending,
+              !initialAnchorScheduled,
+              library.filters.isTimeline,
+              !library.page.items.isEmpty
+        else { return }
+        initialAnchorScheduled = true
+        initialAnchorDeadline = Date().addingTimeInterval(1.5)
+        Task { @MainActor in
+            await Task.yield()
+            scrollTimelineToBottom(proxy)
+            try? await Task.sleep(nanoseconds: 140_000_000)
+            guard initialAnchorPending else { return }
+            scrollTimelineToBottom(proxy)
+        }
+    }
+
+    private func scrollTimelineToBottom(_ proxy: ScrollViewProxy) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            proxy.scrollTo(TimelineAnchor.bottom, anchor: .bottom)
+        }
+    }
+
+    private func handleScroll(offset: CGFloat) {
+        scrollOffset = offset
+
+        if initialAnchorPending {
+            lastScrollOffset = offset
+            scrollAccum = 0
+            model.isTabBarCompact = false
+            library.setTimelineTopDate(nil)
+            // The skeleton has no bottom to anchor to. Only start the
+            // deadline once there is a real page, otherwise a slow network
+            // would waste the allowance before the grid even exists.
+            guard !library.page.items.isEmpty else { return }
+            let landed = maxScrollOffset > 24 && offset >= maxScrollOffset - 30
+            if landed || Date() >= initialAnchorDeadline {
+                initialAnchorPending = false
+                hasScrolled = false
+                scrollGuardUntil = Date().addingTimeInterval(0.45)
+            }
+            return
+        }
+
+        updateChrome(offset: offset)
+    }
+
     /// The dock condenses after a deliberate drag toward older photos and
     /// expands at either end of the timeline or when the person scrolls back
     /// toward the present, mirroring the web's scroll accumulator.
@@ -230,7 +369,7 @@ struct LibraryView: View {
         let delta = offset - lastScrollOffset
         lastScrollOffset = offset
         scrollOffset = offset
-        let maxOffset = max(0, contentHeight - viewportHeight)
+        let maxOffset = maxScrollOffset
 
         guard library.filters.isTimeline, !library.isAlbumOpen else {
             scrollAccum = 0
@@ -345,7 +484,9 @@ struct LibraryView: View {
             ? viewportGlobalMaxY
             : CGFloat.greatestFiniteMagnitude
         let visible = tileFrames.filter {
-            $0.value.width > 1 && $0.value.height > 1
+            knownItemIDs.contains($0.key)
+                && $0.value.width > 1
+                && $0.value.height > 1
         }
         let below = visible.filter {
             $0.value.maxY > headerBottom + 2 && $0.value.minY < viewportBottom
@@ -446,20 +587,94 @@ struct LibraryView: View {
     private var timeline: some View {
         LazyVGrid(columns: timelineColumns, spacing: timelineGap) {
             ForEach(library.page.items.reversed()) { item in
-                TileView(model: model, item: item)
-                    .id(item.id)
-                    .background {
-                        GeometryReader { proxy in
-                            Color.clear.preference(
-                                key: TimelineTileFramesKey.self,
-                                value: TimelineTileFrames(frames: [
-                                    item.id: proxy.frame(in: .global)
-                                ])
-                            )
-                        }
+                TileView(
+                    model: model,
+                    item: item,
+                    isTapSuppressed: { Date() < suppressTileTapUntil }
+                )
+                .id(item.id)
+                .simultaneousGesture(
+                    marqueeGesture(for: item),
+                    including: library.selectionMode ? .all : .none
+                )
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: TimelineTileFramesKey.self,
+                            value: TimelineTileFrames(frames: [
+                                item.id: proxy.frame(in: .global)
+                            ])
+                        )
                     }
+                }
             }
         }
+    }
+
+    /// Horizontal drag in selection mode. It never paints a band: every tile
+    /// whose rectangle intersects the path is added to (or removed from) the
+    /// selection snapshot taken when the drag started, exactly like the web's
+    /// marquee.
+    private func marqueeGesture(for item: Item) -> some Gesture {
+        DragGesture(minimumDistance: 7, coordinateSpace: .global)
+            .onChanged { value in
+                guard library.selectionMode else { return }
+
+                if marquee == nil {
+                    guard !marqueeRejected else { return }
+                    let dx = value.translation.width
+                    let dy = value.translation.height
+                    if abs(dx) > abs(dy) {
+                        marquee = MarqueeState(
+                            base: library.selection,
+                            additive: !library.selection.contains(item.id),
+                            start: value.startLocation,
+                            moved: false
+                        )
+                    } else if abs(dy) > 7 {
+                        // A vertical drag belongs to the scroll view.
+                        marqueeRejected = true
+                    }
+                    guard marquee != nil else { return }
+                }
+
+                guard var state = marquee else { return }
+                let current = value.location
+                let rect = CGRect(
+                    x: min(state.start.x, current.x),
+                    y: min(state.start.y, current.y),
+                    width: abs(current.x - state.start.x),
+                    height: abs(current.y - state.start.y)
+                )
+                if rect.width > 4 || rect.height > 4 {
+                    state.moved = true
+                }
+
+                var hits: Set<Int64> = []
+                for (id, frame) in tileFrames
+                where knownItemIDs.contains(id) && frame.intersects(rect) {
+                    hits.insert(id)
+                }
+
+                var next = state.base
+                if state.additive {
+                    next.formUnion(hits)
+                } else {
+                    next.subtract(hits)
+                }
+                library.replaceSelection(next)
+                marquee = state
+                if state.moved {
+                    suppressTileTapUntil = Date().addingTimeInterval(0.45)
+                }
+            }
+            .onEnded { _ in
+                if let state = marquee, state.moved {
+                    suppressTileTapUntil = Date().addingTimeInterval(0.45)
+                }
+                marquee = nil
+                marqueeRejected = false
+            }
     }
 
     private var timelineColumns: [GridItem] {
@@ -764,6 +979,30 @@ private struct SkeletonGrid: View {
 /// The coordinate space the library grid is measured in.
 enum TimelineSpace {
     static let name = "mng.library.timeline"
+}
+
+/// The real end of the scroll content, including the gap the dock floats
+/// over. Scrolling to this anchor opens the timeline at the newest photo.
+enum TimelineAnchor {
+    static let bottom = "mng.library.timeline.bottom"
+}
+
+/// One snapshot of the scroll view. Equatable so the iOS 18 observer only
+/// calls back when the offset, the content size or the viewport changes.
+struct TimelineScrollMetrics: Equatable {
+    var offset: CGFloat
+    var maxOffset: CGFloat
+    var contentHeight: CGFloat
+    var viewportHeight: CGFloat
+}
+
+/// The state of a selection drag. The band is invisible, but the base set and
+/// the direction (add or remove) are captured once per gesture.
+private struct MarqueeState {
+    var base: Set<Int64>
+    var additive: Bool
+    var start: CGPoint
+    var moved: Bool
 }
 
 /// Scroll offset of the library grid, measured from the top of the scroll
