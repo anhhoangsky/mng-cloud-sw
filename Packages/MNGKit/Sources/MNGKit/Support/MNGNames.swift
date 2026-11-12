@@ -78,15 +78,18 @@ public enum MNGNames {
             [.year, .month, .day, .hour, .minute, .second],
             from: date
         )
-        guard let year = parts.year,
-              let month = parts.month,
-              let day = parts.day
+        guard let rawYear = parts.year,
+              let rawMonth = parts.month,
+              let rawDay = parts.day
         else {
             return 0
         }
-        let hour = parts.hour ?? 0
-        let minute = parts.minute ?? 0
-        let second = parts.second ?? 0
+        let year = Int64(rawYear)
+        let month = Int64(rawMonth)
+        let day = Int64(rawDay)
+        let hour = Int64(parts.hour ?? 0)
+        let minute = Int64(parts.minute ?? 0)
+        let second = Int64(parts.second ?? 0)
         guard (1990...2037).contains(year),
               (1...12).contains(month),
               day >= 1,
@@ -97,10 +100,9 @@ public enum MNGNames {
         else {
             return 0
         }
-        return daysFromCivil(year: year, month: month, day: day) * 86_400
-            + hour * 3_600
-            + minute * 60
-            + second
+        let days = daysFromCivil(year: year, month: month, day: day)
+        let seconds = hour * 3_600 + minute * 60 + second
+        return days * 86_400 + seconds
     }
 
     /// The file name without its extension.
