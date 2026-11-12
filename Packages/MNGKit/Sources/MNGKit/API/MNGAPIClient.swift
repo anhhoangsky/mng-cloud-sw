@@ -197,6 +197,16 @@ public actor MNGAPIClient {
         return try await perform(request)
     }
 
+    /// What the photo editor may offer for one photo: the faces the media-AI
+    /// worker found and the parts of the AI that the server has installed.
+    public func editorConfig(id: Int64) async throws -> EditorConfig {
+        guard id > 0 else {
+            throw APIError(status: 404, code: "not_found", message: "Mục không tồn tại.")
+        }
+        let request = try makeRequest(method: .get, path: "/v1/items/\(id)/editor")
+        return try await perform(request)
+    }
+
     /// Set or clear one item's favorite flag. Always sent with the CSRF header.
     public func favorite(id: Int64, value: Bool) async throws -> FavoriteResponse {
         guard id > 0 else {

@@ -6,16 +6,16 @@ import WebKit
 
 /// The Aurum editor inside a web view.
 ///
-/// Aurum is a browser engine: a WebGL canvas with a DOM overlay. The app
-/// embeds it next to the native editor as the "advanced" mode. The edited
-/// pixels come back as a blob and are uploaded through the same
-/// `POST /items/{id}/edit` route the native export uses, so the server needs
-/// no new endpoint.
+/// Aurum is a browser engine: a WebGL canvas with a DOM overlay. The
+/// editor page lives on the server, so the app and the web shell run the
+/// very same editor, with the same AI.
 ///
-/// The bundle is loaded as a plain script: the IIFE build of Aurum exposes
-/// `window.Aurum`, which keeps the web view free of module and CORS rules.
-/// The optional AI and face-landmark modules are not bundled, so the editor
-/// runs without the 110 MB of ONNX models.
+/// The session of the app is a token and not a cookie of the origin, so
+/// the photo, the faces of it and the capabilities of the deployment are
+/// handed over in `window.__aurumConfig`. The edited pixels come back as a
+/// blob and are uploaded through the same
+/// `POST /items/{id}/edit` route the native export uses, so the server
+/// needs no new endpoint.
 struct AurumEditorView: View {
     let model: ShellModel
     let item: Item
@@ -37,6 +37,7 @@ struct AurumEditorView: View {
 
                 AurumWebView(
                     client: model.client,
+                    server: model.server,
                     item: item,
                     onPhase: { phase = $0 },
                     onSave: { data, name in
@@ -124,6 +125,7 @@ struct AurumEditorView: View {
 /// The web view that hosts the Aurum editor.
 private struct AurumWebView: UIViewRepresentable {
     let client: MNGAPIClient
+    let server: MNGServer
     let item: Item
     let onPhase: (AurumEditorView.Phase) -> Void
     let onSave: (Data, String) -> Void
@@ -132,6 +134,7 @@ private struct AurumWebView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             client: client,
+            server: server,
             item: item,
             onPhase: onPhase,
             onSave: onSave,
@@ -142,15 +145,6 @@ private struct AurumWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let content = WKUserContentController()
         content.add(context.coordinator, name: "aurum")
-        if let script = AurumBundle.script() {
-            content.addUserScript(
-                WKUserScript(
-                    source: script,
-                    injectionTime: .atDocumentStart,
-                    forMainFrameOnly: true
-                )
-            )
-        }
 
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = content
@@ -161,7 +155,14 @@ private struct AurumWebView: UIViewRepresentable {
         webView.scrollView.backgroundColor = .black
         webView.scrollView.isScrollEnabled = false
         webView.navigationDelegate = context.coordinator
-        webView.loadHTMLString(AurumBundle.shell(), baseURL: nil)
+        // The editor page lives on the server, so the app and the web shell
+        // run the same editor with the same AI. A server without the page
+        // falls back to the editor inside the app.
+        if let url = server.editorPageURL {
+            webView.load(URLRequest(url: url))
+        } else {
+            context.coordinator.loadLocalEditor(in: webView)
+        }
         return webView
     }
 
@@ -183,6 +184,7 @@ private struct AurumWebView: UIViewRepresentable {
     /// language mode, and every state change hops to the main actor.
     final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         private let client: MNGAPIClient
+        private let server: MNGServer
         private let item: Item
         var onPhase: (AurumEditorView.Phase) -> Void
         var onSave: (Data, String) -> Void
@@ -190,15 +192,20 @@ private struct AurumWebView: UIViewRepresentable {
 
         /// The source image has been handed over.
         private var didStart = false
+        /// The page of the server is used; a server without it falls back to
+        /// the editor inside the app.
+        private var usesRemotePage = true
 
         init(
             client: MNGAPIClient,
+            server: MNGServer,
             item: Item,
             onPhase: @escaping (AurumEditorView.Phase) -> Void,
             onSave: @escaping (Data, String) -> Void,
             onClose: @escaping () -> Void
         ) {
             self.client = client
+            self.server = server
             self.item = item
             self.onPhase = onPhase
             self.onSave = onSave
@@ -209,6 +216,38 @@ private struct AurumWebView: UIViewRepresentable {
             Task { @MainActor [weak self] in
                 self?.start(webView: webView)
             }
+        }
+
+        /// The page of the server is missing: fall back to the editor inside
+        /// the app, which has the engine but no AI.
+        func webView(
+            _ webView: WKWebView,
+            didFailProvisionalNavigation navigation: WKNavigation!,
+            withError error: Error
+        ) {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.usesRemotePage = false
+                self.loadLocalEditor(in: webView)
+            }
+        }
+
+        /// Mount the editor inside the app.
+        ///
+        /// The engine is loaded as a plain script, so the web view stays free
+        /// of the module and cross-origin rules.
+        @MainActor
+        func loadLocalEditor(in webView: WKWebView) {
+            if let script = AurumBundle.script() {
+                webView.configuration.userContentController.addUserScript(
+                    WKUserScript(
+                        source: script,
+                        injectionTime: .atDocumentStart,
+                        forMainFrameOnly: true
+                    )
+                )
+            }
+            webView.loadHTMLString(AurumBundle.localShell(), baseURL: nil)
         }
 
         func userContentController(
@@ -249,7 +288,7 @@ private struct AurumWebView: UIViewRepresentable {
             }
         }
 
-        /// Fetch the original, hand it to the page and create the editor.
+        /// Fetch the original and the capabilities, then hand them over.
         @MainActor
         private func start(webView: WKWebView) {
             guard !didStart else { return }
@@ -262,7 +301,17 @@ private struct AurumWebView: UIViewRepresentable {
                     onPhase(.failed(Strings.editorUnsupported))
                     return
                 }
-                let script = AurumBundle.startScript(source: source, name: item.name)
+                // The faces and the parts of the AI that the server has
+                // installed decide what the editor offers.
+                let capabilities = try? await client.editorConfig(id: item.id)
+                let script = usesRemotePage
+                    ? AurumBundle.startScript(
+                        source: source,
+                        name: item.name,
+                        item: item,
+                        capabilities: capabilities
+                    )
+                    : AurumBundle.localStartScript(source: source, name: item.name)
                 webView.evaluateJavaScript(script) { _, error in
                     guard let error else { return }
                     Task { @MainActor in
@@ -277,6 +326,9 @@ private struct AurumWebView: UIViewRepresentable {
 /// The Aurum bundle and the small page that hosts it.
 enum AurumBundle {
     /// The IIFE build of Aurum, injected before the page runs.
+    ///
+    /// It is the fallback for a server without the editor page: the engine
+    /// works, but the AI of the deployment does not.
     static func script() -> String? {
         // The resource is `aurum.min.js`, so the name carries the `min` part.
         guard let url = Bundle.main.url(forResource: "aurum.min", withExtension: "js"),
@@ -287,8 +339,8 @@ enum AurumBundle {
         return source
     }
 
-    /// The page the editor is mounted in.
-    static func shell() -> String {
+    /// The page the editor is mounted in, when the server has no page.
+    static func localShell() -> String {
         """
         <!DOCTYPE html>
         <html lang="vi">
@@ -307,35 +359,8 @@ enum AurumBundle {
         """
     }
 
-    /// Read the original file as a JPEG data URL.
-    ///
-    /// Browsers cannot decode HEIC, so the original is decoded with ImageIO
-    /// and re-encoded as JPEG before it enters the web view.
-    static func source(for item: Item, client: MNGAPIClient) async -> String? {
-        do {
-            let file = try await client.mediaFile(
-                path: item.mediaPath(),
-                suggestedName: item.name
-            )
-            defer {
-                try? FileManager.default.removeItem(
-                    at: file.url.deletingLastPathComponent()
-                )
-            }
-            let data = try Data(contentsOf: file.url)
-            guard let image = UIImage(data: data),
-                  let jpeg = image.jpegData(compressionQuality: 0.95)
-            else {
-                return nil
-            }
-            return "data:image/jpeg;base64,\(jpeg.base64EncodedString())"
-        } catch {
-            return nil
-        }
-    }
-
     /// The call that creates the editor once the source is in place.
-    static func startScript(source: String, name: String) -> String {
+    static func localStartScript(source: String, name: String) -> String {
         let fileName = name.isEmpty ? "aurum" : name
         let safeName = fileName.replacingOccurrences(of: "'", with: "")
         return """
@@ -396,5 +421,68 @@ enum AurumBundle {
           });
         })();
         """
+    }
+
+    /// The configuration the page of the editor waits for.
+    static func startScript(
+        source: String,
+        name: String,
+        item: Item,
+        capabilities: EditorConfig?
+    ) -> String {
+        let fileName = name.isEmpty ? "aurum" : name
+        let safeName = fileName.replacingOccurrences(of: "\\", with: "")
+            .replacingOccurrences(of: "'", with: "")
+        let itemJSON = """
+        {"id": \(item.id), "type": "\(item.mediaType)", "mime": "\(item.mime)",
+         "name": "\(safeName)", "edit": "", "media": "",
+         "width": \(item.width), "height": \(item.height)}
+        """
+        let faces = capabilities?.faces ?? []
+        let faceJSON = faces
+            .map {
+                "{\"x\": \($0.x), \"y\": \($0.y), \"w\": \($0.w), \"h\": \($0.h), " +
+                    "\"confidence\": \($0.confidence)}"
+            }
+            .joined(separator: ",")
+        let ai = capabilities?.ai == true
+        return """
+        (function () {
+          window.__aurumConfig = {
+            item: \(itemJSON),
+            mediaUrl: '\(source)',
+            uploadName: '\(safeName)',
+            config: { faces: [\(faceJSON)], ai: \(ai ? "true" : "false") }
+          };
+          window.dispatchEvent(new Event('mng-editor-config'));
+        })();
+        """
+    }
+
+    /// Read the original file as a JPEG data URL.
+    ///
+    /// Browsers cannot decode HEIC, so the original is decoded with ImageIO
+    /// and re-encoded as JPEG before it enters the web view.
+    static func source(for item: Item, client: MNGAPIClient) async -> String? {
+        do {
+            let file = try await client.mediaFile(
+                path: item.mediaPath(),
+                suggestedName: item.name
+            )
+            defer {
+                try? FileManager.default.removeItem(
+                    at: file.url.deletingLastPathComponent()
+                )
+            }
+            let data = try Data(contentsOf: file.url)
+            guard let image = UIImage(data: data),
+                  let jpeg = image.jpegData(compressionQuality: 0.95)
+            else {
+                return nil
+            }
+            return "data:image/jpeg;base64,\(jpeg.base64EncodedString())"
+        } catch {
+            return nil
+        }
     }
 }

@@ -29,6 +29,16 @@ public struct MNGServer: Hashable, Codable, CustomStringConvertible, @unchecked 
             .appendingPathComponent("v1", isDirectory: true)
     }
 
+    /// The page of the photo editor.
+    ///
+    /// The editor lives in the shell of the deployment, so the app and the
+    /// web client run the same editor with the same AI. A server without
+    /// the page falls back to the editor inside the app.
+    public var editorPageURL: URL? {
+        url.appendingPathComponent("app", isDirectory: true)
+            .appendingPathComponent("editor.html")
+    }
+
     public var description: String { origin }
 
     /// Normalise user input the way the login screen expects.
