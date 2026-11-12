@@ -403,25 +403,36 @@ struct EditorView: View {
                 .padding(.horizontal, 12)
             }
 
-            TickSlider(
-                value: Binding(
-                    get: {
-                        editor.activeAdjustment.value(in: editor.adjustments)
-                    },
-                    set: { editor.setActiveAdjustment(value: $0) }
-                )
-            )
-            .padding(.horizontal, 12)
-
-            HStack {
+            // The head row of the web's `.au-slider__head`: the slider name
+            // on the left, the gold value chip on the right. Tapping the chip
+            // resets just this slider; the text button clears every slider.
+            HStack(spacing: 8) {
                 Text(editor.activeAdjustment.title)
                     .font(Font.mng(12))
                     .foregroundStyle(Aurum.muted)
-                Spacer()
-                Text("\(Int(editor.activeAdjustment.value(in: editor.adjustments)))")
-                    .font(Font.mng(12, weight: .semibold))
-                    .foregroundStyle(Aurum.gold)
-                Spacer()
+
+                Spacer(minLength: 8)
+
+                Button {
+                    editor.resetAdjustment(editor.activeAdjustment)
+                } label: {
+                    Text(adjustValueLabel)
+                        .font(Font.mng(11, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(Aurum.gold)
+                        .padding(.horizontal, 7)
+                        .frame(minWidth: 36, minHeight: 20)
+                        .background(
+                            Aurum.gold.opacity(0.10),
+                            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    "\(editor.activeAdjustment.title): \(adjustValueLabel)"
+                )
+                .accessibilityHint(Strings.editorAdjustReset)
+
                 Button(Strings.editorAdjustReset) {
                     editor.resetAdjustments()
                 }
@@ -429,7 +440,28 @@ struct EditorView: View {
                 .foregroundStyle(Aurum.muted)
             }
             .padding(.horizontal, 14)
+
+            TickSlider(
+                value: Binding(
+                    get: {
+                        editor.activeAdjustment.value(in: editor.adjustments)
+                    },
+                    set: { editor.setActiveAdjustment(value: $0) }
+                ),
+                label: editor.activeAdjustment.title,
+                zero: true,
+                ruler: true
+            )
+            .padding(.horizontal, 12)
         }
+    }
+
+    /// The signed value of the open slider, like the web's `formatAdjust`.
+    private var adjustValueLabel: String {
+        let value = Int(
+            editor.activeAdjustment.value(in: editor.adjustments).rounded()
+        )
+        return value > 0 ? "+\(value)" : "\(value)"
     }
 
     /// The presets, each with a preview of the photo.
@@ -496,10 +528,12 @@ struct EditorView: View {
                 .padding(.horizontal, 12)
             }
 
+            // The engine stores the geometry as quarter turns, so the
+            // rotation stays a four-step rail rather than a degree ruler.
             RotationRail(
                 value: Binding(
-                    get: { Double(editor.rotation) },
-                    set: { editor.setRotation(Int($0)) }
+                    get: { Double(editor.rotation) * 90 },
+                    set: { editor.setRotation(Int(($0 / 90).rounded())) }
                 )
             )
             .padding(.horizontal, 12)
@@ -810,9 +844,32 @@ struct EditorView: View {
                         .font(Font.mng(12))
                         .foregroundStyle(Aurum.muted)
                     Spacer()
-                    Text("\(editor.saveQuality)%")
-                        .font(Font.mng(12, weight: .semibold))
-                        .foregroundStyle(Aurum.gold)
+                    // The web's value chip resets the quality to its default.
+                    Button {
+                        editor.setSaveQuality(92)
+                    } label: {
+                        Text("\(editor.saveQuality)%")
+                            .font(Font.mng(11, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(Aurum.gold)
+                            .padding(.horizontal, 7)
+                            .frame(minWidth: 36, minHeight: 20)
+                            .background(
+                                Aurum.gold.opacity(0.10),
+                                in: RoundedRectangle(
+                                    cornerRadius: 6,
+                                    style: .continuous
+                                )
+                            )
+                            .contentShape(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        "\(Strings.editorQuality): \(editor.saveQuality)%"
+                    )
+                    .accessibilityHint(Strings.editorAdjustReset)
                 }
                 .padding(.top, 2)
 
@@ -821,8 +878,10 @@ struct EditorView: View {
                         get: { Float(editor.saveQuality) },
                         set: { editor.setSaveQuality(Int($0.rounded())) }
                     ),
+                    label: Strings.editorQuality,
                     minimum: 10,
-                    maximum: 100
+                    maximum: 100,
+                    tickStep: 3
                 )
             }
         }
@@ -847,65 +906,211 @@ struct EditorView: View {
     }
 }
 
-/// The slider of the editor: a row of ticks, the chosen one is taller and
-/// gold.
+/// The tick slider of the editor, ported from the web's `.au-ticks`.
+///
+/// A glass rail with 2 pt ticks: major marks (every fifth and the zero mark)
+/// are taller, the active tick becomes a 30 pt gold pill. In ruler mode the
+/// white track slides under a fixed gold centre line, so dragging right walks
+/// back through the values exactly like the browser ruler. The adjustment
+/// slider uses the ruler; the quality slider uses the direct mode.
 private struct TickSlider: View {
     @Binding var value: Float
-    /// The range of the slider. The adjustments use -100…100, the export
+    var label: String = ""
+    /// The range of the slider. The adjustments use -100…100 and the export
     /// quality 10…100.
     var minimum: Float = -100
     var maximum: Float = 100
+    /// The value snap. Every slider here is integer-valued.
+    var step: Float = 1
+    /// The spacing between ticks, matching the web's `tickStep`.
+    var tickStep: Float = 2
+    /// Draw a taller centre mark at zero.
+    var zero: Bool = false
+    /// Slide the track under a fixed centre line.
+    var ruler: Bool = false
 
-    private let steps = 25
+    @State private var dragStartValue: Float?
+    @State private var dragStartX: CGFloat = 0
+
+    private var tickCount: Int {
+        max(2, Int(((maximum - minimum) / max(tickStep, 0.0001)).rounded()) + 1)
+    }
+
+    private func index(for input: Float) -> Int {
+        let raw = ((input - minimum) / max(tickStep, 0.0001)).rounded()
+        return min(max(Int(raw), 0), tickCount - 1)
+    }
+
+    private func quantize(_ input: Float) -> Float {
+        let snap = ((input - minimum) / max(step, 0.0001)).rounded()
+        return min(max(minimum + snap * step, minimum), maximum)
+    }
+
+    private func apply(_ next: Float) {
+        let clamped = min(max(next, minimum), maximum)
+        guard abs(clamped - value) > 0.0001 else { return }
+        value = clamped
+    }
+
+    private func value(at x: CGFloat, width: CGFloat) -> Float {
+        let pad: CGFloat = 10
+        let usable = max(width - pad * 2, 1)
+        let ratio = min(max((x - pad) / usable, 0), 1)
+        return quantize(minimum + Float(ratio) * (maximum - minimum))
+    }
 
     var body: some View {
         GeometryReader { geometry in
-            let span = max(maximum - minimum, 0.001)
-            let index = min(
-                max(Int(((value - minimum) / span) * Float(steps - 1)), 0),
-                steps - 1
-            )
-            HStack(alignment: .bottom, spacing: 0) {
-                ForEach(0..<steps, id: \.self) { tick in
-                    Rectangle()
-                        .fill(tick == index ? Aurum.gold : Aurum.tick)
-                        .frame(width: 2, height: tick == index ? 20 : 11)
-                        .frame(maxWidth: .infinity)
+            let width = max(geometry.size.width, 1)
+            let ratio = CGFloat(index(for: value)) / CGFloat(max(tickCount - 1, 1))
+            let usable = max(width - 20, 1)
+            let activeX = ruler ? width / 2 : 10 + ratio * usable
+
+            ZStack(alignment: .topLeading) {
+                Canvas { context, size in
+                    let trackWidth = ruler ? size.width * 1.18 : max(size.width - 20, 1)
+                    let left = ruler
+                        ? size.width / 2 - ratio * trackWidth
+                        : 10
+                    let spacing = trackWidth / CGFloat(max(tickCount - 1, 1))
+                    let centerY = size.height / 2
+
+                    for tick in 0..<tickCount {
+                        let x = left + CGFloat(tick) * spacing
+                        guard x >= -2, x <= size.width + 2 else { continue }
+                        let tickValue = minimum + Float(tick) * tickStep
+                        let isZero = zero && abs(tickValue) < tickStep / 2
+                        let isMajor = tick % 5 == 0 || isZero
+                        if tick == index(for: value) { continue }
+
+                        let height: CGFloat = ruler
+                            ? (isZero ? 24 : isMajor ? 22 : 15)
+                            : (isZero || isMajor ? 20 : 14)
+                        let color: Color = ruler
+                            ? Color.white.opacity(0.72)
+                            : Color.white.opacity(0.58)
+                        let rect = CGRect(
+                            x: x - 1,
+                            y: centerY - height / 2,
+                            width: 2,
+                            height: height
+                        )
+                        context.fill(
+                            Path(roundedRect: rect, cornerRadius: 1),
+                            with: .color(color)
+                        )
+                    }
+                }
+
+                // The active mark is a separate view so it can glow like the
+                // web's gold tick without a Canvas shadow filter.
+                Rectangle()
+                    .fill(ruler ? Color.white : Aurum.gold)
+                    .frame(width: 2, height: 30)
+                    .position(x: activeX, y: 20)
+                    .shadow(
+                        color: ruler ? .clear : Aurum.gold.opacity(0.55),
+                        radius: 4.5
+                    )
+
+                if ruler {
+                    // The fixed gold line the ruler slides under.
+                    Capsule()
+                        .fill(Aurum.gold)
+                        .frame(width: 2, height: 30)
+                        .position(x: width / 2, y: 20)
+                        .shadow(color: Aurum.gold.opacity(0.72), radius: 5)
+                        .allowsHitTesting(false)
                 }
             }
-            .frame(maxHeight: .infinity, alignment: .bottom)
-            .contentShape(Rectangle())
+            .frame(width: width, height: 40)
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(
+                                Color(red: 0.031, green: 0.031, blue: 0.039)
+                                    .opacity(0.30)
+                            )
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                    }
+                    .shadow(color: .black.opacity(0.18), radius: 7, x: 0, y: 4)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { gesture in
-                        let ratio = gesture.location.x / max(geometry.size.width, 1)
-                        let next = minimum + Float(ratio) * span
-                        value = min(max(next, minimum), maximum)
+                        if dragStartValue == nil {
+                            dragStartValue = value
+                            dragStartX = gesture.startLocation.x
+                            if !ruler {
+                                apply(value(at: gesture.location.x, width: width))
+                            }
+                        }
+                        if ruler {
+                            let start = dragStartValue ?? value
+                            let delta = (gesture.location.x - dragStartX) / usable
+                            apply(
+                                quantize(
+                                    start - Float(delta) * (maximum - minimum)
+                                )
+                            )
+                        } else {
+                            apply(value(at: gesture.location.x, width: width))
+                        }
+                    }
+                    .onEnded { _ in
+                        dragStartValue = nil
                     }
             )
-            .animation(.easeOut(duration: 0.12), value: index)
         }
-        .frame(height: 30)
+        .frame(height: 40)
+        .sensoryFeedback(.selection, trigger: index(for: value))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue("\(Int(value.rounded()))")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment:
+                apply(value + max(step, 1))
+            case .decrement:
+                apply(value - max(step, 1))
+            @unknown default:
+                break
+            }
+        }
     }
 }
 
-/// The rail of the rotation: the four angles of the editor.
+/// The rail of the rotation: the four quarter turns the MNGEdit pipeline
+/// supports. The web uses a continuous degree ruler, but the native engine
+/// only stores 0…3, so this control stays honest about the steps.
 private struct RotationRail: View {
+    /// The angle in degrees (0, 90, 180, 270).
     @Binding var value: Double
+
+    private var quarter: Int {
+        min(max(Int((value / 90).rounded()), 0), 3)
+    }
 
     var body: some View {
         HStack(spacing: 0) {
             ForEach(0..<4, id: \.self) { tick in
                 Button {
-                    value = Double(tick)
+                    value = Double(tick * 90)
                 } label: {
                     Text("\(tick * 90)°")
                         .font(Font.mng(12, weight: .semibold))
-                        .foregroundStyle(Int(value) == tick ? Aurum.gold : Aurum.muted)
+                        .foregroundStyle(quarter == tick ? Aurum.gold : Aurum.muted)
                         .frame(maxWidth: .infinity)
                         .frame(height: 30)
                         .background(
-                            Int(value) == tick ? Aurum.goldSoft : .clear,
+                            quarter == tick ? Aurum.goldSoft : Color.clear,
                             in: Capsule()
                         )
                 }

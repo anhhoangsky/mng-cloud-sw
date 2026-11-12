@@ -26,7 +26,7 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 | iCloud | honest status, 2.2 s job poll, login/2FA/start/save/pause/cancel/logout | 🟡 ported: full importer sheet with the 2.2 s poll that stops with the sheet; device check pending |
 | PWA-only surfaces | service worker, Trusted Types, extension | ➖ |
 | ZIP multi-select | POST form, 100 items / 2 GiB cap, share sheet | 🟡 ported: chunked streaming to a temp file, 100-id guard, share sheet; 2 GiB remains a server limit |
-| Marquee | iPad pointer selection only | ⏳ |
+| Marquee | iPad pointer selection only | 🟡 ported: horizontal-first pan on the scroll view, multiple tiles per drag, edge auto-scroll with an accumulated selection; pointer-only on the web, touch works on the phone; device check pending |
 
 ## P3 notes
 
@@ -36,8 +36,23 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - The segmented control changes grouping and clears the year/month drill-down
   but keeps the kind chip; a kind chip returns to the timeline while keeping the
   drill-down, matching `set_layout()` / kind transitions.
-- Older pages are appended below the current page, so the scroll anchor stays
-  put without FLIP; date-filtered timelines paginate as well.
+- The timeline is chronological bottom-up: the API page is newest first, the
+  newest photo sits at the bottom and scrolling up walks into the past. The
+  compact grid renders the known `page.total` up front, so older pages fill
+  placeholders above the loaded range instead of shifting the content.
+- The dock expands only at the newest/bottom position. A real scroll of more
+  than 6 pt condenses it, and Năm / Tháng / Tất cả keep it condensed through
+  the reload and the content clamp that follows.
+- A filter change captures the photo under the header and puts it (or the
+  nearest date in the new page) back after the reload, so a smaller or larger
+  result does not leave a gap or jump to the top.
+- Older pages load when the viewport reaches the loaded boundary. The header
+  subtitle keeps the item count until a real scroll and then shows the date of
+  the oldest photo on screen. The library viewer uses the chronological order,
+  so its filmstrip and swipe direction follow the grid.
+- Marquee selection runs on a horizontal-first pan recognizer attached to the
+  scroll view; vertical drags still scroll, and the edge auto-scroll keeps the
+  whole accumulated set (including photos that left the screen).
 - Favorite and delete requests run four at a time. Only failed ids are rolled
   back; partial-failure toasts reuse the PWA copy.
 - Info-sheet download dismisses first and shares when the stream is ready;
@@ -163,7 +178,13 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - The editor reuses the web editor's copy: the three tabs (Cắt, Chỉnh màu, Bộ
   lọc), the rotate/flip group, the six crop ratios, the thirteen sliders, the
   twelve filters, the hold-to-compare button and the export sheet with the two
-  save modes.
+  save modes. The adjustment ruler is the ported `.au-ticks` control: a glass
+  rail, a fixed gold centre line, a sliding white tick track and a gold value
+  chip that resets only the open slider. The quality slider uses the same
+  control in direct mode and its value resets to 92.
+- The engine stores rotation as quarter turns only, so the rotation control is
+  an honest four-step 0° / 90° / 180° / 270° rail instead of the web's
+  continuous −180…180 ruler.
 - The pixel pipeline is the ported `mng-edit` crate, so the preview and the
   exported file use the same order (rotate → flip → crop) and the same
   adjustment math. The container follows the source: PNG stays PNG, WebP stays

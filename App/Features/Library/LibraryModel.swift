@@ -83,6 +83,12 @@ final class LibraryModel {
     /// Filled by `ShellModel` so the library does not depend on bootstrap.
     var cloudLabel: (String) -> String = { $0.isEmpty ? "đám mây" : $0 }
     var onEvent: ((LibraryEvent) -> Void)?
+    /// Called by the library screen before a filter or grouping change
+    /// replaces the grid. The screen captures the photo under the header so
+    /// it can keep that photo in place when the new page arrives, instead of
+    /// leaving the scroll view at a pixel offset that now points at a
+    /// completely different time.
+    var onFilterWillChange: (() -> Void)?
 
     /// Favorite patches fan out to Search and Albums. The map carries full
     /// snapshots for the changed ids so the favorites section can be seeded.
@@ -195,7 +201,10 @@ final class LibraryModel {
         do {
             let response = try await client.years(cloud: cloud)
             guard seq == requestSeq else { return }
-            years = response.years
+            // The API is newest first, but the iOS library runs bottom-up
+            // like the photo timeline: the oldest year is the top card and
+            // the newest year sits at the bottom where the grid opens.
+            years = response.years.sorted { $0.year < $1.year }
             loadState = .ready
         } catch let error as APIError {
             guard seq == requestSeq else { return }
@@ -217,7 +226,11 @@ final class LibraryModel {
                 year: filters.year
             )
             guard seq == requestSeq else { return }
-            months = response.months
+            // Same bottom-up order as the years grid and the timeline.
+            months = response.months.sorted {
+                if $0.year != $1.year { return $0.year < $1.year }
+                return $0.month < $1.month
+            }
             loadState = .ready
         } catch let error as APIError {
             guard seq == requestSeq else { return }
@@ -282,6 +295,7 @@ final class LibraryModel {
     /// can switch tabs without a frame of stale timeline content; the caller
     /// follows with `reload()`.
     func beginAlbum(_ album: AlbumFilter, returnTo: AlbumReturn) {
+        onFilterWillChange?()
         exitSelection()
         activeAlbum = album
         albumReturn = returnTo
@@ -304,6 +318,7 @@ final class LibraryModel {
     @discardableResult
     func closeAlbum() -> AlbumReturn? {
         guard activeAlbum != nil else { return nil }
+        onFilterWillChange?()
         let target = albumReturn
         exitSelection()
         activeAlbum = nil
@@ -324,6 +339,7 @@ final class LibraryModel {
     }
 
     func selectLayout(_ layout: LibraryLayout) async {
+        onFilterWillChange?()
         exitSelection()
         activeAlbum = nil
         filters.selectLayout(layout)
@@ -335,6 +351,7 @@ final class LibraryModel {
     }
 
     func selectKind(_ kind: ItemKindFilter) async {
+        onFilterWillChange?()
         exitSelection()
         filters.selectKind(kind)
         // Keep the old grid on screen until the new page arrives, so the
@@ -346,6 +363,7 @@ final class LibraryModel {
     }
 
     func open(year: Int) async {
+        onFilterWillChange?()
         exitSelection()
         activeAlbum = nil
         filters.open(year: year)
@@ -355,6 +373,7 @@ final class LibraryModel {
     }
 
     func open(year: Int, month: Int) async {
+        onFilterWillChange?()
         exitSelection()
         activeAlbum = nil
         filters.open(year: year, month: month)
@@ -363,6 +382,7 @@ final class LibraryModel {
     }
 
     func showAllYears() async {
+        onFilterWillChange?()
         exitSelection()
         filters.showAllYears()
         months = []
@@ -370,6 +390,7 @@ final class LibraryModel {
     }
 
     func clearFilters() async {
+        onFilterWillChange?()
         exitSelection()
         activeAlbum = nil
         filters.clearFilters()
@@ -380,6 +401,7 @@ final class LibraryModel {
 
     func setCloud(_ key: String) async {
         guard key != cloud else { return }
+        onFilterWillChange?()
         exitSelection()
         cloud = key
         page = LibraryPage()
@@ -392,6 +414,7 @@ final class LibraryModel {
     /// years grid, matching `go_back()`.
     func goBack() async {
         guard filters.hasDateFilter else { return }
+        onFilterWillChange?()
         exitSelection()
         filters.showAllYears()
         filters.selectLayout(.years)
@@ -473,8 +496,13 @@ final class LibraryModel {
     /// single-item viewer instead of dropping the tap.
     func openViewer(_ item: Item) {
         guard !selectionMode else { return }
+        // The web keeps the timeline vector chronological (oldest -> newest)
+        // and feeds that same order to the viewer, so the filmstrip runs in
+        // the same direction as the grid and swiping left walks towards the
+        // newest photo. `page.items` stays newest-first for paging, so the
+        // library viewer gets the reversed snapshot.
         let list = page.items.contains(where: { $0.id == item.id })
-            ? page.items
+            ? Array(page.items.reversed())
             : [item]
         viewer.open(items: list, id: item.id)
     }

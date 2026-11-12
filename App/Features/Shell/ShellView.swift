@@ -183,18 +183,22 @@ struct ShellView: View {
            !model.library.selectionMode,
            !model.library.isAlbumOpen {
             ZStack(alignment: .topTrailing) {
-                Color.clear
+                // A real (almost transparent) rectangle is hit-testable even
+                // when the grid underneath is still moving. It swallows the
+                // whole interaction, so tapping outside closes the menu
+                // without opening the photo behind it, and a drag that starts
+                // outside can never reach the tile under the finger.
+                Rectangle()
+                    .fill(Color.white.opacity(0.001))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        model.isFilterMenuOpen = false
-                    }
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 6)
-                            .onChanged { _ in
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onEnded { _ in
                                 model.isFilterMenuOpen = false
                             }
                     )
+                    .accessibilityLabel(Strings.close)
 
                 LibraryFilterMenu(model: model)
                     .padding(.top, 2)
@@ -237,6 +241,7 @@ struct ShellView: View {
     private var floatingLayoutSwitcher: some View {
         if model.tab == .library,
            !model.library.selectionMode,
+           !model.isTabBarCompact,
            model.library.filters.layout != .all {
             LibraryLayoutSwitcher(model: model)
                 .padding(.bottom, 78)
@@ -491,15 +496,19 @@ private struct CompactShellHeader: View {
             model.isFilterMenuOpen = false
             library.enterSelection()
         } label: {
-            Text(Strings.select)
-                .font(Font.mng(13, weight: .semibold))
-                .tracking(-0.13)
-                .foregroundStyle(Palette.text)
-                .lineLimit(1)
-                .padding(.horizontal, 13)
-                .frame(height: 36)
-                .background { GlassSurface(shape: Capsule()) }
-                .contentShape(Capsule())
+            HStack(spacing: 5) {
+                Image(systemName: "checkmark.circle")
+                    .font(Font.mng(14, weight: .semibold))
+                Text(Strings.select)
+                    .font(Font.mng(13, weight: .semibold))
+                    .tracking(-0.13)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(Palette.text)
+            .padding(.horizontal, 13)
+            .frame(height: 36)
+            .background { GlassSurface(shape: Capsule()) }
+            .contentShape(Capsule())
         }
         .buttonStyle(GlassPressStyle())
         .accessibilityLabel(Strings.select)
@@ -655,9 +664,11 @@ private struct LibraryLayoutSwitcher: View {
                 let active = library.filters.layout == layout
                 Button {
                     guard !active else { return }
-                    // Leaving the timeline expands the dock and clears the
-                    // date the condensed bar was showing.
-                    model.isTabBarCompact = false
+                    // The switcher itself lives in the condensed dock, so a
+                    // layout change keeps the dock condensed. The guard stops
+                    // the content clamp that follows the reload from
+                    // expanding it again.
+                    model.isTabBarCompact = true
                     model.isFilterMenuOpen = false
                     model.compactGuardUntil = Date().addingTimeInterval(1.2)
                     library.setTimelineTopDate(nil)

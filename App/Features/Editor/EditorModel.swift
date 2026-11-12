@@ -512,6 +512,17 @@ final class EditorModel {
         applyAdjustments()
     }
 
+    /// Reset one slider, the web's gold value chip: tapping it clears the
+    /// adjustment that is on screen without touching the others.
+    func resetAdjustment(_ key: Adjustment) {
+        guard key.value(in: adjustments) != 0 else { return }
+        pushHistory()
+        var values = adjustments
+        key.set(0, in: &values)
+        adjustments = values
+        applyAdjustments()
+    }
+
     func setFilter(_ filter: EditorFilter) {
         pushHistory()
         self.filter = filter
