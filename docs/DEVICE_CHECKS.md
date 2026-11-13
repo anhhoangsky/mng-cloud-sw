@@ -27,6 +27,8 @@ usable in the simulator.
       page: only the rows around the viewport are created, and a deep fling
       stops at the shimmer boundary instead of leaving the pager dozens of
       requests behind.
+- [ ] The grid keeps three full-width columns at every scroll position; no
+      row collapses to a thin column at the left edge.
 - [ ] The kind chips (Ảnh/Video/Live/Yêu thích) filter instantly.
 - [ ] Long press opens the tile menu: yêu thích, tải xuống, thông tin, chuyển
       vào kho mã hóa, xoá.
@@ -136,7 +138,8 @@ usable in the simulator.
 - [ ] "Khung chữ" shows the dashed measured frame; the rotate and scale
       handles stay usable, the frame follows the glyphs while scaling, and a
       drag starts without a jump. The rotate handle keeps turning past ±180°
-      instead of stopping at the limit, and the 44 pt target is easy to catch.
+      instead of stopping at the limit, the text orbits its own centre rather
+      than the stage, and the 44 pt target is easy to catch.
 - [ ] The crop rail has exactly four modes (Tỉ lệ, Xoay, Trên / dưới,
       Trái / phải); the rotate/flip buttons are not repeated inside it.
 - [ ] The crop ruler covers −180…180° with the gold zero and there is no

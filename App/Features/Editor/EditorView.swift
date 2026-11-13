@@ -592,11 +592,15 @@ struct EditorView: View {
                 scaleHandle(layer, fitted: fitted)
             }
         }
+        // Rotate the node around its own centre, then place that centre on
+        // the layer point. `.position` first would make this view fill the
+        // whole stage, so the following rotation would orbit the stage
+        // centre instead of the text.
+        .rotationEffect(.degrees(Double(layer.rotation)))
         .position(
             x: CGFloat(layer.x) * fitted.width,
             y: CGFloat(layer.y) * fitted.height
         )
-        .rotationEffect(.degrees(Double(layer.rotation)))
     }
 
     /// The size the glyphs need, measured with the same font the exporter and
@@ -988,11 +992,15 @@ struct EditorView: View {
         .onSubmit {
             commitTextEditing()
         }
+        // Rotate the node around its own centre, then place that centre on
+        // the layer point. `.position` first would make this view fill the
+        // whole stage, so the following rotation would orbit the stage
+        // centre instead of the text.
+        .rotationEffect(.degrees(Double(layer.rotation)))
         .position(
             x: CGFloat(layer.x) * fitted.width,
             y: CGFloat(layer.y) * fitted.height
         )
-        .rotationEffect(.degrees(Double(layer.rotation)))
         .onAppear {
             DispatchQueue.main.async {
                 textFocus = layer.id

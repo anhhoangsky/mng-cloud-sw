@@ -30,6 +30,11 @@ struct LibraryView: View {
     /// Width of the scroll viewport, used to map a scroll offset back to a
     /// row of the full-length placeholder grid.
     @State private var viewportWidth: CGFloat = 0
+    /// Width of the timeline content, measured inside the scroll view. The
+    /// viewport preference can stay at zero on device; without this probe the
+    /// virtual grid would reserve its rows at one point wide and draw a thin
+    /// column of thumbnails at the left edge.
+    @State private var contentWidth: CGFloat = 0
     /// The largest possible scroll offset, so "at the newest photo" is a
     /// real measurement instead of a guess.
     @State private var maxScrollOffset: CGFloat = 0
@@ -159,10 +164,15 @@ struct LibraryView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .background {
                             GeometryReader { proxy in
-                                Color.clear.preference(
-                                    key: TimelineContentHeightKey.self,
-                                    value: proxy.size.height
-                                )
+                                Color.clear
+                                    .preference(
+                                        key: TimelineContentHeightKey.self,
+                                        value: proxy.size.height
+                                    )
+                                    .preference(
+                                        key: TimelineContentWidthKey.self,
+                                        value: proxy.size.width
+                                    )
                             }
                         }
                     }
@@ -242,6 +252,22 @@ struct LibraryView: View {
                             scrollProxy.scrollTo(anchor, anchor: .top)
                         }
                     }
+                }
+                .onChange(of: timelineLayoutWidth) { old, new in
+                    // The content probe resolves after the first layout. If
+                    // the grid was reserved with a fallback width, the real
+                    // width changes the content height; put the newest photo
+                    // back at the bottom unless the person already scrolled.
+                    guard library.filters.isTimeline,
+                          !library.isAlbumOpen,
+                          !library.page.items.isEmpty,
+                          !hasScrolled,
+                          new > 1,
+                          abs(new - old) > 0.5
+                    else { return }
+                    initialAnchorPending = true
+                    initialAnchorScheduled = false
+                    positionTimelineAtLatest(scrollProxy)
                 }
                 .onAppear {
                     knownItemIDs = Set(library.page.items.map(\.id))
@@ -334,6 +360,10 @@ struct LibraryView: View {
             if !usesNativeScrollGeometry {
                 refreshFallbackMaxOffset()
             }
+        }
+        .onPreferenceChange(TimelineContentWidthKey.self) { width in
+            guard abs(width - contentWidth) > 0.5 else { return }
+            contentWidth = width
         }
         .onPreferenceChange(TimelineScrollOffsetKey.self) { top in
             guard !usesNativeScrollGeometry else { return }
@@ -722,18 +752,42 @@ struct LibraryView: View {
 
     private var timelineColumnsCount: Int { 3 }
 
+    /// The width the virtual grid lays out with. The viewport preference can
+    /// stay at zero on device, so the content probe is the primary source;
+    /// the attached scroll view and the window are the last fallbacks before
+    /// the first layout pass reports anything.
+    private var timelineLayoutWidth: CGFloat {
+        if contentWidth > 1 { return contentWidth }
+        if viewportWidth > 1 { return viewportWidth }
+        if let width = hostScrollView?.bounds.width, width > 1 {
+            return width
+        }
+        return max(UIScreen.main.bounds.width, 1)
+    }
+
+    /// The height of the visible timeline. The grid only uses it to find the
+    /// overscan window; a slightly larger value is harmless.
+    private var timelineViewportHeight: CGFloat {
+        if viewportHeight > 1 { return viewportHeight }
+        if let height = hostScrollView?.bounds.height, height > 1 {
+            return height
+        }
+        return max(UIScreen.main.bounds.height, 1)
+    }
+
     /// The height of one square row including the gap below it.
     private var timelineRowHeight: CGFloat {
         let gap = Tokens.Layout.gridGap
-        guard viewportWidth > 1 else { return 1 }
-        let itemWidth = (viewportWidth - gap * CGFloat(timelineColumnsCount - 1))
+        let width = timelineLayoutWidth
+        guard width > 1 else { return 1 }
+        let itemWidth = (width - gap * CGFloat(timelineColumnsCount - 1))
             / CGFloat(timelineColumnsCount)
         return max(1, itemWidth + gap)
     }
 
     /// The chronological index of the first row under the viewport top.
     private func timelineFirstVisibleIndex() -> Int? {
-        guard viewportWidth > 1 else { return nil }
+        guard timelineLayoutWidth > 1 else { return nil }
         let rowHeight = timelineRowHeight
         return Int(max(0, scrollOffset) / rowHeight) * timelineColumnsCount
     }
@@ -746,7 +800,7 @@ struct LibraryView: View {
     private var timelineOldestAllowedOffset: CGFloat? {
         guard usesTimelinePlaceholders,
               !initialAnchorPending,
-              viewportWidth > 1
+              timelineLayoutWidth > 1
         else { return nil }
         let rowHeight = timelineRowHeight
         let boundaryRow = CGFloat(timelineLoadedBoundary / timelineColumnsCount)
@@ -1123,10 +1177,10 @@ struct LibraryView: View {
         if isCompact, !library.isAlbumOpen {
             TimelineVirtualGrid(
                 total: timelineTotal,
-                width: max(viewportWidth, 1),
+                width: timelineLayoutWidth,
                 gap: Tokens.Layout.gridGap,
                 scrollOffset: scrollOffset,
-                viewportHeight: viewportHeight,
+                viewportHeight: timelineViewportHeight,
                 columns: timelineColumnsCount,
                 overscan: 4,
                 item: { timelineItem(at: $0) },
@@ -1715,6 +1769,16 @@ private struct TimelineViewportKey: PreferenceKey {
 /// Full height of the scrollable content, used to find the bottom of the
 /// timeline without waiting for the person to scroll there.
 private struct TimelineContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+/// Width of the scroll content. The virtual grid needs the real column width
+/// even when the ScrollView's own viewport preference never resolves.
+private struct TimelineContentWidthKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
