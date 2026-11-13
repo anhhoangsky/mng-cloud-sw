@@ -2350,20 +2350,35 @@ private struct TickSlider: View {
                         let isMajor = tick % 5 == 0 || isZero
                         if tick == index(for: value) { continue }
 
-                        let height: CGFloat = ruler
-                            ? (isZero ? 24 : isMajor ? 22 : 15)
-                            : (isZero || isMajor ? 20 : 14)
-                        let color: Color = ruler
-                            ? Color.white.opacity(0.72)
-                            : Color.white.opacity(0.58)
+                        // The ruler has a clear hierarchy: the zero mark is
+                        // the tallest, the milestone marks (every fifth tick)
+                        // come next, and every other tick is shorter and
+                        // thinner so the scale reads at a glance.
+                        let height: CGFloat
+                        let thickness: CGFloat
+                        let color: Color
+                        if ruler {
+                            height = isZero ? 26 : isMajor ? 22 : 15
+                            thickness = isZero ? 2.5 : isMajor ? 2 : 1
+                            color = Color.white
+                                .opacity(isZero ? 0.98 : 0.72)
+                        } else {
+                            height = isZero ? 22 : isMajor ? 20 : 14
+                            thickness = isZero ? 2.5 : isMajor ? 2 : 1
+                            color = Color.white
+                                .opacity(isZero ? 0.92 : 0.58)
+                        }
                         let rect = CGRect(
-                            x: x - 1,
+                            x: x - thickness / 2,
                             y: centerY - height / 2,
-                            width: 2,
+                            width: thickness,
                             height: height
                         )
                         context.fill(
-                            Path(roundedRect: rect, cornerRadius: 1),
+                            Path(
+                                roundedRect: rect,
+                                cornerRadius: min(1, thickness / 2)
+                            ),
                             with: .color(color)
                         )
                     }
