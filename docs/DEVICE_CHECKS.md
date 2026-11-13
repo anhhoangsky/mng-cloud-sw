@@ -190,6 +190,11 @@ usable in the simulator.
       tools are disabled, and the text layers and hold-to-compare are hidden.
 - [ ] All AI actions work in airplane mode (Vision runs on the device).
 
+The Core ML model phase adds a separate download/fallback/hair-parity matrix;
+run the checklist in [`AI_BENCHMARK.md`](AI_BENCHMARK.md) §9 when it lands.
+The current picker is Chất lượng / Cân bằng / Nhanh; the planned one adds
+Tối đa and names the engine in the detail line.
+
 ## Administration (admin account only)
 
 - [ ] The Settings row "Quản trị người dùng" only appears for administrators.

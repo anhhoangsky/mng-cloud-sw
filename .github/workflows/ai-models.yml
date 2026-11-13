@@ -1,0 +1,66 @@
+name: ai-models
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "tools/ai/**"
+      - ".github/workflows/ai-models.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-models-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  convert:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache the pinned ONNX sources
+        uses: actions/cache@v4
+        with:
+          path: tools/ai/.cache
+          key: ai-models-${{ hashFiles('tools/ai/models.json') }}
+
+      - name: Install conversion tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install coremltools onnx onnxruntime numpy
+
+      - name: Validate the manifest
+        run: python tools/ai/convert_coreml.py --check-manifest
+
+      - name: Convert and validate
+        run: python tools/ai/convert_coreml.py --model all
+
+      - name: Show artifact summary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          summary = json.loads(Path("tools/ai/artifacts/summary.json").read_text())
+          for model in summary["models"]:
+              print(
+                  f"{model['id']}: {model['archiveBytes']:,} B "
+                  f"sha256={model['archiveSha256']} "
+                  f"max_diff={model['validation']['max_abs_diff']:.5f}"
+              )
+          PY
+
+      - name: Upload Core ML artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-coreml-${{ github.run_id }}
+          path: tools/ai/artifacts/**
+          if-no-files-found: error
+          retention-days: 30

@@ -205,13 +205,15 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - The source is decoded locally with ImageIO and the EXIF orientation applied,
   so HEIC works without the server's HEIC-only `edit-source` route.
 - Difference: the web's AI runs downloaded ONNX models (ISNet/BiRefNet/
-  MODNet, Real-ESRGAN, AI Retouch). The native AI tab is on-device instead:
-  Vision subject and person segmentation, face landmarks, and Core Image
-  compositing for the same background and retouch actions. Like the web, a
-  pass first returns a soft mask to a brush step (add/erase, size, stroke undo,
-  invert, transparent background) and the blur/retouch sliders stay live until
-  "Hoàn tất"; the mask is then baked into the source. Beauty and liquify are not
-  ported.
+  MODNet, Real-ESRGAN, AI Retouch). The native AI tab currently runs Apple
+  Vision on-device: subject and person segmentation, face landmarks, and Core
+  Image compositing for the same background and retouch actions. Like the web,
+  a pass first returns a soft mask to a brush step (add/erase, size, stroke
+  undo, invert, transparent background) and the blur/retouch sliders stay live
+  until "Hoàn tất"; the mask is then baked into the source. Beauty and liquify
+  are not ported. The planned Core ML tiers (on-demand download, BiRefNet/
+  BEN2/BiSeNet, ISNet still license-blocked) are specified in
+  [`AI_NATIVE_ENGINE.md`](AI_NATIVE_ENGINE.md) and are **not implemented yet**.
 
 ## Round 4 notes
 
@@ -300,13 +302,16 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - The timeline warms the thumbnails of the next rows (eight at a time, one
   after another) so a long library scrolls without a flash of empty tiles.
 - The AI tab uses the same actions as `ui.ts` ("Xoá phông", "Tách người", "Mờ
-  phông", "Nền trắng", then the five retouch passes) but runs Apple Vision on
-  the device instead of downloading ONNX models. Vision only produces the soft
-  mask; the full-source brush step then refines it and previews the live blur
-  and retouch settings. "Hoàn tất" bakes the result into a new source bitmap
-  while the crop, geometry, colour stack and text stay in place; the rows are
-  kept top-down through `EditorBitmap`, so the photo does not flip. The history
-  restarts and "Hoàn tác AI" restores the previous source.
+  phông", "Nền trắng", then the five retouch passes) but currently runs Apple
+  Vision on the device instead of downloading ONNX models. Vision only
+  produces the soft mask; the full-source brush step then refines it and
+  previews the live blur and retouch settings. "Hoàn tất" bakes the result into
+  a new source bitmap while the crop, geometry, colour stack and text stay in
+  place; the rows are kept top-down through `EditorBitmap`, so the photo does
+  not flip. The history restarts and "Hoàn tác AI" restores the previous
+  source. The native model plan and its measured quality audit are in
+  [`AI_NATIVE_ENGINE.md`](AI_NATIVE_ENGINE.md); the device protocol is in
+  [`AI_BENCHMARK.md`](AI_BENCHMARK.md).
 
 ## Round 5 notes
 

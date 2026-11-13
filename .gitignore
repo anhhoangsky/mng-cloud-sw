@@ -25,3 +25,9 @@ ExportOptions.plist
 *.p12
 *.mobileprovision
 AuthKey_*.p8
+
+# AI model conversion cache and generated artifacts (never commit weights)
+tools/ai/.cache/
+tools/ai/artifacts/
+__pycache__/
+*.pyc
