@@ -369,6 +369,15 @@ struct LibraryView: View {
             guard open, let scrollView = hostScrollView else { return }
             scrollView.setContentOffset(scrollView.contentOffset, animated: false)
         }
+        .onChange(of: model.compactGuardUntil) { _, _ in
+            // Tapping the active tab of the condensed dock expands it while
+            // the grid may still be decelerating, and the taller expanded
+            // dock changes the bottom inset. Stop the momentum like the
+            // filter menu does, so the expansion is not undone by the very
+            // scroll that was already in flight.
+            guard let scrollView = hostScrollView else { return }
+            scrollView.setContentOffset(scrollView.contentOffset, animated: false)
+        }
     }
 
     // MARK: - Scroll measurement
@@ -517,8 +526,16 @@ struct LibraryView: View {
         lastScrollOffset = clamped
         scrollOffset = offset
 
+        let now = Date()
+        let guarded = now < scrollGuardUntil || now < model.compactGuardUntil
+
         guard library.filters.isTimeline, !library.isAlbumOpen else {
-            model.isTabBarCompact = true
+            // Tapping the active tab of the condensed dock expands it even
+            // in the card layouts; the guard keeps the inset change of that
+            // expansion from immediately condensing it again.
+            if !guarded {
+                model.isTabBarCompact = true
+            }
             model.isHeaderFaded = false
             library.setTimelineTopDate(nil)
             if library.filters.layout != .all {
@@ -530,9 +547,6 @@ struct LibraryView: View {
 
         // The header gets its material while the page scrolls under it.
         model.isHeaderFaded = clamped > 6
-
-        let now = Date()
-        let guarded = now < scrollGuardUntil || now < model.compactGuardUntil
 
         // The initial jump to the newest photo is not a gesture. Once the
         // guard has passed, any movement is a real scroll, including a
@@ -551,7 +565,9 @@ struct LibraryView: View {
             if !dockPinnedCompact {
                 model.isTabBarCompact = false
             }
-        } else {
+        } else if !guarded {
+            // A real scroll toward older photos condenses the dock, but the
+            // callback that follows an explicit "open the dock" tap must not.
             model.isTabBarCompact = true
         }
 
