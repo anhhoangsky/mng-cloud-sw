@@ -21,7 +21,7 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 | Settings | Kết nối / iCloud / Thư viện / Tài khoản / Giới thiệu; test, rescan, retry thumbs, clear temp | 🟡 ported: cloud probe rows, iCloud status, scan/thumbs/tmp actions, storage, duplicates entry, account/about; device check pending |
 | Duplicates | legacy summary, 30 groups per page, open group in viewer | 🟡 ported: summary + pending-thumbnail note, 30 groups per page, 128 pt grid, group-seeded viewer; device check pending |
 | Vault | native list/unlock/browse/upload/folder/delete/auto-lock (the Seafile E2EE reader was removed from the web app) | 🟡 ported: vault list, unlock, browser with folders/search, 4 MiB chunked upload, encrypted preview, rename, delete, library → vault move, 15-minute auto-lock; device check pending |
-| Editor | rotate → flip → crop, adjustments, filters, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, three tabs, thirteen sliders, twelve filters, six crop ratios, edge/corner crop handles, hold-to-compare, export sheet with quality and the two save modes, multipart upload; AI/beauty/text/perspective are not ported; device check pending |
+| Editor | rotate → flip → crop, adjustments, filters, text, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, four native tabs (Tinh chỉnh / Bộ lọc / Chữ / Cắt), thirteen sliders, twenty-nine Aurum presets with six categories and the seven-slider tone tune, text layers with CoreText export burn, ratio + screen presets, crop scrim/grid/bevel handles, hold-to-compare, export sheet with quality and the two save modes, multipart upload; AI/beauty/perspective are not ported; device check pending |
 | Admin | lazy mount, users, password, activate, admin, delete, scan | 🟡 ported: Settings row for admins only, lazy list, create/reset/reprovision/update/delete/scan; device check pending |
 | iCloud | honest status, 2.2 s job poll, login/2FA/start/save/pause/cancel/logout | 🟡 ported: full importer sheet with the 2.2 s poll that stops with the sheet; device check pending |
 | PWA-only surfaces | service worker, Trusted Types, extension | ➖ |
@@ -198,9 +198,45 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - The source is decoded locally with ImageIO and the EXIF orientation applied,
   so HEIC works without the server's HEIC-only `edit-source` route.
 - Difference: the web additionally offers AI 4×, background remove/blur/
-  replace, person cutout, retouch, beauty, text layers and perspective. Those
-  are not ported yet; the user-facing AI panel only appears on a deployment
-  with the models installed.
+  replace, person cutout, retouch, beauty and perspective. Those are not ported
+  yet; the user-facing AI panel only appears on a deployment with the models
+  installed.
+
+## Round 4 notes
+
+- The library header controls are 40 pt now (back, filter, select) with
+  slightly larger glyphs. The library keeps a light top-down glass veil at all
+  times so the floating title stays legible over a bright photo; the stronger
+  scroll scrim on the other tabs is unchanged.
+- The filter rail is the complete Aurum catalog: twenty-nine presets in the
+  `all / root / meitu / xingtu / lr / mono` categories, the preset hint line,
+  and the same colour-transform recipes as `src/core/color.ts` (gains,
+  contrast, saturation and offsets). Tapping the active preset again returns
+  to "Nguyên bản", exactly like the web rail. Legacy keys (`fade`, `natural`,
+  `korea`, `japan`, `skin`) still decode.
+- The filter pane's "Tùy chỉnh tone" section is collapsible and writes the same
+  seven adjustments (`brightness`, `contrast`, `saturation`, `warmth`, `tint`,
+  `vibrance`, `vignette`) back into the Adjust tab; the vignette range is
+  0…100 and every other slider is −100…100.
+- The Adjust pane keeps the gold "Tự động" action fixed on the left, scrolls
+  the grouped parameter chips underneath it, and keeps the gold value/reset
+  chip fixed on the right, like `.au-deck__row--adjust`.
+- The text tab is a native overlay, not a web view. Layers use normalized
+  centres and a size fraction of the export height, support the four quick
+  styles, five fonts, colour, bold/italic/outline/shadow, opacity and rotation,
+  and are dragged, pinched and rotated on the stage. "Chạm đặt" arms a one-shot
+  tap-to-place mode. Export burns the layers into the rendered bitmap with
+  CoreText; an empty layer is removed so invisible text cannot reach the file.
+- The crop tab exposes ratio and quarter-turn rotation modes. The ratio rail
+  includes `free`, `1:1`, `4:3`, `3:4`, `16:9`, `9:16` and `screen`; `screen`
+  uses the stage viewport. The scrim is a real glass sheet with a crop-shaped
+  hole, the thirds grid only appears while the frame is dragged or rotated,
+  and the corners are 24 pt bevelled gold handles with gold edge bars. Header
+  and dock fade during a crop drag, a ratio change and a rotation, like
+  `au-cropping` / `au-ratioing` / `au-rotating`.
+- Still native-only gaps: the AI/beauty/retouch tools, perspective crop,
+  continuous (non-quarter-turn) rotation, user-saved filter presets and the
+  web's separate text textarea in the deck.
 
 ## P9 notes
 

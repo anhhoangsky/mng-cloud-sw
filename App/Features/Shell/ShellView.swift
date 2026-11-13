@@ -394,10 +394,10 @@ private struct CompactShellHeader: View {
                 ZStack {
                     GlassSurface(shape: Circle())
                     Image(systemName: "chevron.left")
-                        .font(Font.mng(20, weight: .semibold))
+                        .font(Font.mng(21, weight: .semibold))
                         .foregroundStyle(Palette.text2)
                 }
-                .frame(width: 36, height: 36)
+                .frame(width: 40, height: 40)
                 .contentShape(Circle())
             }
             .buttonStyle(GlassPressStyle(scale: 0.93))
@@ -419,41 +419,50 @@ private struct CompactShellHeader: View {
         }
     }
 
-    /// The translucent gradient behind the header on every view except the
-    /// Library. The library floats its title directly over the photos.
+    /// The glass gradient behind the header. The Library floats its title
+    /// directly over the photos, so it gets a lighter top-down veil that keeps
+    /// the title legible without hiding the grid. Every other view keeps the
+    /// stronger scrim that fades in once the page scrolls.
     @ViewBuilder
     private var headerScrim: some View {
-        if model.tab != .library {
-            ZStack {
-                Rectangle().fill(.ultraThinMaterial)
-                LinearGradient(
-                    stops: [
-                        .init(color: Palette.bg.opacity(0.96), location: 0),
-                        .init(color: Palette.bg.opacity(0.88), location: 0.72),
-                        .init(color: .clear, location: 1),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
-            .mask(
-                LinearGradient(
-                    stops: [
-                        .init(color: .black, location: 0),
-                        .init(color: .black, location: 0.78),
-                        .init(color: .clear, location: 1),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
+        let isLibrary = model.tab == .library
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .opacity(isLibrary ? 0.72 : 1)
+            LinearGradient(
+                stops: [
+                    .init(
+                        color: Palette.bg.opacity(isLibrary ? 0.78 : 0.96),
+                        location: 0
+                    ),
+                    .init(
+                        color: Palette.bg.opacity(isLibrary ? 0.52 : 0.88),
+                        location: isLibrary ? 0.58 : 0.72
+                    ),
+                    .init(color: .clear, location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
             )
-            // The web header paints from the top of the screen, behind the
-            // status bar. The inset starts below it, so reach back up.
-            .ignoresSafeArea(edges: .top)
-            .opacity(model.isHeaderFaded ? 1 : 0)
-            .animation(.easeOut(duration: 0.18), value: model.isHeaderFaded)
-            .allowsHitTesting(false)
         }
+        .mask(
+            LinearGradient(
+                stops: [
+                    .init(color: .black, location: 0),
+                    .init(color: .black, location: isLibrary ? 0.62 : 0.78),
+                    .init(color: .clear, location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+        // The web header paints from the top of the screen, behind the
+        // status bar. The inset starts below it, so reach back up.
+        .ignoresSafeArea(edges: .top)
+        .opacity(isLibrary ? 1 : (model.isHeaderFaded ? 1 : 0))
+        .animation(.easeOut(duration: 0.18), value: model.isHeaderFaded)
+        .allowsHitTesting(false)
     }
 
     private var filterButton: some View {
@@ -463,13 +472,13 @@ private struct CompactShellHeader: View {
             ZStack {
                 GlassSurface(shape: Circle())
                 Image(systemName: "line.3.horizontal.decrease")
-                    .font(Font.mng(19, weight: .semibold))
+                    .font(Font.mng(20, weight: .semibold))
                     .foregroundStyle(
                         model.isFilterMenuOpen ? Palette.accent : Palette.text2
                     )
                     .rotationEffect(.degrees(model.isFilterMenuOpen ? 90 : 0))
             }
-            .frame(width: 36, height: 36)
+            .frame(width: 40, height: 40)
             .overlay(alignment: .topTrailing) {
                 if library.filters.summary != nil {
                     Circle()
@@ -478,7 +487,7 @@ private struct CompactShellHeader: View {
                         .overlay {
                             Circle().stroke(Palette.bgElevated, lineWidth: 2)
                         }
-                        .padding(7)
+                        .padding(8)
                 }
             }
             .contentShape(Circle())
@@ -498,15 +507,15 @@ private struct CompactShellHeader: View {
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: "checkmark.circle")
-                    .font(Font.mng(14, weight: .semibold))
+                    .font(Font.mng(15, weight: .semibold))
                 Text(Strings.select)
-                    .font(Font.mng(13, weight: .semibold))
+                    .font(Font.mng(14, weight: .semibold))
                     .tracking(-0.13)
                     .lineLimit(1)
             }
             .foregroundStyle(Palette.text)
-            .padding(.horizontal, 13)
-            .frame(height: 36)
+            .padding(.horizontal, 14)
+            .frame(height: 40)
             .background { GlassSurface(shape: Capsule()) }
             .contentShape(Capsule())
         }

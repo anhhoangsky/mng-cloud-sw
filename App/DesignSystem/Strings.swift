@@ -399,17 +399,51 @@ enum Strings {
     static let editorGammaShort = "Gamma"
     static let editorVignetteShort = "Mờ góc"
     static let editorFilterOriginal = "Nguyên bản"
-    static let editorFilterVivid = "Rực rỡ"
-    static let editorFilterWarm = "Ấm áp"
-    static let editorFilterCool = "Mát lạnh"
+    static let editorFilterVivid = "Sống động"
+    static let editorFilterWarm = "Ấm"
+    static let editorFilterCool = "Lạnh"
     static let editorFilterMono = "Đen trắng"
-    static let editorFilterFade = "Mờ ảo"
     static let editorFilterDramatic = "Kịch tính"
     static let editorFilterVintage = "Cổ điển"
-    static let editorFilterNatural = "Tự nhiên"
-    static let editorFilterKorea = "Hàn Quốc"
-    static let editorFilterJapan = "Nhật Bản"
-    static let editorFilterSkin = "Sáng da"
+    // Filter categories
+    static let editorFilterCatAll = "Tất cả"
+    static let editorFilterCatRoot = "Chuẩn"
+    static let editorFilterCatMeitu = "Meitu"
+    static let editorFilterCatXingtu = "Xingtu"
+    static let editorFilterCatLr = "Lightroom"
+    static let editorFilterCatMono = "Đen trắng"
+    // Adjust group captions
+    static let editorGroupLight = "Ánh sáng"
+    static let editorGroupColor = "Màu"
+    static let editorGroupEffect = "Hiệu ứng"
+    // Tone tuning
+    static let editorTuneTitle = "Tùy chỉnh tone"
+    static let editorTuneHint = "Chọn tone, kéo slider để tinh chỉnh rồi Lưu."
+    static let editorTuneReset = "Reset tone"
+    // Text
+    static let editorTextTab = "Chữ"
+    static let editorTextAdd = "Thêm chữ"
+    static let editorTextPlace = "Chạm đặt"
+    static let editorTextInput = "Nội dung chữ…"
+    static let editorTextTitle = "Kiểu chữ"
+    static let editorTextTitleBold = "Chữ đậm"
+    static let editorTextCaption = "Chú thích"
+    static let editorTextOutlineStyle = "Viền nổi"
+    static let editorTextColor = "Màu chữ"
+    static let editorTextBold = "Đậm"
+    static let editorTextItalic = "Nghiêng"
+    static let editorTextOutline = "Viền"
+    static let editorTextShadow = "Bóng đổ"
+    static let editorTextDuplicate = "Nhân đôi"
+    static let editorTextDelete = "Xoá chữ"
+    static let editorTextOpacity = "Độ mờ"
+    static let editorTextEmpty = "Chưa có chữ. Bấm Thêm chữ để bắt đầu."
+    static let editorTextHint = "Chạm đúp vào chữ để sửa • Kéo để di chuyển • Chụm 2 ngón để co giãn"
+    // Crop modes
+    static let editorCropRatio = "Tỉ lệ"
+    static let editorCropRotation = "Xoay"
+    static let editorCropFree = "Tự do"
+    static let editorCropScreen = "Màn hình"
     static let editorUndo = "Hoàn tác"
     static let editorRedo = "Làm lại"
     static let editorAuto = "Tự động"
@@ -596,18 +630,77 @@ enum Strings {
     /// Title of one editor filter chip.
     static func editorFilterTitle(_ filter: EditorFilter) -> String {
         switch filter {
-        case .original: return editorFilterOriginal
-        case .vivid: return editorFilterVivid
-        case .dramatic: return editorFilterDramatic
-        case .mono: return editorFilterMono
-        case .vintage: return editorFilterVintage
-        case .warm: return editorFilterWarm
-        case .cool: return editorFilterCool
-        case .fade: return editorFilterFade
-        case .natural: return editorFilterNatural
-        case .korea: return editorFilterKorea
-        case .japan: return editorFilterJapan
-        case .skin: return editorFilterSkin
+        case .original: return "Nguyên bản"
+        case .vivid: return "Sống động"
+        case .dramatic: return "Kịch tính"
+        case .mono: return "Đen trắng"
+        case .vintage: return "Cổ điển"
+        case .warm: return "Ấm"
+        case .cool: return "Lạnh"
+        case .meituNatural: return "Tự nhiên"
+        case .meituKorea: return "Hàn Quốc"
+        case .meituJapan: return "Nhật Bản"
+        case .meituSkin: return "Sáng da"
+        case .meituPink: return "Hồng đào"
+        case .meituWhite: return "Trắng sáng"
+        case .xingtuFilm: return "Điện ảnh"
+        case .xingtuHK: return "Hồng Kông"
+        case .xingtuShowa: return "Chiêu Hoà"
+        case .xingtuKama: return "Kamakura"
+        case .xingtuNight: return "Ban đêm"
+        case .xingtuMorning: return "Buổi sáng"
+        case .lrCinema: return "Cinematic"
+        case .lrMoody: return "Moody"
+        case .lrVibrant: return "Vibrant"
+        case .lrPastel: return "Pastel"
+        case .lrDesert: return "Sa mạc"
+        case .lrStreet: return "Đường phố"
+        case .lrFaded: return "Mờ phai"
+        case .lrTeal: return "Teal"
+        case .monoWarm: return "Đen trắng ấm"
+        case .monoCool: return "Đen trắng lạnh"
+        }
+    }
+
+    /// The one-line hint under the category rail, the web `hint` of the preset.
+    static func editorFilterHint(_ filter: EditorFilter) -> String {
+        switch filter {
+        case .original: return "Không đổi màu"
+        case .meituNatural: return "Meitu · Sáng nhẹ, giữ tông da tự nhiên"
+        case .meituKorea: return "Meitu · Da hồng sáng, tương phản mềm"
+        case .meituJapan: return "Meitu · Trong vắt, đỡ gắt"
+        case .meituSkin: return "Meitu · Nâng sáng vùng da, giữ chi tiết"
+        case .meituPink: return "Meitu · Hồng ấm, hợp chân dung"
+        case .meituWhite: return "Meitu · Sáng tinh khôi, giảm bão hoà nhẹ"
+        case .xingtuFilm: return "Xingtu · Teal–orange mềm, hợp đường phố"
+        case .xingtuHK: return "Xingtu · Đêm đô thị, xanh lạnh"
+        case .xingtuShowa: return "Xingtu · Hoài cổ, phai màu nhẹ"
+        case .xingtuKama: return "Xingtu · Bình minh biển, ấm sáng"
+        case .xingtuNight: return "Xingtu · Đêm sâu, giữ bóng tối"
+        case .xingtuMorning: return "Xingtu · Nắng sớm, ấm và trong"
+        case .lrCinema: return "Lightroom · Điện ảnh tương phản mạnh"
+        case .lrMoody: return "Lightroom · Ẩm ướt, bóng gắt"
+        case .lrVibrant: return "Lightroom · Màu rực, hợp phong cảnh"
+        case .lrPastel: return "Lightroom · Nhẹ, trong, chữ chụp đồ"
+        case .lrDesert: return "Lightroom · Vàng cát ấm"
+        case .lrStreet: return "Lightroom · Grit, hợp street life"
+        case .lrFaded: return "Lightroom · Film phai, giảm tương phản"
+        case .lrTeal: return "Lightroom · Xanh teal mát"
+        case .monoWarm: return "Đen trắng · Ấm hạt"
+        case .monoCool: return "Đen trắng · Lạnh, gắt"
+        case .vivid, .dramatic, .mono, .vintage, .warm, .cool:
+            return "Chuẩn · Cân bằng màu của Aurum"
+        }
+    }
+
+    /// The label of a filter category chip.
+    static func editorFilterCategoryTitle(_ category: EditorFilterCategory) -> String {
+        switch category {
+        case .root: return editorFilterCatRoot
+        case .meitu: return editorFilterCatMeitu
+        case .xingtu: return editorFilterCatXingtu
+        case .lr: return editorFilterCatLr
+        case .mono: return editorFilterCatMono
         }
     }
 

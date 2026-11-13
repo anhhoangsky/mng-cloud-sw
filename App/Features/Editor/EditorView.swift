@@ -29,6 +29,55 @@ struct EditorView: View {
     @State private var exportOpen = false
     /// True while the person holds the compare button down.
     @State private var isComparing = false
+    /// The size of the stage, used by the screen aspect preset.
+    @State private var stageSize: CGSize = .zero
+    /// The text layer whose inline field is open, and its draft.
+    @State private var editingTextId: String?
+    @State private var textDraft = ""
+    @FocusState private var textFocus: String?
+    /// The one-shot "tap the photo to place text" mode of the web pane.
+    @State private var textPlacing = false
+    /// The quick style the selected layer was given in this pane.
+    @State private var activeTextStyle: EditorModel.TextStyle = .title
+    /// The rail of the crop pane.
+    @State private var cropMode: CropMode = .ratio
+    /// Interaction states that fade the chrome and reveal the crop grid,
+    /// mirroring the web's `au-cropping` / `au-ratioing` / `au-rotating`.
+    @State private var isCropDragging = false
+    @State private var isRatioing = false
+    @State private var isRotating = false
+    @State private var ratioResetTask: Task<Void, Never>?
+    /// The origin of a text node gesture, so every change is relative to the
+    /// first frame instead of accumulating rounding errors.
+    @State private var textDragId: String?
+    @State private var textDragOrigin: CGPoint = .zero
+    @State private var textScaleOrigin: Float?
+    @State private var textScaleStartDistance: CGFloat = 1
+    @State private var textRotateOrigin: Float?
+    @State private var textRotateStartAngle: CGFloat = 0
+
+    /// The modes of the crop pane. The engine stores only quarter turns, so
+    /// the web's two perspective modes are not offered.
+    private enum CropMode: String, CaseIterable, Identifiable {
+        case ratio
+        case rotation
+
+        var id: String { rawValue }
+
+        var title: String {
+            self == .ratio ? Strings.editorCropRatio : Strings.editorCropRotation
+        }
+
+        var icon: String {
+            self == .ratio ? "crop" : "rotate.right"
+        }
+    }
+
+    private static let textStageSpace = "editorTextStage"
+    private static let tuneKeys: [EditorModel.Adjustment] = [
+        .brightness, .contrast, .saturation,
+        .warmth, .tint, .vibrance, .vignette,
+    ]
 
     enum Phase: Equatable {
         case loading
@@ -45,9 +94,15 @@ struct EditorView: View {
 
             VStack(spacing: 0) {
                 header
+                    .opacity(chromeHidden ? 0 : 1)
+                    .allowsHitTesting(!chromeHidden)
+                    .animation(.easeOut(duration: 0.18), value: chromeHidden)
                 stage
                 pane
                 dock
+                    .opacity(chromeHidden ? 0 : 1)
+                    .allowsHitTesting(!chromeHidden)
+                    .animation(.easeOut(duration: 0.18), value: chromeHidden)
             }
 
             if phase == .loading {
@@ -94,19 +149,52 @@ struct EditorView: View {
             }
         }
         .onDisappear {
+            ratioResetTask?.cancel()
+            commitTextEditing()
             editor.close()
         }
         .onChange(of: editor.tab) { _, tab in
-            // The crop frame is drawn over the fitted photo, not over the
-            // zoomed one, so entering the crop resets the stage zoom.
-            guard tab == .crop else { return }
-            withAnimation(.easeOut(duration: 0.2)) {
+            commitTextEditing()
+            textPlacing = false
+            if tab != .crop {
+                isCropDragging = false
+                isRatioing = false
+                isRotating = false
+            }
+            if tab == .text {
                 stageScale = 1
                 stageOffset = .zero
                 gestureScale = 1
                 gestureOffset = .zero
             }
+            guard tab == .crop else { return }
+            // The crop frame is drawn over the fitted photo, not over the
+            // zoomed one, so entering the crop resets the stage zoom.
+            withAnimation(.easeOut(duration: 0.2)) {
+                stageScale = 1
+                stageOffset = .zero
+                gestureScale = 1
+                gestureOffset = .zero
+                cropMode = .ratio
+            }
         }
+        .onChange(of: textFocus) { _, focus in
+            if focus == nil, editingTextId != nil {
+                commitTextEditing()
+            }
+        }
+    }
+
+    /// The chrome fades while the crop frame, the ratio rail or the rotation
+    /// ruler owns the screen, like the web's `au-cropping` classes.
+    private var chromeHidden: Bool {
+        editor.tab == .crop && (isCropDragging || isRatioing || isRotating)
+    }
+
+    /// The mode rail fades during a ratio change and a rotation, but stays
+    /// while the frame is dragged (the web keeps the deck there).
+    private var cropModesHidden: Bool {
+        editor.tab == .crop && (isRatioing || isRotating)
     }
 
     // MARK: - Header
@@ -209,10 +297,12 @@ struct EditorView: View {
 
     // MARK: - Stage
 
-    /// The photo with the crop rectangle on top.
+    /// The photo with the crop rectangle and, outside the crop tab, the text
+    /// layers on top.
     ///
     /// The stage can be panned, pinched and tapped twice, so the person can
-    /// look at a detail before cropping.
+    /// look at a detail before cropping. In the text tab the subview gestures
+    /// own the screen instead of the stage pan.
     private var stage: some View {
         GeometryReader { geometry in
             ZStack {
@@ -221,26 +311,42 @@ struct EditorView: View {
                 if let preview = displayedPreview {
                     let fitted = fittedSize(image: preview, in: geometry.size)
                     ZStack(alignment: .topLeading) {
-                        Image(uiImage: preview)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: fitted.width, height: fitted.height)
-                            .scaleEffect(stageScale * gestureScale)
-                            .offset(
-                                x: stageOffset.width + gestureOffset.width,
-                                y: stageOffset.height + gestureOffset.height
-                            )
-                            .position(
-                                x: geometry.size.width / 2,
-                                y: geometry.size.height / 2
-                            )
+                        ZStack(alignment: .topLeading) {
+                            Image(uiImage: preview)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: fitted.width, height: fitted.height)
+
+                            if editor.tab != .crop, !isComparing {
+                                textOverlay(fitted: fitted)
+                                    .frame(width: fitted.width, height: fitted.height)
+                            }
+                        }
+                        .frame(width: fitted.width, height: fitted.height)
+                        .scaleEffect(stageScale * gestureScale)
+                        .offset(
+                            x: stageOffset.width + gestureOffset.width,
+                            y: stageOffset.height + gestureOffset.height
+                        )
+                        .position(
+                            x: geometry.size.width / 2,
+                            y: geometry.size.height / 2
+                        )
 
                         if editor.tab == .crop, !isComparing {
                             CropOverlay(
                                 crop: editor.crop,
                                 isFixedAspect: editor.aspect != .free,
+                                scrimVisible: !isCropDragging && !isRatioing,
+                                showGrid: isCropDragging || isRotating,
+                                isRotating: isRotating,
                                 onChange: { editor.setCrop($0) },
-                                onBegin: { editor.beginCropEdit() }
+                                onBegin: { editor.beginCropEdit() },
+                                onDragState: { active in
+                                    withAnimation(.easeOut(duration: 0.18)) {
+                                        isCropDragging = active
+                                    }
+                                }
                             )
                             .frame(width: fitted.width, height: fitted.height)
                             .position(
@@ -272,7 +378,8 @@ struct EditorView: View {
                         stageOffset.width += value.translation.width
                         stageOffset.height += value.translation.height
                         gestureOffset = .zero
-                    }
+                    },
+                including: editor.tab == .text ? .subviews : .all
             )
             .simultaneousGesture(
                 MagnificationGesture()
@@ -283,9 +390,11 @@ struct EditorView: View {
                         pinchStart = max(min(stageScale * value, 6), 1)
                         stageScale = pinchStart
                         gestureScale = 1
-                    }
+                    },
+                including: editor.tab == .text ? .subviews : .all
             )
             .onTapGesture(count: 2) {
+                guard editor.tab != .text else { return }
                 withAnimation(.easeOut(duration: 0.22)) {
                     if stageScale > 1.05 {
                         stageScale = 1
@@ -295,9 +404,496 @@ struct EditorView: View {
                     }
                 }
             }
+            .onAppear {
+                stageSize = geometry.size
+            }
+            .onChange(of: geometry.size) { _, size in
+                stageSize = size
+            }
         }
         .frame(maxHeight: .infinity)
         .clipped()
+    }
+
+    // MARK: - Text layers
+
+    /// The text nodes over the photo. The whole layer is normalized to the
+    /// fitted image, so the preview and the full-resolution export line up.
+    @ViewBuilder
+    private func textOverlay(fitted: CGSize) -> some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(editor.texts) { layer in
+                if editingTextId == layer.id {
+                    inlineTextEditor(layer, fitted: fitted)
+                } else {
+                    textNode(layer, fitted: fitted)
+                }
+            }
+
+            // "Chạm đặt" is a one-shot mode: the next tap on the photo adds
+            // the layer exactly where the finger landed and opens the field.
+            if textPlacing {
+                Rectangle()
+                    .fill(Color.clear)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        SpatialTapGesture()
+                            .onEnded { value in
+                                let x = Float(
+                                    value.location.x / max(fitted.width, 1)
+                                )
+                                let y = Float(
+                                    value.location.y / max(fitted.height, 1)
+                                )
+                                guard x >= 0.03, x <= 0.97,
+                                      y >= 0.03, y <= 0.97 else {
+                                    return
+                                }
+                                placeText(x: x, y: y)
+                            }
+                    )
+            }
+        }
+        .frame(
+            width: fitted.width,
+            height: fitted.height,
+            alignment: .topLeading
+        )
+        .coordinateSpace(name: Self.textStageSpace)
+    }
+
+    private func textNode(
+        _ layer: EditorTextLayer,
+        fitted: CGSize
+    ) -> some View {
+        let selected = editor.tab == .text && editor.selectedTextId == layer.id
+        let fontSize = max(10, fitted.height * CGFloat(layer.size))
+        let widthLimit = max(fitted.width * 0.7, 60)
+
+        return textGlyphs(layer, fontSize: fontSize)
+            .frame(maxWidth: widthLimit)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .overlay {
+                if selected {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(
+                            Aurum.gold.opacity(0.75),
+                            style: StrokeStyle(
+                                lineWidth: 1,
+                                dash: [4, 3]
+                            )
+                        )
+                        .padding(-6)
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if selected {
+                    Circle()
+                        .fill(Aurum.gold)
+                        .frame(width: 10, height: 10)
+                        .overlay {
+                            Circle().stroke(Color.black.opacity(0.6), lineWidth: 1.5)
+                        }
+                        .offset(x: -10, y: -10)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if selected {
+                    Circle()
+                        .fill(Aurum.gold)
+                        .frame(width: 10, height: 10)
+                        .overlay {
+                            Circle().stroke(Color.black.opacity(0.6), lineWidth: 1.5)
+                        }
+                        .offset(x: 10, y: 10)
+                }
+            }
+            .overlay(alignment: .top) {
+                if selected {
+                    VStack(spacing: 0) {
+                        rotateHandle(layer, fitted: fitted)
+                        Capsule()
+                            .fill(Aurum.gold.opacity(0.9))
+                            .frame(width: 2, height: 14)
+                    }
+                    .offset(y: -42)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if selected {
+                    scaleHandle(layer, fitted: fitted)
+                        .offset(x: 14, y: 14)
+                }
+            }
+            .contentShape(Rectangle())
+            .position(
+                x: CGFloat(layer.x) * fitted.width,
+                y: CGFloat(layer.y) * fitted.height
+            )
+            .rotationEffect(.degrees(Double(layer.rotation)))
+            .onTapGesture(count: 2) {
+                beginEditing(layer)
+            }
+            .onTapGesture {
+                if editingTextId != nil {
+                    commitTextEditing()
+                }
+                editor.selectText(layer.id)
+            }
+            .gesture(moveTextGesture(layer, fitted: fitted))
+            .simultaneousGesture(scaleTextGesture(layer, fitted: fitted))
+            .simultaneousGesture(rotateTextGesture(layer, fitted: fitted))
+            // Outside the text tab the stage owns the pan and the pinch, so
+            // the layer is visible but transparent to the finger.
+            .allowsHitTesting(editor.tab == .text)
+    }
+
+    private func textGlyphs(
+        _ layer: EditorTextLayer,
+        fontSize: CGFloat
+    ) -> some View {
+        let color = Palette.mngHex(layer.color) ?? .white
+        let content = layer.text.isEmpty ? " " : layer.text
+        let font = textFont(layer, size: fontSize)
+        let alignment: TextAlignment
+        switch layer.align {
+        case .left: alignment = .leading
+        case .center: alignment = .center
+        case .right: alignment = .trailing
+        }
+        let stroke = max(1, fontSize * 0.045)
+
+        return ZStack {
+            if layer.outline {
+                ForEach(0..<8, id: \.self) { index in
+                    let angle = Double(index) * .pi / 4
+                    Text(content)
+                        .font(font)
+                        .foregroundStyle(Color.black.opacity(0.9))
+                        .multilineTextAlignment(alignment)
+                        .offset(
+                            x: stroke * CGFloat(cos(angle)),
+                            y: stroke * CGFloat(sin(angle))
+                        )
+                }
+            }
+            Text(content)
+                .font(font)
+                .foregroundStyle(color)
+                .multilineTextAlignment(alignment)
+                .shadow(
+                    color: layer.shadow ? Color.black.opacity(0.6) : .clear,
+                    radius: layer.shadow ? fontSize * 0.18 : 0,
+                    y: layer.shadow ? fontSize * 0.08 : 0
+                )
+        }
+        .opacity(Double(layer.opacity))
+        .accessibilityLabel(content)
+    }
+
+    private func textFont(_ layer: EditorTextLayer, size: CGFloat) -> Font {
+        let base: Font
+        switch layer.font {
+        case .sys:
+            base = .system(size: size)
+        case .serif:
+            base = .custom("Georgia", size: size)
+        case .mono:
+            base = .custom("Menlo", size: size)
+        case .round:
+            base = .custom("ArialRoundedMTBold", size: size)
+        case .heavy:
+            base = .custom("Arial-Black", size: size)
+        }
+        var font = layer.bold ? base.weight(.bold) : base
+        if layer.italic {
+            font = font.italic()
+        }
+        return font
+    }
+
+    private func rotateHandle(
+        _ layer: EditorTextLayer,
+        fitted: CGSize
+    ) -> some View {
+        Circle()
+            .fill(Aurum.gold)
+            .frame(width: 28, height: 28)
+            .overlay {
+                Circle().stroke(Color.black.opacity(0.6), lineWidth: 2)
+            }
+            .overlay {
+                Image(systemName: "rotate.right")
+                    .font(Font.mng(11, weight: .bold))
+                    .foregroundStyle(Color.black.opacity(0.65))
+            }
+            .shadow(color: Color.black.opacity(0.5), radius: 6, y: 3)
+            .contentShape(Circle())
+            .highPriorityGesture(rotateHandleGesture(layer, fitted: fitted))
+    }
+
+    private func scaleHandle(
+        _ layer: EditorTextLayer,
+        fitted: CGSize
+    ) -> some View {
+        Circle()
+            .fill(Aurum.gold)
+            .frame(width: 28, height: 28)
+            .overlay {
+                Circle().stroke(Color.black.opacity(0.6), lineWidth: 2)
+            }
+            .overlay {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(Font.mng(9, weight: .bold))
+                    .foregroundStyle(Color.black.opacity(0.65))
+            }
+            .shadow(color: Color.black.opacity(0.5), radius: 6, y: 3)
+            .contentShape(Circle())
+            .highPriorityGesture(scaleHandleGesture(layer, fitted: fitted))
+    }
+
+    private func moveTextGesture(
+        _ layer: EditorTextLayer,
+        fitted: CGSize
+    ) -> some Gesture {
+        DragGesture(
+            minimumDistance: 3,
+            coordinateSpace: .named(Self.textStageSpace)
+        )
+        .onChanged { value in
+            if textDragId != layer.id {
+                textDragId = layer.id
+                textDragOrigin = CGPoint(
+                    x: CGFloat(layer.x),
+                    y: CGFloat(layer.y)
+                )
+                editor.selectText(layer.id)
+            }
+            let dx = Float(
+                (value.location.x - value.startLocation.x)
+                    / max(fitted.width, 1)
+            )
+            let dy = Float(
+                (value.location.y - value.startLocation.y)
+                    / max(fitted.height, 1)
+            )
+            editor.updateText(layer.id, coalescing: true) { text in
+                text.x = Float(textDragOrigin.x) + dx
+                text.y = Float(textDragOrigin.y) + dy
+            }
+        }
+        .onEnded { _ in
+            textDragId = nil
+        }
+    }
+
+    private func scaleTextGesture(
+        _ layer: EditorTextLayer,
+        fitted: CGSize
+    ) -> some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                if textScaleOrigin == nil {
+                    textScaleOrigin = layer.size
+                    editor.selectText(layer.id)
+                }
+                let origin = textScaleOrigin ?? layer.size
+                editor.updateText(layer.id, coalescing: true) { text in
+                    text.size = origin * Float(value)
+                }
+            }
+            .onEnded { _ in
+                textScaleOrigin = nil
+            }
+    }
+
+    private func rotateTextGesture(
+        _ layer: EditorTextLayer,
+        fitted: CGSize
+    ) -> some Gesture {
+        RotationGesture()
+            .onChanged { value in
+                if textRotateOrigin == nil {
+                    textRotateOrigin = layer.rotation
+                    editor.selectText(layer.id)
+                }
+                let origin = textRotateOrigin ?? layer.rotation
+                editor.updateText(layer.id, coalescing: true) { text in
+                    text.rotation = origin
+                        + Float(value.degrees)
+                }
+            }
+            .onEnded { _ in
+                textRotateOrigin = nil
+            }
+    }
+
+    private func rotateHandleGesture(
+        _ layer: EditorTextLayer,
+        fitted: CGSize
+    ) -> some Gesture {
+        DragGesture(
+            minimumDistance: 0,
+            coordinateSpace: .named(Self.textStageSpace)
+        )
+        .onChanged { value in
+            let center = CGPoint(
+                x: CGFloat(layer.x) * fitted.width,
+                y: CGFloat(layer.y) * fitted.height
+            )
+            let angle = atan2(
+                value.location.y - center.y,
+                value.location.x - center.x
+            ) * 180 / .pi
+            if textRotateOrigin == nil {
+                textRotateOrigin = layer.rotation
+                textRotateStartAngle = angle
+                editor.selectText(layer.id)
+            }
+            let delta = angle - textRotateStartAngle
+            let origin = textRotateOrigin ?? layer.rotation
+            editor.updateText(layer.id, coalescing: true) { text in
+                text.rotation = origin + Float(delta)
+            }
+        }
+        .onEnded { _ in
+            textRotateOrigin = nil
+        }
+    }
+
+    private func scaleHandleGesture(
+        _ layer: EditorTextLayer,
+        fitted: CGSize
+    ) -> some Gesture {
+        DragGesture(
+            minimumDistance: 0,
+            coordinateSpace: .named(Self.textStageSpace)
+        )
+        .onChanged { value in
+            let center = CGPoint(
+                x: CGFloat(layer.x) * fitted.width,
+                y: CGFloat(layer.y) * fitted.height
+            )
+            let distance = max(
+                hypot(
+                    value.location.x - center.x,
+                    value.location.y - center.y
+                ),
+                1
+            )
+            if textScaleOrigin == nil {
+                textScaleOrigin = layer.size
+                textScaleStartDistance = distance
+                editor.selectText(layer.id)
+            }
+            let factor = distance / max(textScaleStartDistance, 1)
+            let origin = textScaleOrigin ?? layer.size
+            editor.updateText(layer.id, coalescing: true) { text in
+                text.size = origin * Float(factor)
+            }
+        }
+        .onEnded { _ in
+            textScaleOrigin = nil
+        }
+    }
+
+    private func inlineTextEditor(
+        _ layer: EditorTextLayer,
+        fitted: CGSize
+    ) -> some View {
+        let width = min(max(fitted.width * 0.72, 150), 340)
+        return TextField(
+            Strings.editorTextInput,
+            text: $textDraft,
+            axis: .vertical
+        )
+        .font(
+            .system(
+                size: max(13, min(fitted.height * CGFloat(layer.size), 22)),
+                weight: .semibold
+            )
+        )
+        .foregroundStyle(Color.white)
+        .multilineTextAlignment(.center)
+        .lineLimit(1...4)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(width: width)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(
+                    Color(red: 0.078, green: 0.078, blue: 0.094)
+                        .opacity(0.96)
+                )
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Aurum.gold.opacity(0.7), lineWidth: 1)
+        }
+        .focused($textFocus, equals: layer.id)
+        .submitLabel(.done)
+        .onSubmit {
+            commitTextEditing()
+        }
+        .position(
+            x: CGFloat(layer.x) * fitted.width,
+            y: CGFloat(layer.y) * fitted.height
+        )
+        .rotationEffect(.degrees(Double(layer.rotation)))
+        .onAppear {
+            DispatchQueue.main.async {
+                textFocus = layer.id
+            }
+        }
+    }
+
+    /// Add a layer at the centre and open its field, the pane's "Thêm chữ".
+    private func addCenteredText() {
+        guard let layer = editor.addText() else { return }
+        beginEditing(layer)
+    }
+
+    /// The one-shot placement mode: create the layer at the finger and open
+    /// its field.
+    private func placeText(x: Float, y: Float) {
+        textPlacing = false
+        guard let layer = editor.addText(x: x, y: y) else { return }
+        beginEditing(layer)
+    }
+
+    private func beginEditing(_ layer: EditorTextLayer) {
+        guard editingTextId != layer.id else { return }
+        commitTextEditing()
+        editor.selectText(layer.id)
+        textDraft = layer.text
+        editingTextId = layer.id
+        DispatchQueue.main.async {
+            textFocus = layer.id
+        }
+    }
+
+    /// Write the inline field back into the layer. A layer that was left
+    /// empty is removed, so no invisible text survives into the export.
+    private func commitTextEditing() {
+        guard let id = editingTextId else { return }
+        editingTextId = nil
+        textFocus = nil
+        let draft = textDraft
+        textDraft = ""
+        guard let layer = editor.texts.first(where: { $0.id == id }) else {
+            return
+        }
+        if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if editor.selectedTextId != id {
+                editor.selectText(id)
+            }
+            editor.deleteSelectedText()
+            return
+        }
+        if draft != layer.text {
+            editor.updateText(id, coalescing: false) { $0.text = draft }
+        }
     }
 
     private func fittedSize(image: UIImage, in size: CGSize) -> CGSize {
@@ -363,83 +959,79 @@ struct EditorView: View {
     /// The pane of the tab that is open.
     @ViewBuilder
     private var pane: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             switch editor.tab {
             case .adjust:
                 adjustPane
             case .filter:
                 filterPane
+            case .text:
+                textPane
             case .crop:
                 cropPane
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .background(Aurum.bg2.opacity(0.92))
     }
 
-    /// The chips of the adjustments and the slider of the one that is open.
+    /// The fixed Auto action, the rail of parameters with their group
+    /// captions, the gold value chip and the ruler, exactly the layout of the
+    /// web's `.au-deck__row--adjust`.
     private var adjustPane: some View {
-        VStack(spacing: 12) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 7) {
-                    chip(
-                        Strings.editorAuto,
-                        icon: "wand.and.stars",
-                        active: false
-                    ) {
-                        Task { await editor.applyAutoTune() }
+        VStack(spacing: 8) {
+            HStack(spacing: 5) {
+                autoButton
+
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 5) {
+                            ForEach(
+                                EditorModel.AdjustmentGroup.allCases
+                            ) { group in
+                                groupSeparator(group)
+                                ForEach(
+                                    EditorModel.Adjustment.allCases.filter {
+                                        $0.group == group
+                                    }
+                                ) { key in
+                                    selectChip(
+                                        key.shortTitle,
+                                        active: editor.activeAdjustment == key,
+                                        height: 30,
+                                        fontSize: 11
+                                    ) {
+                                        editor.selectAdjustment(key)
+                                    }
+                                    .id(key.rawValue)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 2)
                     }
-                    ForEach(EditorModel.Adjustment.allCases) { key in
-                        chip(
-                            key.shortTitle,
-                            icon: nil,
-                            active: editor.activeAdjustment == key
-                        ) {
-                            editor.selectAdjustment(key)
+                    .mask {
+                        LinearGradient(
+                            stops: [
+                                .init(color: .clear, location: 0),
+                                .init(color: .black, location: 0.03),
+                                .init(color: .black, location: 0.97),
+                                .init(color: .clear, location: 1),
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    }
+                    .onChange(of: editor.activeAdjustment) { _, key in
+                        withAnimation(.easeOut(duration: 0.26)) {
+                            proxy.scrollTo(key.rawValue, anchor: .center)
                         }
                     }
                 }
-                .padding(.horizontal, 12)
+
+                valueChip(for: editor.activeAdjustment)
             }
-
-            // The head row of the web's `.au-slider__head`: the slider name
-            // on the left, the gold value chip on the right. Tapping the chip
-            // resets just this slider; the text button clears every slider.
-            HStack(spacing: 8) {
-                Text(editor.activeAdjustment.title)
-                    .font(Font.mng(12))
-                    .foregroundStyle(Aurum.muted)
-
-                Spacer(minLength: 8)
-
-                Button {
-                    editor.resetAdjustment(editor.activeAdjustment)
-                } label: {
-                    Text(adjustValueLabel)
-                        .font(Font.mng(11, weight: .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(Aurum.gold)
-                        .padding(.horizontal, 7)
-                        .frame(minWidth: 36, minHeight: 20)
-                        .background(
-                            Aurum.gold.opacity(0.10),
-                            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(
-                    "\(editor.activeAdjustment.title): \(adjustValueLabel)"
-                )
-                .accessibilityHint(Strings.editorAdjustReset)
-
-                Button(Strings.editorAdjustReset) {
-                    editor.resetAdjustments()
-                }
-                .font(Font.mng(12, weight: .semibold))
-                .foregroundStyle(Aurum.muted)
-            }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 12)
 
             TickSlider(
                 value: Binding(
@@ -449,147 +1041,916 @@ struct EditorView: View {
                     set: { editor.setActiveAdjustment(value: $0) }
                 ),
                 label: editor.activeAdjustment.title,
-                zero: true,
+                minimum: editor.activeAdjustment == .vignette ? 0 : -100,
+                maximum: 100,
+                zero: editor.activeAdjustment != .vignette,
                 ruler: true
             )
             .padding(.horizontal, 12)
         }
     }
 
-    /// The signed value of the open slider, like the web's `formatAdjust`.
-    private var adjustValueLabel: String {
-        let value = Int(
-            editor.activeAdjustment.value(in: editor.adjustments).rounded()
-        )
-        return value > 0 ? "+\(value)" : "\(value)"
+    private var autoButton: some View {
+        Button {
+            editor.applyAutoTune()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "wand.and.stars")
+                    .font(Font.mng(15, weight: .semibold))
+                Text(Strings.editorAuto)
+                    .font(Font.mng(10.5, weight: .bold))
+                    .tracking(0.2)
+            }
+            .foregroundStyle(Aurum.gold)
+            .padding(.horizontal, 10)
+            .frame(height: 32)
+            .background(
+                LinearGradient(
+                    colors: [
+                        Aurum.gold.opacity(0.20),
+                        Aurum.gold.opacity(0.09),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .stroke(Aurum.gold.opacity(0.34), lineWidth: 1)
+            }
+        }
+        .buttonStyle(GlassPressStyle(scale: 0.94))
+        .accessibilityLabel(Strings.editorAutoTitle)
     }
 
-    /// The presets, each with a preview of the photo.
+    /// A hairline and a 7 pt caption mark the start of an adjustment family
+    /// inside the rail, so the chips stay on one scrollable row.
+    private func groupSeparator(
+        _ group: EditorModel.AdjustmentGroup
+    ) -> some View {
+        VStack(spacing: 2) {
+            LinearGradient(
+                colors: [
+                    .clear,
+                    Color.white.opacity(0.30),
+                    .clear,
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(width: 1, height: 13)
+            Text(groupCaption(group).uppercased())
+                .font(Font.mng(7, weight: .bold))
+                .tracking(0.35)
+                .foregroundStyle(Color.white.opacity(0.32))
+                .fixedSize()
+        }
+        .padding(.horizontal, 1)
+        .allowsHitTesting(false)
+    }
+
+    private func groupCaption(
+        _ group: EditorModel.AdjustmentGroup
+    ) -> String {
+        switch group {
+        case .light: return Strings.editorGroupLight
+        case .color: return Strings.editorGroupColor
+        case .effect: return Strings.editorGroupEffect
+        }
+    }
+
+    /// The gold chip that shows the open value. Tapping it resets just this
+    /// slider, like the web's `.au-value`.
+    private func valueChip(
+        for key: EditorModel.Adjustment
+    ) -> some View {
+        let label = formatAdjustment(
+            key.value(in: editor.adjustments),
+            unsigned: key == .vignette
+        )
+        return Button {
+            editor.resetAdjustment(key)
+        } label: {
+            Text(label)
+                .font(Font.mng(11.5, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(Aurum.gold)
+                .padding(.horizontal, 9)
+                .frame(minWidth: 48, height: 32)
+                .background(
+                    Aurum.gold.opacity(0.14),
+                    in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .stroke(Aurum.gold.opacity(0.30), lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(key.title): \(label)")
+        .accessibilityHint(Strings.editorAdjustReset)
+    }
+
+    private func formatAdjustment(
+        _ value: Float,
+        unsigned: Bool = false
+    ) -> String {
+        let rounded = Int(value.rounded())
+        if unsigned {
+            return "\(rounded)"
+        }
+        return rounded > 0 ? "+\(rounded)" : "\(rounded)"
+    }
+
+    /// The category rail, the hint of the open tone, the 29 thumbnails and
+    /// the collapsible tone tune, in the order of the web filter pane.
     private var filterPane: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(EditorFilter.allCases, id: \.self) { filter in
-                    Button {
-                        editor.setFilter(filter)
-                    } label: {
-                        VStack(spacing: 5) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(Aurum.glass)
-                                    .frame(width: 62, height: 62)
-                                if let thumbnail = editor.filterThumbnails[filter] {
-                                    Image(uiImage: thumbnail)
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                        .frame(width: 58, height: 58)
-                                        .clipShape(
-                                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                        )
-                                } else {
-                                    Image(systemName: "photo")
-                                        .font(Font.mng(20))
-                                        .foregroundStyle(Aurum.muted)
-                                }
+        VStack(spacing: 6) {
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(
+                            EditorModel.FilterCategory.allCases
+                        ) { category in
+                            selectChip(
+                                category.title,
+                                active: editor.filterCategory == category,
+                                height: 30,
+                                fontSize: 11.5
+                            ) {
+                                editor.selectFilterCategory(category)
                             }
-                            Text(Strings.editorFilterTitle(filter))
-                                .font(Font.mng(10, weight: .semibold))
-                                .lineLimit(1)
-                        }
-                        .foregroundStyle(
-                            editor.filter == filter ? Aurum.gold : Aurum.text
-                        )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(
-                                    editor.filter == filter ? Aurum.gold : .clear,
-                                    lineWidth: 1.5
-                                )
-                                .padding(-3)
+                            .id(category.rawValue)
                         }
                     }
-                    .buttonStyle(.plain)
+                    .padding(.horizontal, 12)
+                }
+                .onChange(of: editor.filterCategory) { _, category in
+                    withAnimation(.easeOut(duration: 0.24)) {
+                        proxy.scrollTo(category.rawValue, anchor: .center)
+                    }
                 }
             }
+
+            Text(Strings.editorFilterHint(editor.filter))
+                .font(Font.mng(10.5))
+                .foregroundStyle(Aurum.muted)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .contentTransition(.opacity)
+
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 10) {
+                        ForEach(editor.visibleFilters, id: \.self) { filter in
+                            filterThumbnail(filter)
+                                .id(filter)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 2)
+                }
+                .onChange(of: editor.filter) { _, filter in
+                    guard editor.visibleFilters.contains(filter) else {
+                        return
+                    }
+                    withAnimation(.easeOut(duration: 0.24)) {
+                        proxy.scrollTo(filter, anchor: .center)
+                    }
+                }
+            }
+
+            tuneSection
+        }
+    }
+
+    private func filterThumbnail(_ filter: EditorFilter) -> some View {
+        let active = editor.filter == filter
+        return Button {
+            editor.setFilter(filter)
+        } label: {
+            VStack(spacing: 4) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(red: 0.11, green: 0.11, blue: 0.13))
+                    if let thumbnail = editor.filterThumbnails[filter] {
+                        Image(uiImage: thumbnail)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 52, height: 52)
+                            .clipShape(
+                                RoundedRectangle(
+                                    cornerRadius: 10,
+                                    style: .continuous
+                                )
+                            )
+                    } else {
+                        Image(systemName: "photo")
+                            .font(Font.mng(16))
+                            .foregroundStyle(Aurum.muted)
+                    }
+                }
+                .frame(width: 52, height: 52)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(active ? Aurum.gold : .clear, lineWidth: 2)
+                }
+                .shadow(
+                    color: active
+                        ? Aurum.gold.opacity(0.22)
+                        : Color.black.opacity(0.35),
+                    radius: active ? 10 : 4,
+                    y: 3
+                )
+                Text(Strings.editorFilterTitle(filter))
+                    .font(Font.mng(9.5, weight: .semibold))
+                    .foregroundStyle(active ? Aurum.gold : Aurum.muted)
+                    .lineLimit(1)
+                    .frame(width: 54)
+            }
+            .frame(width: 54)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Strings.editorFilterTitle(filter))
+        .accessibilityAddTraits(active ? .isSelected : [])
+    }
+
+    /// The collapsible "Tùy chỉnh tone" of the web filter pane: seven sliders
+    /// that write back into the same adjustments as the Adjust tab.
+    private var tuneSection: some View {
+        VStack(spacing: 6) {
+            Rectangle()
+                .fill(Color.white.opacity(0.07))
+                .frame(height: 0.5)
+                .padding(.horizontal, 14)
+
+            HStack(spacing: 6) {
+                HStack(spacing: 6) {
+                    Text(Strings.editorTuneTitle.uppercased())
+                        .font(Font.mng(11, weight: .bold))
+                        .tracking(0.3)
+                        .foregroundStyle(
+                            Color(red: 0.94, green: 0.92, blue: 0.85)
+                        )
+                        .lineLimit(1)
+                    Text(Strings.editorTuneHint)
+                        .font(Font.mng(10))
+                        .foregroundStyle(Aurum.muted)
+                        .lineLimit(1)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        editor.toggleTune()
+                    }
+                }
+
+                Spacer(minLength: 2)
+
+                Button(Strings.editorTuneReset) {
+                    editor.resetTune()
+                }
+                .font(Font.mng(10, weight: .semibold))
+                .foregroundStyle(Aurum.muted)
+                .padding(.horizontal, 9)
+                .frame(height: 24)
+                .background(Color.white.opacity(0.055), in: Capsule())
+                .overlay {
+                    Capsule().stroke(Color.white.opacity(0.08), lineWidth: 1)
+                }
+                .buttonStyle(.plain)
+
+                Image(
+                    systemName: editor.tuneOpen ? "chevron.up" : "chevron.down"
+                )
+                .font(Font.mng(10, weight: .bold))
+                .foregroundStyle(Aurum.muted)
+            }
+            .padding(.horizontal, 14)
+
+            if editor.tuneOpen {
+                tuneControls
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    private var tuneControls: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 5) {
+                            ForEach(Self.tuneKeys, id: \.self) { key in
+                                selectChip(
+                                    key.shortTitle,
+                                    active: editor.tuneKey == key,
+                                    height: 30,
+                                    fontSize: 11
+                                ) {
+                                    editor.selectTuneKey(key)
+                                }
+                                .id(key.rawValue)
+                            }
+                        }
+                        .padding(.horizontal, 2)
+                    }
+                    .onChange(of: editor.tuneKey) { _, key in
+                        withAnimation(.easeOut(duration: 0.24)) {
+                            proxy.scrollTo(key.rawValue, anchor: .center)
+                        }
+                    }
+                }
+
+                valueChip(for: editor.tuneKey)
+            }
+            .padding(.horizontal, 12)
+
+            TickSlider(
+                value: Binding(
+                    get: {
+                        editor.tuneKey.value(in: editor.adjustments)
+                    },
+                    set: { editor.setTune(value: $0) }
+                ),
+                label:
+                    "\(Strings.editorTuneTitle) · \(editor.tuneKey.title)",
+                minimum: editor.tuneKey == .vignette ? 0 : -100,
+                maximum: 100,
+                zero: editor.tuneKey != .vignette,
+                ruler: true
+            )
             .padding(.horizontal, 12)
         }
     }
 
-    /// The presets of the crop and the rail of the rotation.
-    private var cropPane: some View {
-        VStack(spacing: 12) {
+    /// The quick styles, fonts, colour, toggles and opacity of the text pane,
+    /// plus the one-shot placement mode of the web.
+    private var textPane: some View {
+        VStack(spacing: 8) {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 7) {
-                    ForEach(EditorModel.Aspect.allCases) { aspect in
-                        chip(aspect.title, icon: nil, active: editor.aspect == aspect) {
-                            editor.applyAspect(aspect)
+                HStack(spacing: 6) {
+                    Button {
+                        addCenteredText()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "plus")
+                                .font(Font.mng(12, weight: .bold))
+                            Text(Strings.editorTextAdd)
+                                .font(Font.mng(12, weight: .semibold))
                         }
+                        .foregroundStyle(
+                            Color(red: 0.10, green: 0.08, blue: 0.03)
+                        )
+                        .padding(.horizontal, 14)
+                        .frame(height: 36)
+                        .background(
+                            Aurum.gold,
+                            in: RoundedRectangle(
+                                cornerRadius: 11,
+                                style: .continuous
+                            )
+                        )
+                    }
+                    .buttonStyle(GlassPressStyle(scale: 0.96))
+
+                    selectChip(
+                        Strings.editorTextPlace,
+                        icon: "plus.viewfinder",
+                        active: textPlacing,
+                        height: 36,
+                        fontSize: 12
+                    ) {
+                        textPlacing.toggle()
+                    }
+
+                    ForEach(EditorModel.TextStyle.allCases) { style in
+                        selectChip(
+                            style.title,
+                            active: activeTextStyle == style,
+                            height: 36,
+                            fontSize: 12
+                        ) {
+                            activeTextStyle = style
+                            editor.applyTextStyle(style)
+                        }
+                        .disabled(editor.selectedText == nil)
                     }
                 }
                 .padding(.horizontal, 12)
+                .padding(.vertical, 1)
             }
 
-            // The engine stores the geometry as quarter turns, so the
-            // rotation stays a four-step rail rather than a degree ruler.
-            RotationRail(
-                value: Binding(
-                    get: { Double(editor.rotation) * 90 },
-                    set: { editor.setRotation(Int(($0 / 90).rounded())) }
-                )
-            )
+            HStack(spacing: 8) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 2) {
+                        ForEach(EditorTextFont.allCases, id: \.self) { font in
+                            fontButton(font)
+                        }
+                    }
+                    .padding(2)
+                    .background(
+                        Color.white.opacity(0.04),
+                        in: RoundedRectangle(
+                            cornerRadius: 9,
+                            style: .continuous
+                        )
+                    )
+                }
+                .frame(maxWidth: .infinity)
+
+                ColorPicker(
+                    selection: textColorBinding,
+                    supportsOpacity: false
+                ) {
+                    Text(Strings.editorTextColor)
+                        .font(Font.mng(10.5, weight: .semibold))
+                        .foregroundStyle(Aurum.muted)
+                }
+                .fixedSize()
+                .disabled(editor.selectedText == nil)
+                .opacity(editor.selectedText == nil ? 0.45 : 1)
+            }
             .padding(.horizontal, 12)
 
-            HStack(spacing: 10) {
-                Button(Strings.editorCropReset) {
-                    editor.resetCrop()
-                }
-                .font(Font.mng(13, weight: .semibold))
-                .foregroundStyle(Aurum.text)
-                .frame(maxWidth: .infinity)
-                .frame(height: 40)
-                .background(Aurum.glass, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .buttonStyle(.plain)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 5) {
+                    textToggle(
+                        Strings.editorTextBold,
+                        active: editor.selectedText?.bold == true
+                    ) {
+                        editor.updateSelectedText(coalescing: false) {
+                            $0.bold.toggle()
+                        }
+                    }
+                    textToggle(
+                        Strings.editorTextItalic,
+                        active: editor.selectedText?.italic == true
+                    ) {
+                        editor.updateSelectedText(coalescing: false) {
+                            $0.italic.toggle()
+                        }
+                    }
+                    textToggle(
+                        Strings.editorTextOutline,
+                        active: editor.selectedText?.outline == true
+                    ) {
+                        editor.updateSelectedText(coalescing: false) {
+                            $0.outline.toggle()
+                        }
+                    }
+                    textToggle(
+                        Strings.editorTextShadow,
+                        active: editor.selectedText?.shadow == true
+                    ) {
+                        editor.updateSelectedText(coalescing: false) {
+                            $0.shadow.toggle()
+                        }
+                    }
+                    selectChip(
+                        Strings.editorTextDuplicate,
+                        icon: "doc.on.doc",
+                        active: false,
+                        height: 30,
+                        fontSize: 11
+                    ) {
+                        editor.duplicateSelectedText()
+                    }
+                    .disabled(editor.selectedText == nil)
 
-                Button(Strings.editorCropDone) {
-                    editor.finishCrop()
+                    selectChip(
+                        Strings.editorTextDelete,
+                        icon: "trash",
+                        active: false,
+                        height: 30,
+                        fontSize: 11,
+                        danger: true
+                    ) {
+                        editor.deleteSelectedText()
+                    }
+                    .disabled(editor.selectedText == nil)
                 }
-                .font(Font.mng(13, weight: .semibold))
-                .foregroundStyle(Color(red: 0.10, green: 0.08, blue: 0.03))
-                .frame(maxWidth: .infinity)
-                .frame(height: 40)
-                .background(Aurum.gold, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
             }
+            .opacity(editor.selectedText == nil ? 0.5 : 1)
+
+            if let selected = editor.selectedText {
+                HStack(spacing: 8) {
+                    Text(Strings.editorTextOpacity)
+                        .font(Font.mng(12))
+                        .foregroundStyle(Aurum.muted)
+                    Spacer(minLength: 8)
+                    Button {
+                        editor.setTextOpacity(100)
+                    } label: {
+                        Text("\(Int((selected.opacity * 100).rounded()))%")
+                            .font(Font.mng(11, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(Aurum.gold)
+                            .padding(.horizontal, 7)
+                            .frame(minWidth: 36, minHeight: 20)
+                            .background(
+                                Aurum.gold.opacity(0.10),
+                                in: RoundedRectangle(
+                                    cornerRadius: 6,
+                                    style: .continuous
+                                )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Strings.editorTextOpacity)
+                    .accessibilityHint(Strings.editorAdjustReset)
+                }
+                .padding(.horizontal, 14)
+
+                TickSlider(
+                    value: Binding(
+                        get: {
+                            Float(
+                                (editor.selectedText?.opacity ?? 1) * 100
+                            )
+                        },
+                        set: { editor.setTextOpacity($0) }
+                    ),
+                    label: Strings.editorTextOpacity,
+                    minimum: 10,
+                    maximum: 100,
+                    tickStep: 2,
+                    ruler: true
+                )
+                .padding(.horizontal, 12)
+            } else {
+                Text(Strings.editorTextEmpty)
+                    .font(Font.mng(10.5))
+                    .foregroundStyle(Aurum.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+            }
+        }
+    }
+
+    private func textToggle(
+        _ title: String,
+        active: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        selectChip(
+            title,
+            active: active,
+            height: 30,
+            fontSize: 11,
+            action: action
+        )
+        .disabled(editor.selectedText == nil)
+    }
+
+    private func fontButton(_ font: EditorTextFont) -> some View {
+        let active = editor.selectedText?.font == font
+        return Button {
+            editor.updateSelectedText(coalescing: false) {
+                $0.font = font
+            }
+        } label: {
+            Text(font.title)
+                .font(fontPreview(font))
+                .foregroundStyle(active ? Aurum.gold : Aurum.muted)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .padding(.horizontal, 5)
+                .frame(minWidth: 44, height: 28)
+                .background(
+                    active ? Aurum.gold.opacity(0.16) : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(editor.selectedText == nil)
+        .opacity(editor.selectedText == nil ? 0.5 : 1)
+    }
+
+    private func fontPreview(_ font: EditorTextFont) -> Font {
+        switch font {
+        case .sys: return Font.mng(11, weight: .semibold)
+        case .serif: return .custom("Georgia", size: 11)
+        case .mono: return .custom("Menlo", size: 10.5)
+        case .round: return .custom("ArialRoundedMTBold", size: 10.5)
+        case .heavy: return .custom("Arial-Black", size: 10.5)
+        }
+    }
+
+    /// The bridge between the hex colour of the layer and SwiftUI's picker.
+    private var textColorBinding: Binding<Color> {
+        Binding(
+            get: {
+                guard let text = editor.selectedText else { return .white }
+                return Palette.mngHex(text.color) ?? .white
+            },
+            set: { color in
+                let hex = hexString(from: color)
+                editor.updateSelectedText(coalescing: false) {
+                    $0.color = hex
+                }
+            }
+        )
+    }
+
+    private func hexString(from color: Color) -> String {
+        let uiColor = UIColor(color)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard uiColor.getRed(
+            &red,
+            green: &green,
+            blue: &blue,
+            alpha: &alpha
+        ) else {
+            return "#ffffff"
+        }
+        return String(
+            format: "#%02x%02x%02x",
+            Int((red * 255).rounded()),
+            Int((green * 255).rounded()),
+            Int((blue * 255).rounded())
+        )
+    }
+
+    /// The crop pane: the ratio/rotation mode rail with its reset, the chip
+    /// rail or the quarter-turn ruler, and the native "Xong" to leave.
+    private var cropPane: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                ForEach(CropMode.allCases) { mode in
+                    cropModeButton(mode)
+                }
+
+                Button {
+                    resetCropMode()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(Font.mng(15, weight: .semibold))
+                        .foregroundStyle(Aurum.text)
+                        .frame(width: 36, height: 36)
+                        .background(Aurum.glass, in: Circle())
+                        .overlay {
+                            Circle().stroke(Aurum.glassLine, lineWidth: 1)
+                        }
+                }
+                .buttonStyle(GlassPressStyle(scale: 0.93))
+                .accessibilityLabel(
+                    cropMode == .ratio
+                        ? Strings.editorCropReset
+                        : Strings.editorCropRotation
+                )
+            }
+            .padding(.horizontal, 12)
+            .opacity(cropModesHidden ? 0 : 1)
+            .allowsHitTesting(!cropModesHidden)
+            .animation(.easeOut(duration: 0.18), value: cropModesHidden)
+
+            Group {
+                if cropMode == .ratio {
+                    ratioContext
+                } else {
+                    rotationContext
+                }
+            }
+            .frame(minHeight: 44)
+
+            Button(Strings.editorCropDone) {
+                editor.finishCrop()
+            }
+            .font(Font.mng(13, weight: .semibold))
+            .foregroundStyle(Color(red: 0.10, green: 0.08, blue: 0.03))
+            .frame(maxWidth: .infinity)
+            .frame(height: 40)
+            .background(
+                Aurum.gold,
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+            .buttonStyle(.plain)
             .padding(.horizontal, 12)
         }
     }
 
-    private func chip(
-        _ title: String,
-        icon: String?,
-        active: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                if let icon {
-                    Image(systemName: icon)
-                        .font(Font.mng(11, weight: .semibold))
-                }
-                Text(title)
-                    .font(Font.mng(12, weight: .semibold))
+    private func cropModeButton(_ mode: CropMode) -> some View {
+        let active = cropMode == mode
+        let value: String
+        if mode == .ratio {
+            value = editor.aspect.title
+        } else {
+            value = "\(Int(editor.rotation) * 90)°"
+        }
+        return Button {
+            withAnimation(.easeOut(duration: 0.2)) {
+                cropMode = mode
             }
-            .foregroundStyle(active ? Color(red: 0.10, green: 0.08, blue: 0.03) : Aurum.text)
-            .padding(.horizontal, 12)
-            .frame(height: 30)
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: mode.icon)
+                    .font(Font.mng(16, weight: .medium))
+                    .foregroundStyle(Aurum.gold)
+                Text(value)
+                    .font(Font.mng(12, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(Aurum.gold)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 36)
             .background(
-                active ? AnyShapeStyle(Aurum.gold) : AnyShapeStyle(Aurum.glass),
-                in: Capsule()
+                active
+                    ? AnyShapeStyle(
+                        LinearGradient(
+                            colors: [
+                                Aurum.gold.opacity(0.22),
+                                Aurum.gold.opacity(0.10),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    : AnyShapeStyle(Aurum.glass),
+                in: RoundedRectangle(cornerRadius: 13, style: .continuous)
             )
             .overlay {
-                Capsule().stroke(Aurum.glassLine, lineWidth: active ? 0 : 0.5)
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .stroke(
+                        active ? Aurum.gold.opacity(0.40) : Aurum.glassLine,
+                        lineWidth: 1
+                    )
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(GlassPressStyle(scale: 0.97))
+        .accessibilityLabel(mode.title)
+        .accessibilityValue(value)
+    }
+
+    private var ratioContext: some View {
+        ScrollViewReader { proxy in
+            ZStack(alignment: .bottom) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(EditorModel.Aspect.allCases) { aspect in
+                            selectChip(
+                                aspect.title,
+                                active: editor.aspect == aspect,
+                                height: 30,
+                                fontSize: 11.5
+                            ) {
+                                withAnimation(.easeOut(duration: 0.22)) {
+                                    editor.selectAspect(
+                                        aspect,
+                                        viewport: stageSize
+                                    )
+                                }
+                                markRatioing()
+                            }
+                            .id(aspect.rawValue)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 5)
+                }
+
+                // The fixed gold line of the web's `.au-chipsrail`; the
+                // active chip is scrolled under it.
+                Capsule()
+                    .fill(Aurum.gold)
+                    .frame(width: 2, height: 7)
+                    .shadow(color: Aurum.gold.opacity(0.65), radius: 4)
+                    .allowsHitTesting(false)
+            }
+            .frame(height: 40)
+            .onAppear {
+                proxy.scrollTo(editor.aspect.rawValue, anchor: .center)
+            }
+            .onChange(of: editor.aspect) { _, aspect in
+                withAnimation(.easeOut(duration: 0.28)) {
+                    proxy.scrollTo(aspect.rawValue, anchor: .center)
+                }
+            }
+        }
+    }
+
+    /// The engine stores quarter turns, so the rotation rail snaps to
+    /// 0/90/180/270 while the ruler keeps the web's density.
+    private var rotationContext: some View {
+        TickSlider(
+            value: Binding(
+                get: { Float(editor.rotation) * 90 },
+                set: {
+                    editor.setRotation(
+                        Int(($0 / 90).rounded())
+                    )
+                }
+            ),
+            label: Strings.editorCropRotation,
+            minimum: 0,
+            maximum: 270,
+            step: 90,
+            tickStep: 30,
+            ruler: true,
+            onEditingChanged: { editing in
+                withAnimation(.easeOut(duration: 0.18)) {
+                    isRotating = editing
+                }
+            }
+        )
+        .padding(.horizontal, 12)
+    }
+
+    /// The ratio change keeps the chips visible while the rest of the chrome
+    /// fades for about half a second, like `markRatioing()` on the web.
+    private func markRatioing() {
+        ratioResetTask?.cancel()
+        withAnimation(.easeOut(duration: 0.18)) {
+            isRatioing = true
+        }
+        ratioResetTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 520_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.18)) {
+                isRatioing = false
+            }
+        }
+    }
+
+    private func resetCropMode() {
+        if cropMode == .rotation {
+            editor.resetRotation()
+        } else {
+            editor.resetCrop()
+            markRatioing()
+        }
+    }
+
+    /// The shared chip of the editor: a quiet glass cell when off, a gold
+    /// soft cell with a gold hairline when on. The optional icon serves the
+    /// text pane and the dangerous delete keeps the red label of the web.
+    private func selectChip(
+        _ title: String,
+        icon: String? = nil,
+        active: Bool,
+        height: CGFloat = 30,
+        fontSize: CGFloat = 11,
+        danger: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        let foreground: Color
+        if danger {
+            foreground = Aurum.danger
+        } else {
+            foreground = active
+                ? Aurum.gold
+                : Color(red: 0.81, green: 0.80, blue: 0.84)
+        }
+        let background: Color
+        if danger {
+            background = Aurum.danger.opacity(0.10)
+        } else if active {
+            background = Aurum.gold.opacity(0.16)
+        } else {
+            background = Color.white.opacity(0.055)
+        }
+        let border: Color
+        if danger {
+            border = Aurum.danger.opacity(0.30)
+        } else if active {
+            border = Aurum.gold.opacity(0.38)
+        } else {
+            border = Color.white.opacity(0.08)
+        }
+
+        return Button(action: action) {
+            HStack(spacing: 4) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(Font.mng(fontSize - 1, weight: .semibold))
+                }
+                Text(title)
+                    .font(Font.mng(fontSize, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 11)
+            .frame(height: height)
+            .background(
+                background,
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(border, lineWidth: 1)
+            }
+            .contentShape(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+        }
+        .buttonStyle(GlassPressStyle(scale: 0.96))
     }
 
     // MARK: - Dock
@@ -599,6 +1960,7 @@ struct EditorView: View {
         HStack(spacing: 0) {
             dockTab(.adjust, "slider.horizontal.3", Strings.editorTuneTab)
             dockTab(.filter, "camera.filters", Strings.editorFilterTab)
+            dockTab(.text, "textformat", Strings.editorTextTab)
             dockTab(.crop, "crop", Strings.editorCropTab)
         }
         .padding(5)
@@ -928,6 +2290,9 @@ private struct TickSlider: View {
     var zero: Bool = false
     /// Slide the track under a fixed centre line.
     var ruler: Bool = false
+    /// Called when the finger lands and when it lifts. The crop rail uses it
+    /// to fade the chrome while the rotation is being dragged.
+    var onEditingChanged: ((Bool) -> Void)? = nil
 
     @State private var dragStartValue: Float?
     @State private var dragStartX: CGFloat = 0
@@ -1048,6 +2413,7 @@ private struct TickSlider: View {
                         if dragStartValue == nil {
                             dragStartValue = value
                             dragStartX = gesture.startLocation.x
+                            onEditingChanged?(true)
                             if !ruler {
                                 apply(value(at: gesture.location.x, width: width))
                             }
@@ -1066,6 +2432,7 @@ private struct TickSlider: View {
                     }
                     .onEnded { _ in
                         dragStartValue = nil
+                        onEditingChanged?(false)
                     }
             )
         }
@@ -1128,10 +2495,15 @@ private struct RotationRail: View {
 private struct CropOverlay: View {
     let crop: EditorCrop
     let isFixedAspect: Bool
+    let scrimVisible: Bool
+    let showGrid: Bool
+    let isRotating: Bool
     let onChange: (EditorCrop) -> Void
     let onBegin: () -> Void
+    let onDragState: (Bool) -> Void
 
     @State private var origin: EditorCrop?
+    @State private var dragging = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -1144,65 +2516,65 @@ private struct CropOverlay: View {
             )
 
             ZStack {
-                // The ground outside of the rectangle is darker.
-                Color.black.opacity(0.5)
-                    .mask {
-                        Rectangle()
-                            .overlay {
-                                Rectangle()
-                                    .frame(width: rect.width, height: rect.height)
-                                    .position(x: rect.midX, y: rect.midY)
-                                    .blendMode(.destinationOut)
-                            }
-                            .compositingGroup()
+                // A real glass scrim: the crop frame is a hole, not a
+                // translucent shadow. The world outside is blurred and
+                // dimmed while the photo inside stays untouched.
+                CropHoleShape(hole: rect)
+                    .fill(
+                        .ultraThinMaterial,
+                        style: FillStyle(eoFill: true)
+                    )
+                    .overlay {
+                        CropHoleShape(hole: rect)
+                            .fill(
+                                Color.black.opacity(isRotating ? 0.42 : 0.30),
+                                style: FillStyle(eoFill: true)
+                            )
                     }
-
-                thirds(rect: rect)
-
-                Rectangle()
-                    .stroke(Aurum.gold, lineWidth: 1.5)
-                    .frame(width: rect.width, height: rect.height)
-                    .position(x: rect.midX, y: rect.midY)
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture()
-                            .onChanged { gesture in
-                                let start = begin()
-                                let dx = Float(
-                                    gesture.translation.width
-                                        / max(size.width, 1)
-                                )
-                                let dy = Float(
-                                    gesture.translation.height
-                                        / max(size.height, 1)
-                                )
-                                var next = start
-                                next.x = min(
-                                    max(start.x + dx, 0),
-                                    1 - start.width
-                                )
-                                next.y = min(
-                                    max(start.y + dy, 0),
-                                    1 - start.height
-                                )
-                                onChange(next)
-                            }
-                            .onEnded { _ in
-                                origin = nil
-                            }
+                    .opacity(scrimVisible ? 1 : 0)
+                    .allowsHitTesting(false)
+                    .animation(
+                        .easeInOut(duration: 0.18),
+                        value: scrimVisible
                     )
 
-                // The four corners, which resize two sides at once.
+                cropGrid(rect: rect)
+                    .opacity(showGrid ? 1 : 0)
+                    .allowsHitTesting(false)
+                    .animation(
+                        .easeInOut(duration: 0.16),
+                        value: showGrid
+                    )
+
+                // The frame itself drags the whole rectangle.
+                Rectangle()
+                    .stroke(
+                        dragging || isRotating
+                            ? Aurum.gold
+                            : Color.white.opacity(0.7),
+                        lineWidth: dragging || isRotating ? 1.5 : 1
+                    )
+                    .frame(width: rect.width, height: rect.height)
+                    .position(x: rect.midX, y: rect.midY)
+                    .shadow(
+                        color: dragging || isRotating
+                            ? Aurum.gold.opacity(0.35)
+                            : Color.black.opacity(0.18),
+                        radius: dragging || isRotating ? 12 : 10,
+                        y: 4
+                    )
+                    .contentShape(Rectangle())
+                    .gesture(moveGesture(size: size))
+
+                // The four corners, two bevelled gold bars each.
                 ForEach(Corner.allCases, id: \.self) { corner in
                     let point = corner.point(in: rect)
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .stroke(Aurum.gold, lineWidth: 2)
-                        .frame(width: 22, height: 22)
-                        .frame(width: 42, height: 42)
+                    cornerHandle(corner)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                         .position(x: point.x, y: point.y)
                         .gesture(
-                            DragGesture()
+                            DragGesture(minimumDistance: 0)
                                 .onChanged { gesture in
                                     onChange(
                                         resized(
@@ -1216,7 +2588,7 @@ private struct CropOverlay: View {
                                     )
                                 }
                                 .onEnded { _ in
-                                    origin = nil
+                                    finishDrag()
                                 }
                         )
                 }
@@ -1224,12 +2596,12 @@ private struct CropOverlay: View {
                 // The four edges, which resize one side.
                 ForEach(Side.allCases, id: \.self) { edge in
                     let point = edge.point(in: rect)
-                    edgeBar(edge)
-                        .frame(width: 42, height: 42)
+                    edgeHandle(edge)
+                        .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                         .position(x: point.x, y: point.y)
                         .gesture(
-                            DragGesture()
+                            DragGesture(minimumDistance: 0)
                                 .onChanged { gesture in
                                     onChange(
                                         resized(
@@ -1243,12 +2615,33 @@ private struct CropOverlay: View {
                                     )
                                 }
                                 .onEnded { _ in
-                                    origin = nil
+                                    finishDrag()
                                 }
                         )
                 }
             }
         }
+    }
+
+    /// Drag the whole frame inside the image.
+    private func moveGesture(size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { gesture in
+                let start = begin()
+                let dx = Float(
+                    gesture.translation.width / max(size.width, 1)
+                )
+                let dy = Float(
+                    gesture.translation.height / max(size.height, 1)
+                )
+                var next = start
+                next.x = min(max(start.x + dx, 0), 1 - start.width)
+                next.y = min(max(start.y + dy, 0), 1 - start.height)
+                onChange(next)
+            }
+            .onEnded { _ in
+                finishDrag()
+            }
     }
 
     /// Remember the rectangle before the first change of a gesture, and give
@@ -1260,10 +2653,24 @@ private struct CropOverlay: View {
         let start = crop
         origin = start
         onBegin()
+        setDragging(true)
         return start
     }
 
-    private func thirds(rect: CGRect) -> some View {
+    private func finishDrag() {
+        origin = nil
+        setDragging(false)
+    }
+
+    private func setDragging(_ active: Bool) {
+        guard dragging != active else { return }
+        dragging = active
+        onDragState(active)
+    }
+
+    /// The composition grid only appears while the frame is actively used,
+    /// exactly like the web's `.au-grid`.
+    private func cropGrid(rect: CGRect) -> some View {
         Path { path in
             let fractions: [CGFloat] = [1.0 / 3.0, 2.0 / 3.0]
             for fraction in fractions {
@@ -1275,20 +2682,99 @@ private struct CropOverlay: View {
                 path.addLine(to: CGPoint(x: rect.maxX, y: y))
             }
         }
-        .stroke(Color.white.opacity(0.22), lineWidth: 0.5)
+        .stroke(Color.white.opacity(0.17), lineWidth: 0.5)
         .allowsHitTesting(false)
     }
 
+    /// A 24 pt corner made of two bevelled gold bars. The bright face always
+    /// points towards the corner's outer edge, like the CSS gradients.
+    private func cornerHandle(_ corner: Corner) -> some View {
+        let bevel = LinearGradient(
+            stops: [
+                .init(
+                    color: Color(red: 1.0, green: 0.953, blue: 0.831),
+                    location: 0
+                ),
+                .init(
+                    color: Color(red: 0.969, green: 0.827, blue: 0.573),
+                    location: 0.32
+                ),
+                .init(
+                    color: Color(red: 0.886, green: 0.678, blue: 0.322),
+                    location: 0.64
+                ),
+                .init(
+                    color: Color(red: 0.561, green: 0.369, blue: 0.106),
+                    location: 1
+                ),
+            ],
+            startPoint: corner.isBottom ? .bottom : .top,
+            endPoint: corner.isBottom ? .top : .bottom
+        )
+        let side = LinearGradient(
+            stops: [
+                .init(
+                    color: Color(red: 1.0, green: 0.953, blue: 0.831),
+                    location: 0
+                ),
+                .init(
+                    color: Color(red: 0.969, green: 0.827, blue: 0.573),
+                    location: 0.32
+                ),
+                .init(
+                    color: Color(red: 0.886, green: 0.678, blue: 0.322),
+                    location: 0.64
+                ),
+                .init(
+                    color: Color(red: 0.561, green: 0.369, blue: 0.106),
+                    location: 1
+                ),
+            ],
+            startPoint: corner.isTrailing ? .trailing : .leading,
+            endPoint: corner.isTrailing ? .leading : .trailing
+        )
+        return ZStack(alignment: .topLeading) {
+            Rectangle()
+                .fill(bevel)
+                .frame(width: 24, height: 3.5)
+                .position(x: 12, y: corner.isBottom ? 22.25 : 1.75)
+            Rectangle()
+                .fill(side)
+                .frame(width: 3.5, height: 24)
+                .position(x: corner.isTrailing ? 22.25 : 1.75, y: 12)
+        }
+        .frame(width: 24, height: 24)
+        .shadow(
+            color: dragging
+                ? Aurum.gold.opacity(0.8)
+                : Color.black.opacity(0.65),
+            radius: dragging ? 9 : 1.5,
+            y: 1
+        )
+    }
+
     @ViewBuilder
-    private func edgeBar(_ edge: Side) -> some View {
+    private func edgeHandle(_ edge: Side) -> some View {
         if edge.isHorizontalBar {
             Capsule()
                 .fill(Aurum.gold)
-                .frame(width: 26, height: 3)
+                .frame(width: 20, height: 2)
+                .shadow(
+                    color: dragging
+                        ? Aurum.gold.opacity(0.7)
+                        : Color.black.opacity(0.55),
+                    radius: dragging ? 7 : 3
+                )
         } else {
             Capsule()
                 .fill(Aurum.gold)
-                .frame(width: 3, height: 26)
+                .frame(width: 2, height: 20)
+                .shadow(
+                    color: dragging
+                        ? Aurum.gold.opacity(0.7)
+                        : Color.black.opacity(0.55),
+                    radius: dragging ? 7 : 3
+                )
         }
     }
 
@@ -1391,6 +2877,18 @@ private struct CropOverlay: View {
         )
     }
 
+    /// The frame with a rectangular hole, filled with the even-odd rule.
+    private struct CropHoleShape: Shape {
+        var hole: CGRect
+
+        func path(in rect: CGRect) -> Path {
+            var path = Path()
+            path.addRect(rect)
+            path.addRect(hole)
+            return path
+        }
+    }
+
     private enum Corner: CaseIterable {
         case topLeft
         case topRight
@@ -1403,6 +2901,14 @@ private struct CropOverlay: View {
 
         var dirY: Float {
             self == .bottomLeft || self == .bottomRight ? 1 : -1
+        }
+
+        var isBottom: Bool {
+            self == .bottomLeft || self == .bottomRight
+        }
+
+        var isTrailing: Bool {
+            self == .topRight || self == .bottomRight
         }
 
         func point(in rect: CGRect) -> CGPoint {

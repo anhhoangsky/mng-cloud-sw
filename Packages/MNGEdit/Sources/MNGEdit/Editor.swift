@@ -68,6 +68,114 @@ public struct EditorCropPixels: Equatable, Sendable {
     }
 }
 
+/// The horizontal alignment of a text layer.
+public enum EditorTextAlign: String, Codable, Equatable, CaseIterable, Sendable {
+    case left
+    case center
+    case right
+}
+
+/// The fonts offered by the text pane, the first five of the web catalog.
+public enum EditorTextFont: String, Codable, Equatable, CaseIterable, Sendable {
+    case sys
+    case serif
+    case mono
+    case round
+    case heavy
+
+    public var title: String {
+        switch self {
+        case .sys: return "San"
+        case .serif: return "Serif"
+        case .mono: return "Mono"
+        case .round: return "Rounded"
+        case .heavy: return "Heavy"
+        }
+    }
+
+    /// The PostScript name of the face used by the exporter. The system font
+    /// is resolved with `CTFontCreateUIFontForLanguage`.
+    var postScriptName: String? {
+        switch self {
+        case .sys: return nil
+        case .serif: return "Georgia"
+        case .mono: return "Menlo"
+        case .round: return "ArialRoundedMTBold"
+        case .heavy: return "Arial-Black"
+        }
+    }
+}
+
+/// One text layer over the photo, normalized to the exported image.
+///
+/// `x`/`y` are the centre of the layer, `size` is a fraction of the export
+/// height, exactly like the `AurumTextLayer` of the web editor, so the preview
+/// and the full-resolution export line up.
+public struct EditorTextLayer: Codable, Equatable, Sendable, Identifiable {
+    public var id: String
+    public var text: String
+    public var x: Float
+    public var y: Float
+    public var size: Float
+    public var color: String
+    public var bold: Bool
+    public var italic: Bool
+    public var outline: Bool
+    public var shadow: Bool
+    public var align: EditorTextAlign
+    public var rotation: Float
+    public var opacity: Float
+    public var font: EditorTextFont
+
+    public init(
+        id: String,
+        text: String = "",
+        x: Float = 0.5,
+        y: Float = 0.5,
+        size: Float = 0.07,
+        color: String = "#ffffff",
+        bold: Bool = false,
+        italic: Bool = false,
+        outline: Bool = false,
+        shadow: Bool = true,
+        align: EditorTextAlign = .center,
+        rotation: Float = 0,
+        opacity: Float = 1,
+        font: EditorTextFont = .sys
+    ) {
+        self.id = id
+        self.text = text
+        self.x = x
+        self.y = y
+        self.size = size
+        self.color = color
+        self.bold = bold
+        self.italic = italic
+        self.outline = outline
+        self.shadow = shadow
+        self.align = align
+        self.rotation = rotation
+        self.opacity = opacity
+        self.font = font
+    }
+
+    /// Clamp the geometry so the exporter can trust the layer.
+    public func normalized() -> EditorTextLayer {
+        var copy = self
+        if !copy.x.isFinite { copy.x = 0.5 }
+        if !copy.y.isFinite { copy.y = 0.5 }
+        if !copy.size.isFinite { copy.size = 0.07 }
+        if !copy.rotation.isFinite { copy.rotation = 0 }
+        if !copy.opacity.isFinite { copy.opacity = 1 }
+        copy.x = min(max(copy.x, 0), 1)
+        copy.y = min(max(copy.y, 0), 1)
+        copy.size = min(max(copy.size, 0.015), 0.30)
+        copy.rotation = min(max(copy.rotation, -180), 180)
+        copy.opacity = min(max(copy.opacity, 0), 1)
+        return copy
+    }
+}
+
 /// The nine sliders of the editor. Every value is clamped to ±100.
 public struct EditorAdjustments: Codable, Equatable, Sendable {
     public var brightness: Float
@@ -198,8 +306,10 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
 
 /// The one-tap presets of the editor.
 ///
-/// The names and the recipes are the ones of the Aurum release, so the
-/// photo looks the same in the app and in the browser.
+/// The names, the order, the categories and the recipes are the ones of the
+/// Aurum release (`src/core/color.ts`), so the photo looks the same in the app
+/// and in the browser. The legacy keys of the first native release
+/// (`natural`, `korea`, `japan`, `skin`, `fade`) stay decodable.
 public enum EditorFilter: String, Equatable, CaseIterable, Sendable {
     case original
     case vivid
@@ -208,11 +318,28 @@ public enum EditorFilter: String, Equatable, CaseIterable, Sendable {
     case vintage
     case warm
     case cool
-    case fade
-    case natural
-    case korea
-    case japan
-    case skin
+    case meituNatural = "meitu-natural"
+    case meituKorea = "meitu-korea"
+    case meituJapan = "meitu-japan"
+    case meituSkin = "meitu-skin"
+    case meituPink = "meitu-pink"
+    case meituWhite = "meitu-white"
+    case xingtuFilm = "xingtu-film"
+    case xingtuHK = "xingtu-hk"
+    case xingtuShowa = "xingtu-showa"
+    case xingtuKama = "xingtu-kama"
+    case xingtuNight = "xingtu-night"
+    case xingtuMorning = "xingtu-morning"
+    case lrCinema = "lr-cinema"
+    case lrMoody = "lr-moody"
+    case lrVibrant = "lr-vibrant"
+    case lrPastel = "lr-pastel"
+    case lrDesert = "lr-desert"
+    case lrStreet = "lr-street"
+    case lrFaded = "lr-faded"
+    case lrTeal = "lr-teal"
+    case monoWarm = "mono-warm"
+    case monoCool = "mono-cool"
 
     public init(key: String) throws {
         switch key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
@@ -223,12 +350,67 @@ public enum EditorFilter: String, Equatable, CaseIterable, Sendable {
         case "cool": self = .cool
         case "mono": self = .mono
         case "vintage": self = .vintage
-        case "fade": self = .fade
-        case "natural", "meitu-natural": self = .natural
-        case "korea", "meitu-korea": self = .korea
-        case "japan", "meitu-japan": self = .japan
-        case "skin", "meitu-skin": self = .skin
+        case "fade", "lr-faded": self = .lrFaded
+        case "natural", "meitu-natural": self = .meituNatural
+        case "korea", "meitu-korea": self = .meituKorea
+        case "japan", "meitu-japan": self = .meituJapan
+        case "skin", "meitu-skin": self = .meituSkin
+        case "meitu-pink": self = .meituPink
+        case "meitu-white": self = .meituWhite
+        case "xingtu-film": self = .xingtuFilm
+        case "xingtu-hk": self = .xingtuHK
+        case "xingtu-showa": self = .xingtuShowa
+        case "xingtu-kama": self = .xingtuKama
+        case "xingtu-night": self = .xingtuNight
+        case "xingtu-morning": self = .xingtuMorning
+        case "lr-cinema": self = .lrCinema
+        case "lr-moody": self = .lrMoody
+        case "lr-vibrant": self = .lrVibrant
+        case "lr-pastel": self = .lrPastel
+        case "lr-desert": self = .lrDesert
+        case "lr-street": self = .lrStreet
+        case "lr-teal": self = .lrTeal
+        case "mono-warm": self = .monoWarm
+        case "mono-cool": self = .monoCool
         default: throw MNGEditError.unknownFilter(key)
+        }
+    }
+
+    /// The family of the filter, used by the category rail of the pane.
+    public var category: EditorFilterCategory {
+        switch self {
+        case .original, .vivid, .dramatic, .vintage, .warm, .cool:
+            return .root
+        case .meituNatural, .meituKorea, .meituJapan, .meituSkin,
+             .meituPink, .meituWhite:
+            return .meitu
+        case .xingtuFilm, .xingtuHK, .xingtuShowa, .xingtuKama,
+             .xingtuNight, .xingtuMorning:
+            return .xingtu
+        case .lrCinema, .lrMoody, .lrVibrant, .lrPastel, .lrDesert,
+             .lrStreet, .lrFaded, .lrTeal:
+            return .lr
+        case .mono, .monoWarm, .monoCool:
+            return .mono
+        }
+    }
+}
+
+/// The tone families of the filter rail.
+public enum EditorFilterCategory: String, Equatable, CaseIterable, Sendable {
+    case root
+    case meitu
+    case xingtu
+    case lr
+    case mono
+
+    public var title: String {
+        switch self {
+        case .root: return "Chuẩn"
+        case .meitu: return "Meitu"
+        case .xingtu: return "XingTu"
+        case .lr: return "Lightroom"
+        case .mono: return "Mono"
         }
     }
 }
@@ -293,6 +475,7 @@ public struct Editor: Sendable {
     private var crop: EditorCrop = .full
     private var adjustments: EditorAdjustments = .zero
     private var filter: EditorFilter = .original
+    private var texts: [EditorTextLayer] = []
     private var rendered: (width: UInt32, height: UInt32)
 
     public init(width: UInt32, height: UInt32, rgba: [UInt8]) throws {
@@ -321,6 +504,7 @@ public struct Editor: Sendable {
     public var currentCrop: EditorCrop { crop }
     public var currentAdjustments: EditorAdjustments { adjustments }
     public var currentFilter: EditorFilter { filter }
+    public var textLayers: [EditorTextLayer] { texts }
 
     public mutating func setGeometry(rotate: UInt8, flipH: Bool, flipV: Bool) {
         self.rotate = rotate % 4
@@ -330,6 +514,10 @@ public struct Editor: Sendable {
 
     public mutating func setCrop(_ crop: EditorCrop) {
         self.crop = crop
+    }
+
+    public mutating func setTextLayers(_ layers: [EditorTextLayer]) {
+        texts = layers.map { $0.normalized() }
     }
 
     public mutating func setAdjustments(_ adjustments: EditorAdjustments) {
@@ -399,7 +587,12 @@ public struct Editor: Sendable {
         let crop = cropPixels()
         let rgba = renderRGBA(crop, outWidth: crop.width, outHeight: crop.height)
         rendered = (crop.width, crop.height)
-        return try Editor.encode(format: format, quality: quality, rgba: rgba,
+        let composited = compositeTextLayers(
+            rgba,
+            width: crop.width,
+            height: crop.height
+        )
+        return try Editor.encode(format: format, quality: quality, rgba: composited,
                                 width: crop.width, height: crop.height)
     }
 
@@ -527,69 +720,199 @@ public struct Editor: Sendable {
     }
 
     private func effectiveAdjustments() -> Effective {
-        var values = adjustments
-        var grayscale = false
-        var matrix: [Float]?
-        var offset: [Float]?
+        let values = adjustments.clamped()
+        let transform = Editor.presetTransform(filter)
+        return Effective(
+            adjustments: values,
+            grayscale: false,
+            identity: values.isIdentity && transform == nil,
+            matrix: transform?.matrix,
+            offset: transform?.offset
+        )
+    }
+
+    /// A 3×3 colour matrix with a per-channel offset, row major.
+    struct PresetTransform {
+        var matrix: [Float]
+        var offset: [Float]
+    }
+
+    static func identityTransform() -> PresetTransform {
+        PresetTransform(
+            matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+            offset: [0, 0, 0]
+        )
+    }
+
+    /// The diagonal gains of the web `gains()` helper.
+    static func gains(_ r: Float, _ g: Float, _ b: Float) -> PresetTransform {
+        PresetTransform(
+            matrix: [r, 0, 0, 0, g, 0, 0, 0, b],
+            offset: [0, 0, 0]
+        )
+    }
+
+    static func saturationTransform(_ value: Float) -> PresetTransform {
+        let s = max(0, 1 + value)
+        let lr: Float = 0.2126
+        let lg: Float = 0.7152
+        let lb: Float = 0.0722
+        let inv = 1 - s
+        return PresetTransform(
+            matrix: [
+                lr * inv + s, lg * inv, lb * inv,
+                lr * inv, lg * inv + s, lb * inv,
+                lr * inv, lg * inv, lb * inv + s,
+            ],
+            offset: [0, 0, 0]
+        )
+    }
+
+    static func contrastTransform(_ value: Float) -> PresetTransform {
+        let c = max(0.05, 1 + value)
+        let shift = 0.5 * (1 - c)
+        return PresetTransform(
+            matrix: [c, 0, 0, 0, c, 0, 0, 0, c],
+            offset: [shift, shift, shift]
+        )
+    }
+
+    static func brightnessTransform(_ value: Float) -> PresetTransform {
+        let add = value * 0.22
+        return PresetTransform(
+            matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+            offset: [add, add, add]
+        )
+    }
+
+    /// Apply `before` first, then `after`, like the web `compose()`.
+    static func compose(
+        _ after: PresetTransform,
+        _ before: PresetTransform
+    ) -> PresetTransform {
+        var matrix = [Float](repeating: 0, count: 9)
+        for row in 0..<3 {
+            let r = row * 3
+            for column in 0..<3 {
+                matrix[r + column] =
+                    after.matrix[r] * before.matrix[column]
+                    + after.matrix[r + 1] * before.matrix[3 + column]
+                    + after.matrix[r + 2] * before.matrix[6 + column]
+            }
+        }
+        var offset = [Float](repeating: 0, count: 3)
+        for row in 0..<3 {
+            offset[row] =
+                after.matrix[row * 3] * before.offset[0]
+                + after.matrix[row * 3 + 1] * before.offset[1]
+                + after.matrix[row * 3 + 2] * before.offset[2]
+                + after.offset[row]
+        }
+        return PresetTransform(matrix: matrix, offset: offset)
+    }
+
+    /// The colour transform of one preset, the same recipe as
+    /// `PRESETS` in the Aurum release's `src/core/color.ts`.
+    static func presetTransform(_ filter: EditorFilter) -> PresetTransform? {
         switch filter {
         case .original:
-            break
+            return nil
         case .vivid:
-            values.saturation += 25
-            values.contrast += 8
+            return compose(contrastTransform(0.08), saturationTransform(0.38))
         case .dramatic:
-            values.contrast += 27
-            values.saturation -= 18
-            matrix = [
-                1.05, 0, 0,
-                0, 1.02, 0,
-                0, 0, 1.08,
-            ]
-            offset = [-0.012, -0.008, 0.012]
-        case .warm:
-            values.warmth += 35
-            values.saturation += 8
-        case .cool:
-            values.warmth -= 35
+            let grade = compose(
+                contrastTransform(0.27),
+                saturationTransform(-0.18)
+            )
+            let split = PresetTransform(
+                matrix: [1.05, 0, 0, 0, 1.02, 0, 0, 0, 1.08],
+                offset: [-0.012, -0.008, 0.012]
+            )
+            return compose(split, grade)
         case .mono:
-            grayscale = true
-            values.contrast += 10
+            return compose(contrastTransform(0.1), saturationTransform(-1))
         case .vintage:
-            matrix = [
-                0.92, 0.32, 0.08,
-                0.14, 0.86, 0.11,
-                0.06, 0.19, 0.72,
-            ]
-            offset = [0.035, 0.02, 0]
-            values.contrast -= 5
-        case .fade:
-            values.contrast -= 18
-            values.brightness += 4
-            values.saturation -= 18
-            values.shadows += 12
-        case .natural:
-            values.brightness += 4
-            values.saturation += 12
-        case .korea:
-            values.brightness += 6
-            values.saturation += 15
-            values.contrast -= 3
-        case .japan:
-            values.brightness += 3
-            values.saturation += 6
-            values.contrast -= 8
-        case .skin:
-            values.brightness += 14
-            values.saturation += 5
+            return PresetTransform(
+                matrix: [
+                    0.92, 0.32, 0.08,
+                    0.14, 0.86, 0.11,
+                    0.06, 0.19, 0.72,
+                ],
+                offset: [0.035, 0.02, 0]
+            )
+        case .warm:
+            return gains(1.12, 1.02, 0.88)
+        case .cool:
+            return gains(0.9, 1, 1.16)
+        case .meituNatural:
+            return compose(gains(1.04, 1.02, 0.98), saturationTransform(0.12))
+        case .meituKorea:
+            return compose(gains(1.06, 1.0, 0.98), saturationTransform(0.15))
+        case .meituJapan:
+            return compose(gains(1.03, 1.01, 1.02), contrastTransform(-0.08))
+        case .meituSkin:
+            return compose(gains(1.05, 1.03, 0.99), brightnessTransform(0.14))
+        case .meituPink:
+            return compose(gains(1.07, 0.99, 0.97), saturationTransform(0.2))
+        case .meituWhite:
+            return compose(gains(1.08, 1.08, 1.08), saturationTransform(-0.05))
+        case .xingtuFilm:
+            return compose(
+                gains(0.97, 1.02, 1.07),
+                compose(contrastTransform(0.12), saturationTransform(0.05))
+            )
+        case .xingtuHK:
+            return compose(
+                gains(1.02, 1.0, 1.04),
+                compose(contrastTransform(0.1), saturationTransform(-0.08))
+            )
+        case .xingtuShowa:
+            return compose(
+                gains(1.04, 1.0, 0.93),
+                compose(contrastTransform(-0.05), saturationTransform(-0.15))
+            )
+        case .xingtuKama:
+            return compose(gains(1.06, 1.02, 0.9), saturationTransform(0.1))
+        case .xingtuNight:
+            return compose(
+                gains(0.94, 0.98, 1.08),
+                compose(contrastTransform(0.08), saturationTransform(-0.05))
+            )
+        case .xingtuMorning:
+            return compose(gains(1.07, 1.04, 0.93), saturationTransform(0.08))
+        case .lrCinema:
+            return compose(
+                gains(0.98, 1.02, 1.06),
+                compose(contrastTransform(0.15), saturationTransform(0.05))
+            )
+        case .lrMoody:
+            return compose(
+                gains(0.97, 0.98, 1.02),
+                compose(contrastTransform(0.18), saturationTransform(-0.15))
+            )
+        case .lrVibrant:
+            return compose(contrastTransform(0.05), saturationTransform(0.35))
+        case .lrPastel:
+            return compose(
+                gains(1.03, 1.03, 1.03),
+                compose(contrastTransform(-0.1), saturationTransform(0.1))
+            )
+        case .lrDesert:
+            return compose(gains(1.08, 1.0, 0.88), saturationTransform(0.15))
+        case .lrStreet:
+            return compose(contrastTransform(0.2), saturationTransform(-0.1))
+        case .lrFaded:
+            return compose(
+                gains(1.02, 1.02, 1.02),
+                compose(contrastTransform(-0.12), saturationTransform(-0.15))
+            )
+        case .lrTeal:
+            return compose(gains(0.93, 1.04, 1.07), saturationTransform(0.1))
+        case .monoWarm:
+            return compose(gains(1.06, 1.02, 0.94), saturationTransform(-1))
+        case .monoCool:
+            return compose(gains(0.94, 0.98, 1.06), saturationTransform(-1))
         }
-        let clamped = values.clamped()
-        return Effective(
-            adjustments: clamped,
-            grayscale: grayscale,
-            identity: clamped.isIdentity && matrix == nil,
-            matrix: matrix,
-            offset: offset
-        )
     }
 
     struct Effective {

@@ -18,6 +18,7 @@ final class EditorModel {
     enum Tab: String, CaseIterable, Identifiable {
         case adjust
         case filter
+        case text
         case crop
 
         var id: String { rawValue }
@@ -150,7 +151,8 @@ final class EditorModel {
         }
     }
 
-    /// The crop aspect presets of the editor.
+    /// The crop aspect presets of the editor, the same rail as the web's
+    /// `ASPECTS` (including the viewport-shaped `screen` preset).
     enum Aspect: String, CaseIterable, Identifiable {
         case free
         case square
@@ -158,6 +160,7 @@ final class EditorModel {
         case threeFour
         case sixteenNine
         case nineSixteen
+        case screen
 
         var id: String { rawValue }
 
@@ -169,11 +172,13 @@ final class EditorModel {
             case .threeFour: return "3:4"
             case .sixteenNine: return "16:9"
             case .nineSixteen: return "9:16"
+            case .screen: return Strings.editorCropScreen
             }
         }
 
-        /// Width divided by height; `nil` keeps the current rectangle.
-        var ratio: Float? {
+        /// Width divided by height. The screen preset takes the aspect of the
+        /// stage, so it needs the viewport; `nil` keeps the current rectangle.
+        func ratio(viewport: CGSize = .zero) -> Float? {
             switch self {
             case .free: return nil
             case .square: return 1
@@ -181,6 +186,9 @@ final class EditorModel {
             case .threeFour: return 3.0 / 4.0
             case .sixteenNine: return 16.0 / 9.0
             case .nineSixteen: return 9.0 / 16.0
+            case .screen:
+                guard viewport.width > 0, viewport.height > 0 else { return 1 }
+                return Float(viewport.width / viewport.height)
             }
         }
     }
@@ -193,6 +201,59 @@ final class EditorModel {
         case failed(String)
     }
 
+    /// The category rail of the filter pane.
+    enum FilterCategory: String, CaseIterable, Identifiable {
+        case all
+        case root
+        case meitu
+        case xingtu
+        case lr
+        case mono
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .all: return Strings.editorFilterCatAll
+            case .root: return Strings.editorFilterCatRoot
+            case .meitu: return Strings.editorFilterCatMeitu
+            case .xingtu: return Strings.editorFilterCatXingtu
+            case .lr: return Strings.editorFilterCatLr
+            case .mono: return Strings.editorFilterCatMono
+            }
+        }
+
+        func includes(_ filter: EditorFilter) -> Bool {
+            switch self {
+            case .all: return true
+            case .root: return filter.category == .root
+            case .meitu: return filter.category == .meitu
+            case .xingtu: return filter.category == .xingtu
+            case .lr: return filter.category == .lr
+            case .mono: return filter.category == .mono
+            }
+        }
+    }
+
+    /// The four quick styles of the text pane.
+    enum TextStyle: String, CaseIterable, Identifiable {
+        case title
+        case bold
+        case caption
+        case outline
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .title: return Strings.editorTextTitle
+            case .bold: return Strings.editorTextTitleBold
+            case .caption: return Strings.editorTextCaption
+            case .outline: return Strings.editorTextOutlineStyle
+            }
+        }
+    }
+
     /// One step of the history.
     struct Snapshot: Equatable {
         var adjustments: EditorAdjustments
@@ -201,6 +262,7 @@ final class EditorModel {
         var rotation: UInt8
         var flipH: Bool
         var flipV: Bool
+        var texts: [EditorTextLayer]
     }
 
     let client: MNGAPIClient
@@ -223,6 +285,14 @@ final class EditorModel {
     private(set) var aspect: Aspect = .free
     /// The adjustment the pane shows.
     private(set) var activeAdjustment: Adjustment = .brightness
+    /// The category of the filter rail.
+    private(set) var filterCategory: FilterCategory = .all
+    /// The tone-tune section of the filter pane.
+    private(set) var tuneOpen = false
+    private(set) var tuneKey: Adjustment = .brightness
+    /// The text layers over the photo, in draw order.
+    private(set) var texts: [EditorTextLayer] = []
+    private(set) var selectedTextId: String?
     /// The thumbnails of the presets, one per filter.
     private(set) var filterThumbnails: [EditorFilter: UIImage] = [:]
     /// The history of the edits.
@@ -287,6 +357,11 @@ final class EditorModel {
             saveQuality = 92
             aspect = .free
             activeAdjustment = .brightness
+            filterCategory = .all
+            tuneOpen = false
+            tuneKey = .brightness
+            texts = []
+            selectedTextId = nil
             undoStack = []
             redoStack = []
             preview = nil
@@ -397,6 +472,187 @@ final class EditorModel {
         activeAdjustment = adjustment
     }
 
+    /// The filters of the active category, in the Aurum catalog order.
+    var visibleFilters: [EditorFilter] {
+        EditorFilter.allCases.filter { filterCategory.includes($0) }
+    }
+
+    func selectFilterCategory(_ category: FilterCategory) {
+        filterCategory = category
+    }
+
+    // MARK: - Tone tuning
+
+    func toggleTune() {
+        tuneOpen.toggle()
+    }
+
+    func selectTuneKey(_ key: Adjustment) {
+        tuneKey = key
+    }
+
+    /// Write the tune slider back into the same adjustments as the Adjust tab.
+    func setTune(value: Float) {
+        let clamped = tuneKey == .vignette
+            ? min(max(value, 0), 100)
+            : value
+        setAdjustment(tuneKey, value: clamped)
+    }
+
+    /// Clear the seven tone sliders in one history step.
+    func resetTune() {
+        let keys: [Adjustment] = [
+            .brightness, .contrast, .saturation,
+            .warmth, .tint, .vibrance, .vignette,
+        ]
+        guard keys.contains(where: { $0.value(in: adjustments) != 0 }) else {
+            return
+        }
+        pushHistory()
+        var values = adjustments
+        for key in keys {
+            key.set(0, in: &values)
+        }
+        adjustments = values
+        applyAdjustments()
+    }
+
+    // MARK: - Text layers
+
+    var selectedText: EditorTextLayer? {
+        texts.first { $0.id == selectedTextId }
+    }
+
+    func selectText(_ id: String?) {
+        selectedTextId = id
+    }
+
+    /// Add a layer with the web's staggered default position and open it for
+    /// editing.
+    @discardableResult
+    func addText() -> EditorTextLayer? {
+        guard state == .ready else { return nil }
+        let index = texts.count
+        let x = 0.5 + Float((index % 3) - 1) * 0.06
+        let y = 0.42 + Float(index % 4) * 0.08
+        return addText(x: x, y: y)
+    }
+
+    @discardableResult
+    func addText(x: Float, y: Float) -> EditorTextLayer? {
+        guard state == .ready else { return nil }
+        pushHistory()
+        let layer = EditorTextLayer(
+            id: UUID().uuidString,
+            x: min(max(x, 0.05), 0.95),
+            y: min(max(y, 0.05), 0.95)
+        )
+        texts.append(layer)
+        selectedTextId = layer.id
+        applyTexts()
+        return layer
+    }
+
+    /// Mutate one layer. Slider and drag changes are merged into one history
+    /// step while they follow each other.
+    func updateText(
+        _ id: String,
+        coalescing: Bool = true,
+        _ mutate: (inout EditorTextLayer) -> Void
+    ) {
+        guard let index = texts.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        pushHistory(coalescing: coalescing)
+        var layer = texts[index]
+        mutate(&layer)
+        texts[index] = layer.normalized()
+        applyTexts()
+    }
+
+    func updateSelectedText(
+        coalescing: Bool = true,
+        _ mutate: (inout EditorTextLayer) -> Void
+    ) {
+        guard let id = selectedTextId else { return }
+        updateText(id, coalescing: coalescing, mutate)
+    }
+
+    func deleteSelectedText() {
+        guard let id = selectedTextId,
+              let index = texts.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        pushHistory()
+        texts.remove(at: index)
+        selectedTextId = texts.first?.id
+        applyTexts()
+    }
+
+    func duplicateSelectedText() {
+        guard let source = selectedText,
+              let index = texts.firstIndex(where: { $0.id == source.id }) else {
+            return
+        }
+        pushHistory()
+        var copy = source
+        copy.id = UUID().uuidString
+        copy.x = min(max(copy.x + 0.05, 0), 1)
+        copy.y = min(max(copy.y + 0.05, 0), 1)
+        texts.insert(copy, at: index + 1)
+        selectedTextId = copy.id
+        applyTexts()
+    }
+
+    /// The four quick styles of the web text pane.
+    func applyTextStyle(_ style: TextStyle) {
+        updateSelectedText(coalescing: false) { layer in
+            switch style {
+            case .title:
+                layer.font = .sys
+                layer.bold = true
+                layer.italic = false
+                layer.size = 0.11
+                layer.outline = false
+                layer.shadow = true
+                layer.color = "#ffffff"
+            case .bold:
+                layer.font = .heavy
+                layer.bold = true
+                layer.size = 0.09
+                layer.outline = false
+                layer.shadow = false
+            case .caption:
+                layer.font = .sys
+                layer.bold = false
+                layer.italic = false
+                layer.size = 0.045
+                layer.outline = false
+                layer.shadow = false
+            case .outline:
+                layer.font = .heavy
+                layer.bold = true
+                layer.size = 0.09
+                layer.outline = true
+                layer.shadow = false
+                layer.color = "#ffffff"
+            }
+        }
+    }
+
+    private func applyTexts() {
+        guard var editor else { return }
+        editor.setTextLayers(texts)
+        self.editor = editor
+    }
+
+    /// The opacity ruler of the text pane (the web uses 10…100%).
+    func setTextOpacity(_ percent: Float) {
+        updateSelectedText { layer in
+            layer.opacity = min(max(percent / 100, 0.1), 1)
+        }
+    }
+
     func rotate(_ delta: Int) {
         guard var editor else { return }
         pushHistory()
@@ -467,12 +723,14 @@ final class EditorModel {
     /// converted first: `width / height` of a 1:1 frame on a 3:2 photo is
     /// `2/3`, not `1`. The frame is centred and as large as possible, the
     /// way the web's `setAspect` resets `scale` to 1.
-    func applyAspect(_ aspect: Aspect) {
-        guard let ratio = aspect.ratio else {
+    func applyAspect(_ aspect: Aspect, viewport: CGSize = .zero) {
+        guard let ratio = aspect.ratio(viewport: viewport) else {
             self.aspect = .free
             return
         }
-        guard self.aspect != aspect else { return }
+        if self.aspect == aspect {
+            return
+        }
         pushHistory()
         self.aspect = aspect
         let oriented = editor?.orientedSize() ?? (width: 1, height: 1)
@@ -487,6 +745,23 @@ final class EditorModel {
             width: width,
             height: height
         )
+    }
+
+    /// Tap the active preset again to return to the free frame, the web's
+    /// reset-on-second-tap. The screen preset is only ignored by the guard in
+    /// `applyAspect`, never here.
+    func selectAspect(_ aspect: Aspect, viewport: CGSize = .zero) {
+        if self.aspect == aspect, aspect != .free {
+            resetCrop()
+            return
+        }
+        applyAspect(aspect, viewport: viewport)
+    }
+
+    /// Reset the quarter turns. The crop is cleared because the oriented
+    /// geometry changes under the normalized rectangle.
+    func resetRotation() {
+        setRotation(0)
     }
 
     // MARK: - Adjustments and filters
@@ -524,6 +799,14 @@ final class EditorModel {
     }
 
     func setFilter(_ filter: EditorFilter) {
+        // Tapping the active tone again removes it, exactly like the web rail;
+        // "Nguyên bản" is the off state and never toggles itself.
+        if self.filter == filter, filter != .original {
+            pushHistory()
+            self.filter = .original
+            applyAdjustments()
+            return
+        }
         pushHistory()
         self.filter = filter
         applyAdjustments()
@@ -628,7 +911,8 @@ final class EditorModel {
                 crop: crop,
                 rotation: rotation,
                 flipH: flipH,
-                flipV: flipV
+                flipV: flipV,
+                texts: texts
             )
         )
         if undoStack.count > 60 {
@@ -662,7 +946,8 @@ final class EditorModel {
             crop: crop,
             rotation: rotation,
             flipH: flipH,
-            flipV: flipV
+            flipV: flipV,
+            texts: texts
         )
     }
 
@@ -673,11 +958,14 @@ final class EditorModel {
         rotation = snapshot.rotation
         flipH = snapshot.flipH
         flipV = snapshot.flipV
+        texts = snapshot.texts
+        selectedTextId = snapshot.texts.first?.id
         aspect = .free
         editor.setGeometry(rotate: rotation, flipH: flipH, flipV: flipV)
         editor.setAdjustments(adjustments)
         editor.setFilter(filter)
         editor.setCrop(crop)
+        editor.setTextLayers(texts)
         self.editor = editor
         renderPreview()
     }
@@ -703,6 +991,7 @@ final class EditorModel {
         let qualityByte = UInt8(saveQuality)
         var prepared = editor
         prepared.setCrop(crop)
+        prepared.setTextLayers(texts)
         do {
             let data = try await Task.detached(priority: .userInitiated) { [prepared] in
                 var copy = prepared
