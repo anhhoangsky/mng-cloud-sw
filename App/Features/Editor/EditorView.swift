@@ -37,6 +37,11 @@ struct EditorView: View {
     @FocusState private var textFocus: String?
     /// The one-shot "tap the photo to place text" mode of the web pane.
     @State private var textPlacing = false
+    /// The web's `aurum:text-frame` toggle: the dashed frame around the
+    /// selected layer with its rotate and scale handles.
+    @AppStorage("aurum:text-frame") private var textFrameVisible = true
+    /// The name typed next to the "Lưu" action of the filter pane.
+    @State private var presetName = ""
     /// The quick style the selected layer was given in this pane.
     @State private var activeTextStyle: EditorModel.TextStyle = .title
     /// The rail of the crop pane.
@@ -51,6 +56,7 @@ struct EditorView: View {
     /// first frame instead of accumulating rounding errors.
     @State private var textDragId: String?
     @State private var textDragOrigin: CGPoint = .zero
+    @State private var textDragStartTranslation: CGSize = .zero
     @State private var textScaleOrigin: Float?
     @State private var textScaleStartDistance: CGFloat = 1
     @State private var textRotateOrigin: Float?
@@ -153,15 +159,21 @@ struct EditorView: View {
             commitTextEditing()
             editor.close()
         }
-        .onChange(of: editor.tab) { _, tab in
+        .onChange(of: editor.tab) { oldTab, tab in
             commitTextEditing()
+            editor.endEdit()
+            // A gesture that was interrupted by the tab change may never get
+            // its `onEnded`; clear its origin so the next drag starts clean.
+            textDragId = nil
+            textScaleOrigin = nil
+            textRotateOrigin = nil
             textPlacing = false
             if tab != .crop {
                 isCropDragging = false
                 isRatioing = false
                 isRotating = false
             }
-            if tab == .text {
+            if tab == .text || oldTab == .crop {
                 stageScale = 1
                 stageOffset = .zero
                 gestureScale = 1
@@ -183,6 +195,17 @@ struct EditorView: View {
                 commitTextEditing()
             }
         }
+        .onChange(of: textDraft) { _, draft in
+            // Live typing: the layer follows the field on every keystroke
+            // instead of waiting for a tap outside. The editing session is one
+            // open transaction, so the whole edit is one undo step.
+            guard let id = editingTextId else { return }
+            editor.updateText(id, coalescing: false) { $0.text = draft }
+        }
+        .ignoresSafeArea(
+            .keyboard,
+            edges: editor.tab == .text ? .bottom : []
+        )
     }
 
     /// The chrome fades while the crop frame, the ratio rail or the rotation
@@ -317,9 +340,39 @@ struct EditorView: View {
                                 .aspectRatio(contentMode: .fit)
                                 .frame(width: fitted.width, height: fitted.height)
 
-                            if editor.tab != .crop, !isComparing {
+                            if editor.tab == .crop {
+                                // The overlay lives inside the scaled photo
+                                // stack, so the dim scrim covers the whole
+                                // photo even when it is zoomed or panned.
+                                if !isComparing {
+                                    CropOverlay(
+                                        crop: editor.crop,
+                                        isFixedAspect: editor.aspect != .free,
+                                        scrimVisible: !isCropDragging && !isRatioing,
+                                        showGrid: isCropDragging || isRotating,
+                                        isRotating: isRotating,
+                                        onChange: { editor.setCrop($0) },
+                                        onBegin: { editor.beginCropEdit() },
+                                        onDragState: { active in
+                                            if !active {
+                                                editor.endEdit()
+                                            }
+                                            withAnimation(.easeOut(duration: 0.18)) {
+                                                isCropDragging = active
+                                            }
+                                        }
+                                    )
+                                    .frame(
+                                        width: fitted.width,
+                                        height: fitted.height
+                                    )
+                                }
+                            } else if !isComparing {
                                 textOverlay(fitted: fitted)
-                                    .frame(width: fitted.width, height: fitted.height)
+                                    .frame(
+                                        width: fitted.width,
+                                        height: fitted.height
+                                    )
                             }
                         }
                         .frame(width: fitted.width, height: fitted.height)
@@ -332,28 +385,6 @@ struct EditorView: View {
                             x: geometry.size.width / 2,
                             y: geometry.size.height / 2
                         )
-
-                        if editor.tab == .crop, !isComparing {
-                            CropOverlay(
-                                crop: editor.crop,
-                                isFixedAspect: editor.aspect != .free,
-                                scrimVisible: !isCropDragging && !isRatioing,
-                                showGrid: isCropDragging || isRotating,
-                                isRotating: isRotating,
-                                onChange: { editor.setCrop($0) },
-                                onBegin: { editor.beginCropEdit() },
-                                onDragState: { active in
-                                    withAnimation(.easeOut(duration: 0.18)) {
-                                        isCropDragging = active
-                                    }
-                                }
-                            )
-                            .frame(width: fitted.width, height: fitted.height)
-                            .position(
-                                x: geometry.size.width / 2,
-                                y: geometry.size.height / 2
-                            )
-                        }
                     }
                 }
 
@@ -469,69 +500,19 @@ struct EditorView: View {
         let selected = editor.tab == .text && editor.selectedTextId == layer.id
         let fontSize = max(10, fitted.height * CGFloat(layer.size))
         let widthLimit = max(fitted.width * 0.7, 60)
-
-        return textGlyphs(layer, fontSize: fontSize)
-            .frame(maxWidth: widthLimit)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
-            .overlay {
-                if selected {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(
-                            Aurum.gold.opacity(0.75),
-                            style: StrokeStyle(
-                                lineWidth: 1,
-                                dash: [4, 3]
-                            )
-                        )
-                        .padding(-6)
-                }
-            }
-            .overlay(alignment: .topLeading) {
-                if selected {
-                    Circle()
-                        .fill(Aurum.gold)
-                        .frame(width: 10, height: 10)
-                        .overlay {
-                            Circle().stroke(Color.black.opacity(0.6), lineWidth: 1.5)
-                        }
-                        .offset(x: -10, y: -10)
-                }
-            }
-            .overlay(alignment: .bottomTrailing) {
-                if selected {
-                    Circle()
-                        .fill(Aurum.gold)
-                        .frame(width: 10, height: 10)
-                        .overlay {
-                            Circle().stroke(Color.black.opacity(0.6), lineWidth: 1.5)
-                        }
-                        .offset(x: 10, y: 10)
-                }
-            }
-            .overlay(alignment: .top) {
-                if selected {
-                    VStack(spacing: 0) {
-                        rotateHandle(layer, fitted: fitted)
-                        Capsule()
-                            .fill(Aurum.gold.opacity(0.9))
-                            .frame(width: 2, height: 14)
-                    }
-                    .offset(y: -42)
-                }
-            }
-            .overlay(alignment: .bottomTrailing) {
-                if selected {
-                    scaleHandle(layer, fitted: fitted)
-                        .offset(x: 14, y: 14)
-                }
-            }
-            .contentShape(Rectangle())
-            .position(
-                x: CGFloat(layer.x) * fitted.width,
-                y: CGFloat(layer.y) * fitted.height
+        let measured = textNodeSize(
+            layer,
+            fontSize: fontSize,
+            limit: widthLimit
+        )
+        let showFrame = selected && textFrameVisible
+        let glyphs = textGlyphs(layer, fontSize: fontSize)
+            .frame(
+                width: measured.width,
+                height: measured.height,
+                alignment: textAlignment(layer.align)
             )
-            .rotationEffect(.degrees(Double(layer.rotation)))
+            .contentShape(Rectangle())
             .onTapGesture(count: 2) {
                 beginEditing(layer)
             }
@@ -547,6 +528,127 @@ struct EditorView: View {
             // Outside the text tab the stage owns the pan and the pinch, so
             // the layer is visible but transparent to the finger.
             .allowsHitTesting(editor.tab == .text)
+
+        return ZStack {
+            glyphs
+
+            if showFrame {
+                // The dashed frame hugs the measured text, so it stays glued
+                // to the glyphs while the size slider or the scale handle
+                // changes them.
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(
+                        Aurum.gold.opacity(0.80),
+                        style: StrokeStyle(
+                            lineWidth: 1,
+                            dash: [4, 3]
+                        )
+                    )
+                    .frame(
+                        width: measured.width + 12,
+                        height: measured.height + 12
+                    )
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(width: measured.width, height: measured.height)
+        // The padding gives the rotate and scale handles room inside the
+        // hit-testable bounds of the node.
+        .padding(30)
+        .overlay(alignment: .top) {
+            if selected {
+                rotateHandle(layer, fitted: fitted)
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if selected {
+                scaleHandle(layer, fitted: fitted)
+            }
+        }
+        .position(
+            x: CGFloat(layer.x) * fitted.width,
+            y: CGFloat(layer.y) * fitted.height
+        )
+        .rotationEffect(.degrees(Double(layer.rotation)))
+    }
+
+    /// The size the glyphs need, measured with the same font the exporter and
+    /// the SwiftUI text run. It is used for the frame and the handle anchors,
+    /// not for the export geometry.
+    private func textNodeSize(
+        _ layer: EditorTextLayer,
+        fontSize: CGFloat,
+        limit: CGFloat
+    ) -> CGSize {
+        let content = layer.text.isEmpty ? " " : layer.text
+        let paragraph = NSMutableParagraphStyle()
+        switch layer.align {
+        case .left: paragraph.alignment = .left
+        case .center: paragraph.alignment = .center
+        case .right: paragraph.alignment = .right
+        }
+        paragraph.lineBreakMode = .byWordWrapping
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: textUIFont(layer, size: fontSize),
+            .paragraphStyle: paragraph,
+        ]
+        let bounding = (content as NSString).boundingRect(
+            with: CGSize(
+                width: limit,
+                height: .greatestFiniteMagnitude
+            ),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: attributes,
+            context: nil
+        )
+        let stroke = layer.outline ? max(1, fontSize * 0.045) * 2 : 0
+        return CGSize(
+            width: min(
+                max(ceil(bounding.width) + stroke + 4, 12),
+                limit + stroke + 4
+            ),
+            height: max(ceil(bounding.height) + stroke + 4, fontSize)
+        )
+    }
+
+    private func textUIFont(
+        _ layer: EditorTextLayer,
+        size: CGFloat
+    ) -> UIFont {
+        let base: UIFont
+        switch layer.font {
+        case .sys:
+            base = UIFont.systemFont(
+                ofSize: size,
+                weight: layer.bold ? .bold : .regular
+            )
+        case .serif:
+            base = UIFont(name: layer.bold ? "Georgia-Bold" : "Georgia", size: size)
+                ?? UIFont.systemFont(ofSize: size, weight: layer.bold ? .bold : .regular)
+        case .mono:
+            base = UIFont(name: layer.bold ? "Menlo-Bold" : "Menlo-Regular", size: size)
+                ?? UIFont.monospacedSystemFont(ofSize: size, weight: layer.bold ? .bold : .regular)
+        case .round:
+            base = UIFont(name: "ArialRoundedMTBold", size: size)
+                ?? UIFont.systemFont(ofSize: size, weight: .bold)
+        case .heavy:
+            base = UIFont(name: "Arial-Black", size: size)
+                ?? UIFont.systemFont(ofSize: size, weight: .heavy)
+        }
+        guard layer.italic else { return base }
+        let traits = base.fontDescriptor.symbolicTraits.union(.traitItalic)
+        guard let descriptor = base.fontDescriptor.withSymbolicTraits(traits) else {
+            return base
+        }
+        return UIFont(descriptor: descriptor, size: size)
+    }
+
+    private func textAlignment(_ align: EditorTextAlign) -> Alignment {
+        switch align {
+        case .left: return .leading
+        case .center: return .center
+        case .right: return .trailing
+        }
     }
 
     private func textGlyphs(
@@ -668,23 +770,28 @@ struct EditorView: View {
                     x: CGFloat(layer.x),
                     y: CGFloat(layer.y)
                 )
+                // A drag with a 3 pt threshold reports those 3 pt in the first
+                // event; keeping them out avoids the little jump at the start.
+                textDragStartTranslation = value.translation
                 editor.selectText(layer.id)
+                editor.beginEdit()
             }
             let dx = Float(
-                (value.location.x - value.startLocation.x)
+                (value.translation.width - textDragStartTranslation.width)
                     / max(fitted.width, 1)
             )
             let dy = Float(
-                (value.location.y - value.startLocation.y)
+                (value.translation.height - textDragStartTranslation.height)
                     / max(fitted.height, 1)
             )
-            editor.updateText(layer.id, coalescing: true) { text in
+            editor.updateText(layer.id) { text in
                 text.x = Float(textDragOrigin.x) + dx
                 text.y = Float(textDragOrigin.y) + dy
             }
         }
         .onEnded { _ in
             textDragId = nil
+            editor.endEdit()
         }
     }
 
@@ -697,14 +804,16 @@ struct EditorView: View {
                 if textScaleOrigin == nil {
                     textScaleOrigin = layer.size
                     editor.selectText(layer.id)
+                    editor.beginEdit()
                 }
                 let origin = textScaleOrigin ?? layer.size
-                editor.updateText(layer.id, coalescing: true) { text in
+                editor.updateText(layer.id) { text in
                     text.size = origin * Float(value)
                 }
             }
             .onEnded { _ in
                 textScaleOrigin = nil
+                editor.endEdit()
             }
     }
 
@@ -717,15 +826,17 @@ struct EditorView: View {
                 if textRotateOrigin == nil {
                     textRotateOrigin = layer.rotation
                     editor.selectText(layer.id)
+                    editor.beginEdit()
                 }
                 let origin = textRotateOrigin ?? layer.rotation
-                editor.updateText(layer.id, coalescing: true) { text in
+                editor.updateText(layer.id) { text in
                     text.rotation = origin
                         + Float(value.degrees)
                 }
             }
             .onEnded { _ in
                 textRotateOrigin = nil
+                editor.endEdit()
             }
     }
 
@@ -750,15 +861,17 @@ struct EditorView: View {
                 textRotateOrigin = layer.rotation
                 textRotateStartAngle = angle
                 editor.selectText(layer.id)
+                editor.beginEdit()
             }
             let delta = angle - textRotateStartAngle
             let origin = textRotateOrigin ?? layer.rotation
-            editor.updateText(layer.id, coalescing: true) { text in
+            editor.updateText(layer.id) { text in
                 text.rotation = origin + Float(delta)
             }
         }
         .onEnded { _ in
             textRotateOrigin = nil
+            editor.endEdit()
         }
     }
 
@@ -786,15 +899,17 @@ struct EditorView: View {
                 textScaleOrigin = layer.size
                 textScaleStartDistance = distance
                 editor.selectText(layer.id)
+                editor.beginEdit()
             }
             let factor = distance / max(textScaleStartDistance, 1)
             let origin = textScaleOrigin ?? layer.size
-            editor.updateText(layer.id, coalescing: true) { text in
+            editor.updateText(layer.id) { text in
                 text.size = origin * Float(factor)
             }
         }
         .onEnded { _ in
             textScaleOrigin = nil
+            editor.endEdit()
         }
     }
 
@@ -848,17 +963,16 @@ struct EditorView: View {
         }
     }
 
-    /// Add a layer at the centre and open its field, the pane's "Thêm chữ".
-    private func addCenteredText() {
-        guard let layer = editor.addText() else { return }
-        beginEditing(layer)
-    }
-
     /// The one-shot placement mode: create the layer at the finger and open
-    /// its field.
+    /// its field. The transaction starts before the layer exists, so adding
+    /// and typing undo as one step.
     private func placeText(x: Float, y: Float) {
         textPlacing = false
-        guard let layer = editor.addText(x: x, y: y) else { return }
+        editor.beginEdit()
+        guard let layer = editor.addText(x: x, y: y) else {
+            editor.endEdit()
+            return
+        }
         beginEditing(layer)
     }
 
@@ -868,6 +982,9 @@ struct EditorView: View {
         editor.selectText(layer.id)
         textDraft = layer.text
         editingTextId = layer.id
+        // Live typing is one transaction: every keystroke previews, releasing
+        // the field records a single undo step.
+        editor.beginEdit()
         DispatchQueue.main.async {
             textFocus = layer.id
         }
@@ -882,6 +999,7 @@ struct EditorView: View {
         let draft = textDraft
         textDraft = ""
         guard let layer = editor.texts.first(where: { $0.id == id }) else {
+            editor.endEdit()
             return
         }
         if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -889,11 +1007,10 @@ struct EditorView: View {
                 editor.selectText(id)
             }
             editor.deleteSelectedText()
-            return
-        }
-        if draft != layer.text {
+        } else if draft != layer.text {
             editor.updateText(id, coalescing: false) { $0.text = draft }
         }
+        editor.endEdit()
     }
 
     private func fittedSize(image: UIImage, in size: CGSize) -> CGSize {
@@ -1044,7 +1161,14 @@ struct EditorView: View {
                 minimum: editor.activeAdjustment == .vignette ? 0 : -100,
                 maximum: 100,
                 zero: editor.activeAdjustment != .vignette,
-                ruler: true
+                ruler: true,
+                onEditingChanged: { editing in
+                    if editing {
+                        editor.beginEdit()
+                    } else {
+                        editor.endEdit()
+                    }
+                }
             )
             .padding(.horizontal, 12)
         }
@@ -1223,7 +1347,154 @@ struct EditorView: View {
                 }
             }
 
+            savedPresetsSection
+
+            savePresetRow
+
             tuneSection
+        }
+    }
+
+    /// The personal row of the web filter pane: the presets the person saved,
+    /// with the active one highlighted and an inline delete button.
+    @ViewBuilder
+    private var savedPresetsSection: some View {
+        if !editor.userPresets.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(Strings.editorPresetSavedTitle.uppercased())
+                    .font(Font.mng(8.5, weight: .bold))
+                    .tracking(0.35)
+                    .foregroundStyle(Color.white.opacity(0.38))
+                    .padding(.horizontal, 14)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 8) {
+                        ForEach(editor.userPresets) { preset in
+                            savedPresetButton(preset)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+    }
+
+    private func savedPresetButton(
+        _ preset: EditorModel.UserPreset
+    ) -> some View {
+        let active = editor.activeSavedPresetId == preset.id
+        return ZStack(alignment: .topTrailing) {
+            Button {
+                editor.applyUserPreset(preset)
+            } label: {
+                VStack(spacing: 4) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .fill(Color(red: 0.11, green: 0.11, blue: 0.13))
+                        if let thumbnail = editor.filterThumbnails[preset.filter] {
+                            Image(uiImage: thumbnail)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 46, height: 46)
+                                .clipShape(
+                                    RoundedRectangle(
+                                        cornerRadius: 9,
+                                        style: .continuous
+                                    )
+                                )
+                        } else {
+                            Image(systemName: "bookmark")
+                                .font(Font.mng(15))
+                                .foregroundStyle(Aurum.muted)
+                        }
+                    }
+                    .frame(width: 46, height: 46)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .stroke(
+                                active ? Aurum.gold : .clear,
+                                lineWidth: 2
+                            )
+                    }
+                    .shadow(
+                        color: active
+                            ? Aurum.gold.opacity(0.22)
+                            : Color.black.opacity(0.35),
+                        radius: active ? 10 : 4,
+                        y: 3
+                    )
+                    Text(preset.name)
+                        .font(Font.mng(9, weight: .semibold))
+                        .foregroundStyle(active ? Aurum.gold : Aurum.muted)
+                        .lineLimit(1)
+                        .frame(width: 56)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(preset.name)
+            .accessibilityAddTraits(active ? .isSelected : [])
+
+            Button {
+                editor.deleteUserPreset(preset.id)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(Font.mng(7, weight: .bold))
+                    .foregroundStyle(Color.white)
+                    .frame(width: 16, height: 16)
+                    .background(Color.black.opacity(0.78), in: Circle())
+                    .overlay {
+                        Circle().stroke(Color.white.opacity(0.25), lineWidth: 0.5)
+                    }
+            }
+            .buttonStyle(.plain)
+            .offset(x: 4, y: -4)
+            .accessibilityLabel(Strings.editorPresetDelete)
+        }
+        .frame(width: 60)
+    }
+
+    /// The name field and the save action of the web's "Lưu bộ lọc" row.
+    private var savePresetRow: some View {
+        HStack(spacing: 6) {
+            TextField(Strings.editorPresetName, text: $presetName)
+                .font(Font.mng(11.5))
+                .foregroundStyle(Aurum.text)
+                .textInputAutocapitalization(.sentences)
+                .submitLabel(.done)
+                .onSubmit {
+                    savePreset()
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 32)
+                .background(
+                    Color.white.opacity(0.055),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                }
+
+            Button(Strings.editorPresetSave) {
+                savePreset()
+            }
+            .font(Font.mng(11.5, weight: .semibold))
+            .foregroundStyle(Color(red: 0.10, green: 0.08, blue: 0.03))
+            .padding(.horizontal, 13)
+            .frame(height: 32)
+            .background(
+                Aurum.gold,
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+    }
+
+    private func savePreset() {
+        if editor.saveUserPreset(named: presetName) {
+            presetName = ""
         }
     }
 
@@ -1381,7 +1652,14 @@ struct EditorView: View {
                 minimum: editor.tuneKey == .vignette ? 0 : -100,
                 maximum: 100,
                 zero: editor.tuneKey != .vignette,
-                ruler: true
+                ruler: true,
+                onEditingChanged: { editing in
+                    if editing {
+                        editor.beginEdit()
+                    } else {
+                        editor.endEdit()
+                    }
+                }
             )
             .padding(.horizontal, 12)
         }
@@ -1393,30 +1671,6 @@ struct EditorView: View {
         VStack(spacing: 8) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    Button {
-                        addCenteredText()
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "plus")
-                                .font(Font.mng(12, weight: .bold))
-                            Text(Strings.editorTextAdd)
-                                .font(Font.mng(12, weight: .semibold))
-                        }
-                        .foregroundStyle(
-                            Color(red: 0.10, green: 0.08, blue: 0.03)
-                        )
-                        .padding(.horizontal, 14)
-                        .frame(height: 36)
-                        .background(
-                            Aurum.gold,
-                            in: RoundedRectangle(
-                                cornerRadius: 11,
-                                style: .continuous
-                            )
-                        )
-                    }
-                    .buttonStyle(GlassPressStyle(scale: 0.96))
-
                     selectChip(
                         Strings.editorTextPlace,
                         icon: "plus.viewfinder",
@@ -1425,6 +1679,16 @@ struct EditorView: View {
                         fontSize: 12
                     ) {
                         textPlacing.toggle()
+                    }
+
+                    selectChip(
+                        Strings.editorTextFrame,
+                        icon: "rectangle.dashed",
+                        active: textFrameVisible,
+                        height: 36,
+                        fontSize: 12
+                    ) {
+                        textFrameVisible.toggle()
                     }
 
                     ForEach(EditorModel.TextStyle.allCases) { style in
@@ -1579,7 +1843,14 @@ struct EditorView: View {
                     minimum: 10,
                     maximum: 100,
                     tickStep: 2,
-                    ruler: true
+                    ruler: true,
+                    onEditingChanged: { editing in
+                        if editing {
+                            editor.beginEdit()
+                        } else {
+                            editor.endEdit()
+                        }
+                    }
                 )
                 .padding(.horizontal, 12)
             } else {
@@ -1680,8 +1951,8 @@ struct EditorView: View {
         )
     }
 
-    /// The crop pane: the ratio/rotation mode rail with its reset, the chip
-    /// rail or the quarter-turn ruler, and the native "Xong" to leave.
+    /// The crop pane: the ratio/rotation mode rail with its reset, the four
+    /// photo transforms, and the ratio chips or the continuous angle ruler.
     private var cropPane: some View {
         VStack(spacing: 8) {
             HStack(spacing: 6) {
@@ -1713,6 +1984,31 @@ struct EditorView: View {
             .allowsHitTesting(!cropModesHidden)
             .animation(.easeOut(duration: 0.18), value: cropModesHidden)
 
+            // The four transform controls of the web header: rotate left and
+            // right, flip horizontal and vertical. They stay in the crop pane
+            // so a turn or a flip is one tap away while framing.
+            HStack(spacing: 8) {
+                toolButton("rotate.left", label: Strings.editorRotateLeft) {
+                    editor.rotate(-1)
+                }
+                toolButton("rotate.right", label: Strings.editorRotateRight) {
+                    editor.rotate(1)
+                }
+                toolButton(
+                    "arrow.left.and.right.righttriangle.left.righttriangle.right",
+                    label: Strings.editorFlipH
+                ) {
+                    editor.flip(horizontal: true)
+                }
+                toolButton("arrow.up.and.down", label: Strings.editorFlipV) {
+                    editor.flip(horizontal: false)
+                }
+            }
+            .padding(.horizontal, 12)
+            .opacity(cropModesHidden ? 0 : 1)
+            .allowsHitTesting(!cropModesHidden)
+            .animation(.easeOut(duration: 0.18), value: cropModesHidden)
+
             Group {
                 if cropMode == .ratio {
                     ratioContext
@@ -1721,20 +2017,6 @@ struct EditorView: View {
                 }
             }
             .frame(minHeight: 44)
-
-            Button(Strings.editorCropDone) {
-                editor.finishCrop()
-            }
-            .font(Font.mng(13, weight: .semibold))
-            .foregroundStyle(Color(red: 0.10, green: 0.08, blue: 0.03))
-            .frame(maxWidth: .infinity)
-            .frame(height: 40)
-            .background(
-                Aurum.gold,
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-            )
-            .buttonStyle(.plain)
-            .padding(.horizontal, 12)
         }
     }
 
@@ -1744,7 +2026,9 @@ struct EditorView: View {
         if mode == .ratio {
             value = editor.aspect.title
         } else {
-            value = "\(Int(editor.rotation) * 90)°"
+            let angle = Int(editor.rotation) * 90
+                + Int(editor.fineRotation.rounded())
+            value = "\(angle)°"
         }
         return Button {
             withAnimation(.easeOut(duration: 0.2)) {
@@ -1838,25 +2122,27 @@ struct EditorView: View {
         }
     }
 
-    /// The engine stores quarter turns, so the rotation rail snaps to
-    /// 0/90/180/270 while the ruler keeps the web's density.
+    /// The web's continuous rotation ruler: −180…180°, one degree per step,
+    /// a tick every three degrees and the gold zero mark of the original.
     private var rotationContext: some View {
         TickSlider(
             value: Binding(
-                get: { Float(editor.rotation) * 90 },
-                set: {
-                    editor.setRotation(
-                        Int(($0 / 90).rounded())
-                    )
-                }
+                get: { editor.fineRotation },
+                set: { editor.setFineRotation($0) }
             ),
             label: Strings.editorCropRotation,
-            minimum: 0,
-            maximum: 270,
-            step: 90,
-            tickStep: 30,
+            minimum: -180,
+            maximum: 180,
+            step: 1,
+            tickStep: 3,
+            zero: true,
             ruler: true,
             onEditingChanged: { editing in
+                if editing {
+                    editor.beginEdit()
+                } else {
+                    editor.endEdit()
+                }
                 withAnimation(.easeOut(duration: 0.18)) {
                     isRotating = editing
                 }
@@ -2466,39 +2752,6 @@ private struct TickSlider: View {
                 apply(value - max(step, 1))
             @unknown default:
                 break
-            }
-        }
-    }
-}
-
-/// The rail of the rotation: the four quarter turns the MNGEdit pipeline
-/// supports. The web uses a continuous degree ruler, but the native engine
-/// only stores 0…3, so this control stays honest about the steps.
-private struct RotationRail: View {
-    /// The angle in degrees (0, 90, 180, 270).
-    @Binding var value: Double
-
-    private var quarter: Int {
-        min(max(Int((value / 90).rounded()), 0), 3)
-    }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(0..<4, id: \.self) { tick in
-                Button {
-                    value = Double(tick * 90)
-                } label: {
-                    Text("\(tick * 90)°")
-                        .font(Font.mng(12, weight: .semibold))
-                        .foregroundStyle(quarter == tick ? Aurum.gold : Aurum.muted)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 30)
-                        .background(
-                            quarter == tick ? Aurum.goldSoft : Color.clear,
-                            in: Capsule()
-                        )
-                }
-                .buttonStyle(.plain)
             }
         }
     }

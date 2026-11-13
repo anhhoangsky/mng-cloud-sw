@@ -378,6 +378,19 @@ struct LibraryView: View {
             guard let scrollView = hostScrollView else { return }
             scrollView.setContentOffset(scrollView.contentOffset, animated: false)
         }
+        .task(id: timelinePagingDue) {
+            // The scroll callbacks request the next page while the finger is
+            // moving. This pump is the backstop for the two cases that used
+            // to leave the top of the grid on shimmer forever: a request
+            // that failed while the person stopped at the boundary, and a
+            // drag that settled just before another scroll callback fired.
+            guard timelinePagingDue else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 700_000_000)
+                guard !Task.isCancelled, timelinePagingDue else { return }
+                maybeLoadOlderPage()
+            }
+        }
     }
 
     // MARK: - Scroll measurement
@@ -610,7 +623,12 @@ struct LibraryView: View {
     /// every page has arrived and prepending older photos never moves the
     /// content under the finger.
     private var timelineTotal: Int {
-        max(library.page.count, Int(clamping: library.page.total))
+        // Once the server says there is no older page, a stale total must
+        // not leave permanent shimmer cells above the last loaded row.
+        if library.olderExhausted {
+            return library.page.count
+        }
+        return max(library.page.count, Int(clamping: library.page.total))
     }
 
     /// Placeholders only exist in the compact timeline grid; the regular
@@ -667,13 +685,35 @@ struct LibraryView: View {
         let reach = min(byOffset ?? Int.max, byFrames ?? Int.max)
         guard reach != Int.max else { return }
 
-        // Four extra rows give the network request enough lead time that a
+        // Six extra rows give the network request enough lead time that a
         // stopped drag never shows an empty tile at the top of the screen.
-        guard reach <= boundary + 12 else { return }
+        guard reach <= boundary + timelinePagingLead else { return }
 
         olderRequestArmed = false
         olderRetryAt = Date().addingTimeInterval(1.6)
         Task { await library.loadOlderIfNeeded() }
+    }
+
+    /// How many photos before the loaded boundary the pager starts the next
+    /// request. Six compact rows is about a screen and a half of lead time.
+    private var timelinePagingLead: Int {
+        18
+    }
+
+    /// True while the viewport is close enough to the loaded boundary that
+    /// the next page should be on its way. The paging pump watches this, so a
+    /// stopped drag or a failed request still retries while shimmer is on
+    /// screen instead of waiting for another scroll callback.
+    private var timelinePagingDue: Bool {
+        guard usesTimelinePlaceholders, !initialAnchorPending else {
+            return false
+        }
+        let boundary = timelineLoadedBoundary
+        let byOffset = timelineFirstVisibleIndex()
+        let byFrames = oldestVisibleTimelineIndex()
+        let reach = min(byOffset ?? Int.max, byFrames ?? Int.max)
+        guard reach != Int.max else { return false }
+        return reach <= boundary + timelinePagingLead
     }
 
     /// The oldest loaded row in the full-length grid. Everything above it is

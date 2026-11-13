@@ -260,9 +260,27 @@ final class EditorModel {
         var filter: EditorFilter
         var crop: EditorCrop
         var rotation: UInt8
+        var fineRotation: Float
         var flipH: Bool
         var flipV: Bool
         var texts: [EditorTextLayer]
+    }
+
+    /// A filter/tune combination the person saved from the filter pane.
+    ///
+    /// It follows the web model (`UserPreset` in `ui.ts`): the tone plus the
+    /// adjustment values, a name and the creation date, stored locally and
+    /// capped at 24 entries.
+    struct UserPreset: Codable, Equatable, Identifiable {
+        var id: String
+        var name: String
+        var createdAt: Double
+        var filterRaw: String
+        var adjustments: EditorAdjustments
+
+        var filter: EditorFilter {
+            EditorFilter(rawValue: filterRaw) ?? .original
+        }
     }
 
     let client: MNGAPIClient
@@ -274,6 +292,9 @@ final class EditorModel {
     private(set) var originalPreview: UIImage?
     private(set) var tab: Tab = .adjust
     private(set) var rotation: UInt8 = 0
+    /// The fine angle of the crop rotation, in degrees, −180…180. This is the
+    /// web's continuous rotation; `rotation` stays the quarter turn.
+    private(set) var fineRotation: Float = 0
     private(set) var flipH = false
     private(set) var flipV = false
     private(set) var crop: EditorCrop = .full
@@ -295,6 +316,11 @@ final class EditorModel {
     private(set) var selectedTextId: String?
     /// The thumbnails of the presets, one per filter.
     private(set) var filterThumbnails: [EditorFilter: UIImage] = [:]
+    /// The saved filter presets, newest first, like the web's `userPresets`.
+    private(set) var userPresets: [UserPreset] = []
+    /// The saved preset currently applied, so a second tap can restore the
+    /// state from before it was applied.
+    private(set) var activeSavedPresetId: String?
     /// The history of the edits.
     private(set) var canUndo = false
     private(set) var canRedo = false
@@ -312,9 +338,24 @@ final class EditorModel {
     /// can be merged.
     @ObservationIgnored private var lastHistoryAt: TimeInterval = 0
     @ObservationIgnored private var thumbnailTask: Task<Void, Never>?
+    /// Bumped on every preview request. One render loop at a time reads the
+    /// latest state, so a burst of slider events cannot queue dozens of
+    /// renders: the loop finishes the frame in flight and renders again.
+    @ObservationIgnored private var previewGeneration = 0
+    /// The snapshot taken when a slider, crop ruler or text gesture started.
+    /// While it is set the changes only update the preview; releasing the
+    /// finger commits one undo step with this snapshot.
+    @ObservationIgnored private var editTransaction: Snapshot?
+    /// The state before a saved preset was applied, for the on/off toggle.
+    @ObservationIgnored private var savedReturnState: (
+        filter: EditorFilter,
+        adjustments: EditorAdjustments
+    )?
+    private static let userPresetKey = "aurum:user-presets:v1"
 
     init(client: MNGAPIClient) {
         self.client = client
+        userPresets = EditorModel.loadUserPresets()
     }
 
     // MARK: - Lifecycle
@@ -348,6 +389,7 @@ final class EditorModel {
             )
             self.editor = editor
             rotation = 0
+            fineRotation = 0
             flipH = false
             flipV = false
             crop = .full
@@ -364,6 +406,9 @@ final class EditorModel {
             selectedTextId = nil
             undoStack = []
             redoStack = []
+            editTransaction = nil
+            activeSavedPresetId = nil
+            savedReturnState = nil
             preview = nil
             originalPreview = nil
             filterThumbnails = [:]
@@ -388,6 +433,9 @@ final class EditorModel {
         renderTask = nil
         thumbnailTask?.cancel()
         thumbnailTask = nil
+        editTransaction = nil
+        activeSavedPresetId = nil
+        savedReturnState = nil
         editor = nil
         preview = nil
         originalPreview = nil
@@ -399,9 +447,16 @@ final class EditorModel {
     // MARK: - Geometry
 
     func selectTab(_ tab: Tab) {
+        let previous = self.tab
         self.tab = tab
         if tab == .filter, filterThumbnails.isEmpty {
             renderFilterThumbnails()
+        }
+        // Inside the crop tab the stage shows the whole oriented photo with
+        // the frame on top. Every other tab shows the cropped output, so the
+        // rectangle has to be applied (or undone) when the tab changes.
+        if previous != tab, previous == .crop || tab == .crop {
+            renderPreview()
         }
     }
 
@@ -665,17 +720,20 @@ final class EditorModel {
         renderPreview()
     }
 
-    /// Set the angle of the photo, in quarter turns.
-    func setRotation(_ value: Int) {
+    /// Set the continuous angle of the crop rotation, −180…180°. The quarter
+    /// turns stay untouched, so the ±90° buttons and the fine ruler can be
+    /// combined exactly like the web editor.
+    func setFineRotation(_ value: Float) {
         guard var editor else { return }
-        let next = ((value % 4) + 4) % 4
-        guard next != Int(editor.rotation) else { return }
-        pushHistory()
-        editor.setGeometry(rotate: UInt8(next), flipH: flipH, flipV: flipV)
+        var next = value.truncatingRemainder(dividingBy: 360)
+        if next > 180 { next -= 360 }
+        if next < -180 { next += 360 }
+        guard abs(next - fineRotation) > 0.01 else { return }
+        // The ruler drag is one history step, opened by `beginEdit`.
+        pushHistory(coalescing: true)
+        fineRotation = next
+        editor.setFineRotation(next)
         self.editor = editor
-        rotation = UInt8(next)
-        crop = .full
-        aspect = .free
         renderPreview()
     }
 
@@ -698,16 +756,10 @@ final class EditorModel {
         self.crop = crop
     }
 
-    /// A crop drag changed the rectangle: record the state before the first
-    /// change, so the whole gesture is one undo step.
+    /// A crop drag changed the rectangle: open the transaction so the whole
+    /// gesture is one undo step.
     func beginCropEdit() {
-        pushHistory()
-    }
-
-    /// Leave the crop pane. The frame is applied live on export, so there is
-    /// nothing to bake when the person taps "Xong".
-    func finishCrop() {
-        selectTab(.adjust)
+        beginEdit()
     }
 
     func resetCrop() {
@@ -758,10 +810,23 @@ final class EditorModel {
         applyAspect(aspect, viewport: viewport)
     }
 
-    /// Reset the quarter turns. The crop is cleared because the oriented
-    /// geometry changes under the normalized rectangle.
+    /// Reset the quarter turns and the fine angle. The crop is cleared when
+    /// the oriented geometry changes under the normalized rectangle.
     func resetRotation() {
-        setRotation(0)
+        guard var editor else { return }
+        guard rotation != 0 || abs(fineRotation) > 0.01 else { return }
+        pushHistory()
+        let quarterChanged = rotation != 0
+        rotation = 0
+        fineRotation = 0
+        editor.setGeometry(rotate: 0, flipH: flipH, flipV: flipV)
+        editor.setFineRotation(0)
+        self.editor = editor
+        if quarterChanged {
+            crop = .full
+            aspect = .free
+        }
+        renderPreview()
     }
 
     // MARK: - Adjustments and filters
@@ -799,6 +864,9 @@ final class EditorModel {
     }
 
     func setFilter(_ filter: EditorFilter) {
+        // Picking a tone by hand leaves the saved-preset toggle.
+        activeSavedPresetId = nil
+        savedReturnState = nil
         // Tapping the active tone again removes it, exactly like the web rail;
         // "Nguyên bản" is the off state and never toggles itself.
         if self.filter == filter, filter != .original {
@@ -810,6 +878,107 @@ final class EditorModel {
         pushHistory()
         self.filter = filter
         applyAdjustments()
+    }
+
+    // MARK: - Saved presets
+
+    /// Save the current tone and tune under a name, the web's
+    /// `saveCurrentPreset`. An empty name falls back to a time-stamped
+    /// "Bộ lọc HH:mm", duplicates are refused and the list stops at 24.
+    @discardableResult
+    func saveUserPreset(named rawName: String) -> Bool {
+        guard state == .ready else { return false }
+        let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name: String
+        if trimmed.isEmpty {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "vi_VN")
+            formatter.dateFormat = "HH:mm"
+            name = "\(Strings.editorFilterTab) \(formatter.string(from: Date()))"
+        } else {
+            name = trimmed
+        }
+        if userPresets.contains(where: {
+            $0.name.caseInsensitiveCompare(name) == .orderedSame
+        }) {
+            onToast?(Strings.editorPresetExists)
+            return false
+        }
+        let preset = UserPreset(
+            id: "u\(Int(Date().timeIntervalSince1970 * 1000))",
+            name: name,
+            createdAt: Date().timeIntervalSince1970 * 1000,
+            filterRaw: filter.rawValue,
+            adjustments: adjustments
+        )
+        userPresets.insert(preset, at: 0)
+        if userPresets.count > 24 {
+            userPresets.removeLast(userPresets.count - 24)
+        }
+        EditorModel.storeUserPresets(userPresets)
+        onToast?(Strings.editorPresetSaved)
+        return true
+    }
+
+    /// Apply a saved preset, or restore the state from before it when the
+    /// same preset is tapped again. The saved thumbnail is an on/off switch,
+    /// exactly like the web's `applyUserPreset`.
+    func applyUserPreset(_ preset: UserPreset) {
+        guard state == .ready else { return }
+        if activeSavedPresetId == preset.id {
+            pushHistory()
+            activeSavedPresetId = nil
+            if let restore = savedReturnState {
+                filter = restore.filter
+                adjustments = restore.adjustments
+            } else {
+                filter = .original
+            }
+            savedReturnState = nil
+            applyAdjustments()
+            onToast?(Strings.editorPresetReset)
+            return
+        }
+        pushHistory()
+        savedReturnState = (filter: filter, adjustments: adjustments)
+        activeSavedPresetId = preset.id
+        filter = preset.filter
+        adjustments = preset.adjustments
+        applyAdjustments()
+        onToast?(Strings.editorPresetApplied)
+    }
+
+    func deleteUserPreset(_ presetID: String) {
+        guard userPresets.contains(where: { $0.id == presetID }) else {
+            return
+        }
+        userPresets.removeAll { $0.id == presetID }
+        if activeSavedPresetId == presetID {
+            activeSavedPresetId = nil
+            savedReturnState = nil
+        }
+        EditorModel.storeUserPresets(userPresets)
+        onToast?(Strings.editorPresetDeleted)
+    }
+
+    private static func loadUserPresets() -> [UserPreset] {
+        guard let data = UserDefaults.standard.data(forKey: userPresetKey),
+              let decoded = try? JSONDecoder().decode([UserPreset].self, from: data)
+        else {
+            return []
+        }
+        return Array(
+            decoded
+                .filter {
+                    !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }
+                .prefix(24)
+        )
+    }
+
+    private static func storeUserPresets(_ presets: [UserPreset]) {
+        guard let data = try? JSONEncoder().encode(presets) else { return }
+        UserDefaults.standard.set(data, forKey: userPresetKey)
     }
 
     /// Analyse the photo and set the adjustments that fit it.
@@ -895,6 +1064,9 @@ final class EditorModel {
     /// The steps of a slider are merged when they follow each other
     /// closely, so a drag of the slider is one step and not hundreds.
     private func pushHistory(coalescing: Bool = false) {
+        // A gesture owns one history step: while its transaction is open the
+        // changes only update the preview, and `endEdit` commits the snapshot.
+        guard editTransaction == nil else { return }
         if coalescing {
             let now = Date().timeIntervalSince1970
             if now - lastHistoryAt < 0.9 {
@@ -910,6 +1082,7 @@ final class EditorModel {
                 filter: filter,
                 crop: crop,
                 rotation: rotation,
+                fineRotation: fineRotation,
                 flipH: flipH,
                 flipV: flipV,
                 texts: texts
@@ -921,6 +1094,33 @@ final class EditorModel {
         redoStack = []
         canUndo = !undoStack.isEmpty
         canRedo = false
+    }
+
+    // MARK: - Edit transactions
+
+    /// Open the transaction of a gesture: remember where the edit started so
+    /// the whole drag is one undo step, while every change still renders live.
+    func beginEdit() {
+        guard editTransaction == nil else { return }
+        editTransaction = currentSnapshot()
+    }
+
+    /// Close the transaction and record the one undo step it produced.
+    func endEdit() {
+        guard let start = editTransaction else { return }
+        editTransaction = nil
+        guard currentSnapshot() != start else { return }
+        undoStack.append(start)
+        if undoStack.count > 60 {
+            undoStack.removeFirst()
+        }
+        redoStack = []
+        lastHistoryAt = Date().timeIntervalSince1970
+        canUndo = true
+        canRedo = false
+        // The live drag renders at a smaller size; the release gets the full
+        // quality preview.
+        renderPreview()
     }
 
     func undo() {
@@ -945,6 +1145,7 @@ final class EditorModel {
             filter: filter,
             crop: crop,
             rotation: rotation,
+            fineRotation: fineRotation,
             flipH: flipH,
             flipV: flipV,
             texts: texts
@@ -956,12 +1157,14 @@ final class EditorModel {
         filter = snapshot.filter
         crop = snapshot.crop
         rotation = snapshot.rotation
+        fineRotation = snapshot.fineRotation
         flipH = snapshot.flipH
         flipV = snapshot.flipV
         texts = snapshot.texts
         selectedTextId = snapshot.texts.first?.id
         aspect = .free
         editor.setGeometry(rotate: rotation, flipH: flipH, flipV: flipV)
+        editor.setFineRotation(fineRotation)
         editor.setAdjustments(adjustments)
         editor.setFilter(filter)
         editor.setCrop(crop)
@@ -1056,25 +1259,43 @@ final class EditorModel {
 
     /// Re-render the preview off the main actor.
     private func renderPreview() {
-        guard let editor else { return }
-        renderTask?.cancel()
-        // The first render of an untouched editor is also the photo the
-        // compare button shows.
-        let pristine = editor.currentAdjustments.isIdentity
-            && editor.currentFilter == .original
-            && rotation == 0
-            && !flipH
-            && !flipV
+        guard editor != nil else { return }
+        previewGeneration &+= 1
+        guard renderTask == nil else { return }
         renderTask = Task { [weak self] in
-            // Debounce slider moves so the preview does not flicker.
-            try? await Task.sleep(nanoseconds: 60_000_000)
-            guard !Task.isCancelled else { return }
-            let rendered = await Task.detached(priority: .userInitiated) { [editor] in
+            guard let self else { return }
+            await self.runPreviewLoop()
+        }
+    }
+
+    /// Render the newest state, then keep going while requests arrived during
+    /// the frame that just finished. There is never more than one render in
+    /// flight, so dragging a slider stays responsive instead of backlogged.
+    private func runPreviewLoop() async {
+        defer { renderTask = nil }
+        while !Task.isCancelled {
+            guard let editor else { return }
+            let generation = previewGeneration
+            // Inside the crop tab the whole photo is shown under the frame;
+            // everywhere else the preview is the cropped output, so the text
+            // coordinates line up with what will be exported.
+            let crop = tab == .crop ? EditorCrop.full : self.crop
+            let pristine = editor.currentAdjustments.isIdentity
+                && editor.currentFilter == .original
+                && rotation == 0
+                && abs(fineRotation) < 0.01
+                && !flipH
+                && !flipV
+                && crop == .full
+                && texts.isEmpty
+            // A gesture renders smaller frames; the release rerenders at the
+            // full preview quality.
+            let side: UInt32 = editTransaction != nil ? 720 : 1200
+            let rendered = await Task.detached(priority: .userInitiated) {
+                [editor, crop] in
                 var copy = editor
-                // The preview shows the whole oriented image; the crop is drawn
-                // as an overlay and applied on export.
-                copy.setCrop(.full)
-                let rgba = copy.renderPreview(maxSide: 1200)
+                copy.setCrop(crop)
+                let rgba = copy.renderPreview(maxSide: side)
                 return (
                     rgba: rgba,
                     width: copy.lastRenderSize.width,
@@ -1082,19 +1303,18 @@ final class EditorModel {
                 )
             }.value
             guard !Task.isCancelled else { return }
-            guard let image = EditorModel.image(
+            if let image = EditorModel.image(
                 from: rendered.rgba,
                 width: rendered.width,
                 height: rendered.height
-            ) else {
-                return
-            }
-            await MainActor.run {
-                guard let self else { return }
-                if pristine, self.originalPreview == nil {
-                    self.originalPreview = image
+            ) {
+                if pristine, originalPreview == nil {
+                    originalPreview = image
                 }
-                self.preview = image
+                preview = image
+            }
+            if generation == previewGeneration {
+                return
             }
         }
     }

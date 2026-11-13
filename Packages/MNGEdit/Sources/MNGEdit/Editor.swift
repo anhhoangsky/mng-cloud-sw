@@ -470,6 +470,9 @@ public struct Editor: Sendable {
     public private(set) var height: UInt32
     private var source: [UInt8]
     private var rotate: UInt8 = 0
+    /// The continuous angle of the photo, in degrees, −180…180, applied on
+    /// top of the quarter turns around the centre of the oriented image.
+    private var fineRotation: Float = 0
     private var flipH = false
     private var flipV = false
     private var crop: EditorCrop = .full
@@ -499,6 +502,7 @@ public struct Editor: Sendable {
     // MARK: - State
 
     public var rotation: UInt8 { rotate }
+    public var fineRotationDegrees: Float { fineRotation }
     public var isFlippedHorizontally: Bool { flipH }
     public var isFlippedVertically: Bool { flipV }
     public var currentCrop: EditorCrop { crop }
@@ -510,6 +514,19 @@ public struct Editor: Sendable {
         self.rotate = rotate % 4
         self.flipH = flipH
         self.flipV = flipV
+    }
+
+    /// Set the fine angle, wrapping it into the −180…180 range the web
+    /// rotation ruler uses.
+    public mutating func setFineRotation(_ degrees: Float) {
+        guard degrees.isFinite else {
+            fineRotation = 0
+            return
+        }
+        var next = degrees.truncatingRemainder(dividingBy: 360)
+        if next > 180 { next -= 360 }
+        if next < -180 { next += 360 }
+        fineRotation = next
     }
 
     public mutating func setCrop(_ crop: EditorCrop) {
@@ -621,7 +638,7 @@ public struct Editor: Sendable {
             for column in 0..<Int(outWidth) {
                 let displayX = Float(crop.x) + (Float(column) + 0.5) * xScale
                 let sampled: [UInt8]
-                if identity && xScale == 1 && yScale == 1 {
+                if identity && xScale == 1 && yScale == 1 && fineRotation == 0 {
                     // Exact copy keeps the common no-op preview byte-for-byte.
                     sampled = sourcePixel(displayX, displayY)
                 } else {
@@ -704,11 +721,40 @@ public struct Editor: Sendable {
     }
 
     /// Map a display-space continuous coordinate (pixel centers) back to the
-    /// stored source. Flip is applied first, then the inverse rotation.
+    /// stored source.
+    ///
+    /// The fine angle is undone around the centre of the oriented image
+    /// first, with the cover scale that keeps the turned photo filling the
+    /// frame. Flip is applied next (it is a display-space transform), then
+    /// the inverse quarter turn.
     private func displayToSource(_ displayX: Float, _ displayY: Float) -> (Float, Float) {
         let oriented = orientedSize()
-        let dx = flipH ? Float(oriented.width) - displayX : displayX
-        let dy = flipV ? Float(oriented.height) - displayY : displayY
+        let orientedWidth = Float(oriented.width)
+        let orientedHeight = Float(oriented.height)
+        var display = (x: displayX, y: displayY)
+
+        if fineRotation != 0 {
+            let radians = fineRotation * .pi / 180
+            let cosine = cos(radians)
+            let sine = sin(radians)
+            // Zoom just enough that the rotated rectangle still covers the
+            // whole frame: the same cover rule as the web transform.
+            let cover = max(
+                abs(cosine) + (orientedHeight / orientedWidth) * abs(sine),
+                abs(cosine) + (orientedWidth / orientedHeight) * abs(sine)
+            )
+            let dx = displayX - orientedWidth / 2
+            let dy = displayY - orientedHeight / 2
+            display.x = (
+                cosine * dx + sine * dy
+            ) / max(cover, 0.0001) + orientedWidth / 2
+            display.y = (
+                -sine * dx + cosine * dy
+            ) / max(cover, 0.0001) + orientedHeight / 2
+        }
+
+        let dx = flipH ? orientedWidth - display.x : display.x
+        let dy = flipV ? orientedHeight - display.y : display.y
         let imageWidth = Float(width)
         let imageHeight = Float(height)
         switch rotate {

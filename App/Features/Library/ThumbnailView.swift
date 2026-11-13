@@ -42,16 +42,36 @@ struct ThumbnailView: View {
         image = nil
         failed = false
 
-        let data = await ThumbCache.shared.data(for: path, client: client)
-        guard !Task.isCancelled else { return }
-
-        if let data, let decoded = Signpost.decode("thumb-decode", { UIImage(data: data) }) {
-            image = decoded
-            failed = false
-        } else {
-            failed = true
+        // An older row can point at a thumbnail the server has not written
+        // yet: `/thumb` answers with its placeholder SVG and a 404 in that
+        // window. One failed load used to leave the tile on the fallback icon
+        // until the cell was destroyed, so retry with a short backoff while
+        // the tile is still on screen. A successful load is cached.
+        let delays: [UInt64] = [0, 900_000_000, 3_000_000_000]
+        for delay in delays {
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled else { return }
+            }
+            let data = await ThumbCache.shared.data(
+                for: path,
+                client: client
+            )
+            guard !Task.isCancelled else { return }
+            if let data,
+               let decoded = Signpost.decode(
+                   "thumb-decode",
+                   { UIImage(data: data) }
+               ) {
+                image = decoded
+                failed = false
+                // Only a success pins the path, so scrolling the tile away
+                // and back re-attempts a thumbnail that is still missing.
+                loadedPath = path
+                return
+            }
         }
-        loadedPath = path
+        failed = true
     }
 }
 

@@ -12,7 +12,7 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 | Boot | logo, spinner, retry + exact error copy | 🟡 wired to `SessionStore`; device check pending |
 | Login | card, cloud mark, error copy, CSRF session | 🟡 card + validation + CSRF session; device check pending |
 | App shell | 4 tabs compact / 264 pt sidebar regular, search button | 🟡 ported: floating compact header/tab bar + search circle, 264 pt sidebar + 5 entries, cloud picker, toast; device check pending |
-| Library | Năm / Tháng / Tất cả, Ảnh/Video/Live/Yêu thích, 120-item pages, scroll anchor | 🟡 ported: segmented Năm/Tháng/Tất cả, kind chips, 120-item paging, year/month collage, skeleton/empty/error, pull-to-refresh; no favorites chip in the 0.3.1 shell; device check pending |
+| Library | Năm / Tháng / Tất cả, Ảnh/Video/Live/Yêu thích, 120-item pages, scroll anchor | 🟡 ported: segmented Năm/Tháng/Tất cả, kind chips, 120-item paging with a full-length placeholder timeline, year/month collage, skeleton/empty/error, pull-to-refresh, thumbnail retries; no favorites chip in the 0.3.1 shell; device check pending |
 | Tiles | long-press menu, info sheet, favorite optimistic, delete confirm, selection mode | 🟡 ported: context menu, info sheet, tap opens viewer, optimistic favorite/delete + rollback, selection bar; device presentation order pending |
 | Viewer | filmstrip, swipe, pinch/double-tap zoom, swipe-down dismiss, video Range, Live Photo | 🟡 ported: full-screen stage, lazy auto-centered filmstrip, pinch/double-tap/pan, swipe navigation and dismiss, cookie-authenticated AVPlayer, LIVE companion, HEIC preview fallback, optimistic favorite/info/download/delete; device gesture and seek check pending |
 | Albums | 7 collapsible sections, 9-photo preview, sort/density, cover morph | 🟡 ported: seven sections in PWA order, per-section sort/density, 9-photo preview + expand, AI banner/poll, rename, album drill-down in Library; FLIP cover morph not ported; device check pending |
@@ -21,7 +21,7 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 | Settings | Kết nối / iCloud / Thư viện / Tài khoản / Giới thiệu; test, rescan, retry thumbs, clear temp | 🟡 ported: cloud probe rows, iCloud status, scan/thumbs/tmp actions, storage, duplicates entry, account/about; device check pending |
 | Duplicates | legacy summary, 30 groups per page, open group in viewer | 🟡 ported: summary + pending-thumbnail note, 30 groups per page, 128 pt grid, group-seeded viewer; device check pending |
 | Vault | native list/unlock/browse/upload/folder/delete/auto-lock (the Seafile E2EE reader was removed from the web app) | 🟡 ported: vault list, unlock, browser with folders/search, 4 MiB chunked upload, encrypted preview, rename, delete, library → vault move, 15-minute auto-lock; device check pending |
-| Editor | rotate → flip → crop, adjustments, filters, text, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, four native tabs (Tinh chỉnh / Bộ lọc / Chữ / Cắt), thirteen sliders, twenty-nine Aurum presets with six categories and the seven-slider tone tune, text layers with CoreText export burn, ratio + screen presets, crop scrim/grid/bevel handles, hold-to-compare, export sheet with quality and the two save modes, multipart upload; AI/beauty/perspective are not ported; device check pending |
+| Editor | rotate → flip → crop, adjustments, filters, text, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, four native tabs (Tinh chỉnh / Bộ lọc / Chữ / Cắt), thirteen sliders, twenty-nine Aurum presets with six categories and the seven-slider tone tune, saved personal presets, text layers with CoreText export burn and an on-photo frame, continuous ±180° crop rotation with cover fill, ratio + screen presets, crop scrim/grid/bevel handles, hold-to-compare, export sheet with quality and the two save modes, multipart upload; AI/beauty/perspective are not ported; device check pending |
 | Admin | lazy mount, users, password, activate, admin, delete, scan | 🟡 ported: Settings row for admins only, lazy list, create/reset/reprovision/update/delete/scan; device check pending |
 | iCloud | honest status, 2.2 s job poll, login/2FA/start/save/pause/cancel/logout | 🟡 ported: full importer sheet with the 2.2 s poll that stops with the sheet; device check pending |
 | PWA-only surfaces | service worker, Trusted Types, extension | ➖ |
@@ -182,9 +182,12 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   rail, a fixed gold centre line, a sliding white tick track and a gold value
   chip that resets only the open slider. The quality slider uses the same
   control in direct mode and its value resets to 92.
-- The engine stores rotation as quarter turns only, so the rotation control is
-  an honest four-step 0° / 90° / 180° / 270° rail instead of the web's
-  continuous −180…180 ruler.
+- The ±90° buttons keep their quarter turns, and the rotation mode adds the
+  web's continuous −180…180° ruler on top (1° steps, a tick every 3°, the gold
+  zero mark). The engine rotates the oriented photo around its centre and
+  cover-scales it just enough that the turned image still fills the frame, so
+  the crop rectangle always samples real pixels. The mode label shows the
+  combined angle (`turn × 90 + fine`), exactly like the web.
 - The pixel pipeline is the ported `mng-edit` crate, so the preview and the
   exported file use the same order (rotate → flip → crop) and the same
   adjustment math. The container follows the source: PNG stays PNG, WebP stays
@@ -193,8 +196,12 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - The crop has four corner handles and four edge handles. A ratio preset keeps
   the frame centred and grows it symmetrically, the way the web crop works; a
   free frame moves one side at a time. The ratio is converted from pixels to
-  the normalized image space, so 1:1 on a 3:2 photo is a real square. A crop
-  drag records one undo step when it starts.
+  the normalized image space, so 1:1 on a 3:2 photo is a real square. The
+  scrim and frame sit inside the zoomed photo stack, so the dim sheet covers
+  the whole image even when the stage is pinched or panned. The pane keeps the
+  four web transforms (rotate left/right, flip horizontal/vertical) one tap
+  away, has no "Xong" button, and applies the frame when another tab opens.
+  A crop drag previews live and records one undo step on release.
 - The source is decoded locally with ImageIO and the EXIF orientation applied,
   so HEIC works without the server's HEIC-only `edit-source` route.
 - Difference: the web additionally offers AI 4×, background remove/blur/
@@ -225,7 +232,11 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   centres and a size fraction of the export height, support the four quick
   styles, five fonts, colour, bold/italic/outline/shadow, opacity and rotation,
   and are dragged, pinched and rotated on the stage. "Chạm đặt" arms a one-shot
-  tap-to-place mode. Export burns the layers into the rendered bitmap with
+  tap-to-place mode; the redundant add-text button is gone. "Khung chữ" mirrors
+  the web's `aurum:text-frame` toggle: the dashed frame hugs a measured text
+  run and the rotate/scale handles stay visible while a layer is selected.
+  Typing updates the photo live without tapping outside, and the keyboard never
+  resizes the stage. Export burns the layers into the rendered bitmap with
   CoreText; an empty layer is removed so invisible text cannot reach the file.
 - The crop tab exposes ratio and quarter-turn rotation modes. The ratio rail
   includes `free`, `1:1`, `4:3`, `3:4`, `16:9`, `9:16` and `screen`; `screen`
@@ -234,9 +245,13 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   and the corners are 24 pt bevelled gold handles with gold edge bars. Header
   and dock fade during a crop drag, a ratio change and a rotation, like
   `au-cropping` / `au-ratioing` / `au-rotating`.
-- Still native-only gaps: the AI/beauty/retouch tools, perspective crop,
-  continuous (non-quarter-turn) rotation, user-saved filter presets and the
-  web's separate text textarea in the deck.
+- Saved filter presets follow the web model: the filter pane has a name field
+  and "Lưu", the saved row shows apply/delete, a second tap restores the state
+  from before the preset was applied, names are unique, empty names get a
+  "Bộ lọc HH:mm" fallback, and the list is capped at 24 entries in
+  `aurum:user-presets:v1`.
+- Still native-only gaps: the AI/beauty/retouch tools, perspective crop and
+  the web's separate text textarea in the deck.
 
 ## P9 notes
 
@@ -298,6 +313,32 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   the groups on a second open can never index a collection that has already
   changed. A thumbnail asks the shell to open the viewer from the sheet's
   `onDismiss`, once the dismissal has finished.
+
+## Round 6 notes
+
+- Slider and text gestures use an explicit edit transaction: the first touch
+  snapshots the state, every move previews live without touching the history,
+  and lifting the finger records one undo step and rerenders at full quality.
+  Slider renders are coalesced through a single preview loop, so a burst of
+  drag events renders the newest state instead of queuing every intermediate
+  frame; a drag renders smaller frames and the release gets the full preview.
+- The filter pane can save the current tone and tune, like the web: the row of
+  personal presets highlights the active one, its thumbnail toggles back to
+  the pre-preset state, and the delete badge removes it from local storage.
+- The crop tab's "Xong" button is gone; leaving the tab applies the frame.
+  Outside the crop tab the preview is the cropped output, so text coordinates
+  match the exported file; inside the tab the whole oriented photo is shown
+  under the crop frame.
+- The compact timeline keeps its full-length placeholder grid, but paging no
+  longer depends only on scroll callbacks: while the viewport is within six
+  rows of the loaded boundary a small pump retries the next page after a
+  failed request or a stopped drag. Once the server reports no older page,
+  the stale total is clamped to the loaded count so shimmer cannot remain
+  above the last row.
+- Thumbnail tiles retry a missing `/thumb` with a short backoff while they
+  are on screen, and a failed tile is not pinned to its path, so scrolling it
+  away and back asks again. This covers the server's 404 placeholder window
+  while a thumbnail is still being written.
 
 ## Visual checks per UI phase
 

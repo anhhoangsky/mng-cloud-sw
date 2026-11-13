@@ -29,6 +29,11 @@ usable in the simulator.
 - [ ] Favorite is optimistic and rolls back when the server refuses.
 - [ ] Multi-select shows the selection bar; delete asks once for the whole
       selection.
+- [ ] Scrolling up to older photos fills the shimmer cells with thumbnails
+      without stopping on a placeholder; with no older page left the grid ends
+      at the last real photo.
+- [ ] A tile whose thumbnail was missing shows the retry while it stays on
+      screen, and loading it again after scrolling away succeeds.
 
 ## Viewer
 
@@ -99,8 +104,25 @@ usable in the simulator.
 - [ ] The pencil in the viewer opens the editor for photos but not for videos.
 - [ ] Rotate/flip, the six crop ratios and the nine sliders update the preview
       immediately; the crop rectangle can be dragged.
+- [ ] Dragging a slider previews on the photo while the finger moves, and one
+      undo tap returns to the value from before the drag.
 - [ ] The filter chips match the web editor (Nguyên bản, Rực rỡ, Ấm áp, Mát
       lạnh, Đen trắng, Mờ ảo).
+- [ ] A named filter preset saves, appears in "Bộ lọc đã lưu", applies and can
+      be deleted; tapping the active preset restores the earlier look; the
+      list survives a relaunch.
+- [ ] The text tab has no add-text button; "Chạm đặt" places a layer at the
+      tap, typing updates the photo without tapping outside, and the keyboard
+      does not resize the stage.
+- [ ] "Khung chữ" shows the dashed measured frame; the rotate and scale
+      handles stay usable, the frame follows the glyphs while scaling, and a
+      drag starts without a jump.
+- [ ] The crop ruler covers −180…180° with the gold zero, the ±90° buttons and
+      the flips stay visible, and there is no "Xong" button.
+- [ ] Pinching the photo in the crop tab keeps the dim scrim over the whole
+      image; the frame still samples the zoomed pixels.
+- [ ] Leaving the crop tab applies the frame, and returning to it keeps the
+      frame and the angle.
 - [ ] "Lưu ảnh" with "Ghi đè ảnh gốc" replaces the file and refreshes the
       library; "Lưu thành bản sao" keeps the original.
 - [ ] A cancelled or failed save leaves the original untouched.
