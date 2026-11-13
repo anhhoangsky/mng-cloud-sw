@@ -53,7 +53,7 @@ final class ItemMediaTests: XCTestCase {
     }
 
     func testMissingThumbnailsFallBackToPreviewAndOriginal() throws {
-        let photo = try item(#"{"id":9,"media_type":"photo"}"#)
+        let photo = try item(#"{"id":9,"type":"photo"}"#)
         XCTAssertEqual(
             photo.thumbnailFallbackPaths,
             [
@@ -62,7 +62,7 @@ final class ItemMediaTests: XCTestCase {
             ]
         )
 
-        let video = try item(#"{"id":10,"media_type":"video"}"#)
+        let video = try item(#"{"id":10,"type":"video"}"#)
         XCTAssertTrue(video.thumbnailFallbackPaths.isEmpty)
     }
 
