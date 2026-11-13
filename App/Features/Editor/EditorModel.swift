@@ -4,6 +4,31 @@ import MNGKit
 import Observation
 import UIKit
 
+/// The live mask of the AI brush. It is kept out of the observation graph so
+/// a brush dab does not publish a megabyte-sized array on every touch event.
+private final class EditorAIRefineSession: @unchecked Sendable {
+    let target: EditorAIRefineTarget
+    let source: EditorSourceSnapshot
+    let maskWidth: Int
+    let maskHeight: Int
+    var mask: [UInt8]
+    var history: [[UInt8]] = []
+    var generation = 0
+    var task: Task<Void, Never>?
+
+    init(
+        target: EditorAIRefineTarget,
+        source: EditorSourceSnapshot,
+        mask: EditorAIMask
+    ) {
+        self.target = target
+        self.source = source
+        self.maskWidth = mask.width
+        self.maskHeight = mask.height
+        self.mask = mask.bytes
+    }
+}
+
 /// Image editor for one library item.
 ///
 /// The editor is the Aurum release, ported to the phone: the same presets,
@@ -345,6 +370,18 @@ final class EditorModel {
     private(set) var aiCutout = false
     /// True while the source from before the latest AI pass can be restored.
     private(set) var canRevertAI = false
+    /// The live mask brush. The AI pass is not baked until "Hoàn tất", so the
+    /// user can refine the edge and change the retouch strength first.
+    private(set) var aiRefining = false
+    private(set) var aiRefineTarget: EditorAIRefineTarget?
+    private(set) var aiRefinePreview: UIImage?
+    private(set) var aiBrushMode: EditorAIBrushMode = .add
+    private(set) var aiBrushSize: Float = 14
+    private(set) var aiBlurStrength: Float = 0.55
+    private(set) var aiRefineTransparent = false
+    private(set) var aiCanUndoBrush = false
+    private(set) var aiMaskWidth = 1
+    private(set) var aiMaskHeight = 1
 
     var onToast: ((String) -> Void)?
     var onSaved: (() -> Void)?
@@ -365,6 +402,8 @@ final class EditorModel {
     @ObservationIgnored private var aiSeq = 0
     /// The source from before the latest AI pass, for the AI-only undo.
     @ObservationIgnored private var aiPreviousSource: EditorSourceSnapshot?
+    /// The live brush session, if the AI tab is refining a mask.
+    @ObservationIgnored private var aiRefineSession: EditorAIRefineSession?
     /// Bumped on every preview request. One render loop at a time reads the
     /// latest state, so a burst of slider events cannot queue dozens of
     /// renders: the loop finishes the frame in flight and renders again.
@@ -398,6 +437,7 @@ final class EditorModel {
         aiCutout = false
         aiPreviousSource = nil
         canRevertAI = false
+        clearAIRefine()
         let seq = loadSeq
         state = .loading
         self.item = item
@@ -474,6 +514,7 @@ final class EditorModel {
         aiCutout = false
         aiPreviousSource = nil
         canRevertAI = false
+        clearAIRefine()
         renderTask?.cancel()
         renderTask = nil
         thumbnailTask?.cancel()
@@ -493,6 +534,12 @@ final class EditorModel {
 
     func selectTab(_ tab: Tab) {
         let previous = self.tab
+        // The mask belongs to the AI tab. Leaving it discards the preview and
+        // returns to the normal cropped photo, like closing the web brush.
+        if aiRefining, tab != .ai, !aiBusy {
+            clearAIRefine()
+            renderPreview()
+        }
         self.tab = tab
         if tab == .filter, filterThumbnails.isEmpty {
             renderFilterThumbnails()
@@ -520,56 +567,121 @@ final class EditorModel {
         return false
     }
 
+    /// The background mode of the live brush.
+    var aiRefineBackgroundMode: EditorAIBackgroundMode? {
+        guard let session = aiRefineSession else { return nil }
+        if case .background(let mode) = session.target { return mode }
+        return nil
+    }
+
+    /// The retouch mode of the live brush.
+    var aiRefineRetouchMode: EditorAIRetouchMode? {
+        guard let session = aiRefineSession else { return nil }
+        if case .retouch(let mode) = session.target { return mode }
+        return nil
+    }
+
+    /// Blur and white can switch to a transparent cut-out, like the web's
+    /// "Nền trong suốt" chip. Remove/person are already transparent.
+    var aiRefineCanToggleTransparency: Bool {
+        aiRefineBackgroundMode?.canBecomeTransparent ?? false
+    }
+
+    var aiRefineShowsBlur: Bool {
+        aiRefineBackgroundMode == .blur && !aiRefineTransparent
+    }
+
+    var aiRefineHint: String {
+        aiRefineTarget?.isRetouch == true
+            ? Strings.editorAIRetouchBrushHint
+            : Strings.editorAIBrushHint
+    }
+
     func selectAIModel(_ model: EditorAIModel) {
-        guard !aiBusy else { return }
+        guard !aiBusy, !aiRefining else { return }
         aiModel = model
     }
 
     func selectAIRetouchMode(_ mode: EditorAIRetouchMode) {
+        guard !aiRefining else { return }
         aiRetouchMode = mode
     }
 
     func setAIStrength(_ value: Float) {
         aiStrength = min(max(value, 0), 1)
+        if aiRefineTarget?.isRetouch == true {
+            scheduleAIRefinePreview()
+        }
     }
 
     func setAITone(_ value: Float) {
         aiTone = min(max(value, -1), 1)
+        if aiRefineRetouchMode == .tone {
+            scheduleAIRefinePreview()
+        }
     }
 
     func selectAIHairColor(_ color: EditorAIHairColor) {
         aiHairColor = color
+        if aiRefineRetouchMode == .hair {
+            scheduleAIRefinePreview()
+        }
+    }
+
+    func setAIBrushMode(_ mode: EditorAIBrushMode) {
+        aiBrushMode = mode
+    }
+
+    func setAIBrushSize(_ value: Float) {
+        aiBrushSize = min(max(value, 1), 60)
+    }
+
+    func setAIBlurStrength(_ value: Float) {
+        aiBlurStrength = min(max(value, 0), 1)
+        if aiRefineShowsBlur {
+            scheduleAIRefinePreview()
+        }
+    }
+
+    func toggleAIRefineTransparency() {
+        guard aiRefining, aiRefineCanToggleTransparency, !aiBusy else {
+            return
+        }
+        aiRefineTransparent.toggle()
+        scheduleAIRefinePreview()
     }
 
     /// Remove, blur or replace the background of the original source pixels.
+    /// Vision only produces the mask; the brush toolbar composites it.
     func runAIBackground(_ mode: EditorAIBackgroundMode) {
-        guard let editor, state == .ready, !aiBusy else { return }
+        guard let editor, state == .ready, !aiBusy, !aiRefining else {
+            return
+        }
         let source = editor.sourceSnapshot()
         let model = aiModel
         aiSeq &+= 1
         let seq = aiSeq
         aiBusy = true
         aiDetail = Strings.editorAIRunning
+        let progress = aiProgressHandler(seq: seq)
         aiTask = Task { [weak self] in
             do {
-                let result = try await EditorAIService.background(
-                    source: source,
-                    mode: mode,
-                    model: model
-                ) { [weak self] message in
-                    await MainActor.run {
-                        guard let self, self.aiSeq == seq else { return }
-                        self.aiDetail = message
-                    }
-                }
+                let mask = try await Task.detached(
+                    priority: .userInitiated
+                ) {
+                    try await EditorAIService.backgroundMask(
+                        source: source,
+                        mode: mode,
+                        model: model,
+                        report: progress
+                    )
+                }.value
                 try Task.checkCancellation()
                 guard let self, self.aiSeq == seq else { return }
-                self.finishAI(
-                    result,
-                    message: mode.keepsTransparency
-                        ? Strings.editorAIDoneCutout
-                        : Strings.editorAIDoneBackground,
-                    cutout: mode.keepsTransparency
+                self.beginAIRefine(
+                    target: .background(mode),
+                    source: source,
+                    mask: mask
                 )
             } catch {
                 guard let self, self.aiSeq == seq else { return }
@@ -578,44 +690,118 @@ final class EditorModel {
         }
     }
 
-    /// Run one skin or hair pass on the original source pixels.
+    /// Run one skin or hair pass on the original source pixels. The mask is
+    /// returned to the brush; no pixels are baked until "Hoàn tất".
     func applyAIRetouch(_ mode: EditorAIRetouchMode) {
-        guard let editor, state == .ready, !aiBusy else { return }
+        guard let editor, state == .ready, !aiBusy, !aiRefining else {
+            return
+        }
         let source = editor.sourceSnapshot()
-        let strength = aiStrength
-        let tone = aiTone
-        let hairColor = aiHairColor
         aiRetouchMode = mode
         aiSeq &+= 1
         let seq = aiSeq
         aiBusy = true
         aiDetail = Strings.editorAIRunning
+        let progress = aiProgressHandler(seq: seq)
         aiTask = Task { [weak self] in
             do {
-                let result = try await EditorAIService.retouch(
-                    source: source,
-                    mode: mode,
-                    strength: strength,
-                    tone: tone,
-                    hairColor: hairColor
-                ) { [weak self] message in
-                    await MainActor.run {
-                        guard let self, self.aiSeq == seq else { return }
-                        self.aiDetail = message
-                    }
-                }
+                let mask = try await Task.detached(
+                    priority: .userInitiated
+                ) {
+                    try await EditorAIService.retouchMask(
+                        source: source,
+                        mode: mode,
+                        report: progress
+                    )
+                }.value
                 try Task.checkCancellation()
                 guard let self, self.aiSeq == seq else { return }
-                self.finishAI(
-                    result,
-                    message: Strings.editorAIDoneRetouch,
-                    cutout: false
+                self.beginAIRefine(
+                    target: .retouch(mode),
+                    source: source,
+                    mask: mask
                 )
             } catch {
                 guard let self, self.aiSeq == seq else { return }
                 self.failAI(error)
             }
         }
+    }
+
+    /// Bake the current mask and settings into a new source bitmap.
+    func applyAIRefine() {
+        guard let session = aiRefineSession, !aiBusy else { return }
+        let source = session.source
+        let mask = EditorAIMask(
+            width: session.maskWidth,
+            height: session.maskHeight,
+            bytes: session.mask
+        )
+        let target = session.target
+        let strength = aiStrength
+        let tone = aiTone
+        let hairColor = aiHairColor
+        let blurStrength = aiBlurStrength
+        let transparent = aiRefineTransparent
+        session.task?.cancel()
+        aiSeq &+= 1
+        let seq = aiSeq
+        aiBusy = true
+        aiDetail = Strings.editorAIApplying
+        aiTask = Task { [weak self] in
+            do {
+                let result = try await Task.detached(
+                    priority: .userInitiated
+                ) { () -> EditorSourceSnapshot in
+                    switch target {
+                    case .background(let mode):
+                        return try EditorAIService.backgroundBake(
+                            source: source,
+                            mask: mask,
+                            mode: mode,
+                            transparent: transparent,
+                            blurStrength: blurStrength
+                        )
+                    case .retouch(let mode):
+                        return try EditorAIService.retouchBake(
+                            source: source,
+                            mask: mask,
+                            mode: mode,
+                            strength: strength,
+                            tone: tone,
+                            hairColor: hairColor
+                        )
+                    }
+                }.value
+                try Task.checkCancellation()
+                guard let self, self.aiSeq == seq else { return }
+                let cutout: Bool
+                let message: String
+                switch target {
+                case .background(let mode):
+                    let keeps = transparent || mode.keepsTransparency
+                    cutout = keeps
+                    message = keeps
+                        ? Strings.editorAIDoneCutout
+                        : Strings.editorAIDoneBackground
+                case .retouch:
+                    cutout = self.aiCutout
+                    message = Strings.editorAIDoneRetouch
+                }
+                self.finishAI(result, message: message, cutout: cutout)
+            } catch {
+                guard let self, self.aiSeq == seq else { return }
+                self.failAI(error)
+            }
+        }
+    }
+
+    /// Discard the mask and return to the ordinary cropped preview.
+    func cancelAIRefine() {
+        guard aiRefining, !aiBusy else { return }
+        clearAIRefine()
+        renderPreview()
+        onToast?(Strings.editorAICancelled)
     }
 
     func cancelAI() {
@@ -633,6 +819,7 @@ final class EditorModel {
     /// history because it replaces the bitmap, so this is the AI-only undo.
     func revertAI() {
         guard !aiBusy,
+              !aiRefining,
               let previous = aiPreviousSource,
               let editor else {
             return
@@ -646,6 +833,7 @@ final class EditorModel {
         aiPreviousSource = nil
         canRevertAI = false
         aiCutout = false
+        clearAIRefine()
         undoStack = []
         redoStack = []
         editTransaction = nil
@@ -659,6 +847,262 @@ final class EditorModel {
         onToast?(Strings.editorAIReverted)
     }
 
+    // MARK: - Mask brush
+
+    /// Start one undoable brush stroke before the first dab.
+    func beginAIStroke() {
+        guard let session = aiRefineSession else { return }
+        session.history.append(session.mask)
+        if session.history.count > 8 {
+            session.history.removeFirst()
+        }
+        aiCanUndoBrush = true
+    }
+
+    /// Paint from `previous` to `point` (normalized full-source coordinates).
+    func paintAIMask(at point: CGPoint, from previous: CGPoint?) {
+        guard let session = aiRefineSession else { return }
+        let width = CGFloat(session.maskWidth)
+        let height = CGFloat(session.maskHeight)
+        guard width > 0, height > 0 else { return }
+        let current = CGPoint(
+            x: min(max(point.x, 0), 1),
+            y: min(max(point.y, 0), 1)
+        )
+        let radius = CGFloat(aiBrushSize)
+        var points: [CGPoint] = []
+        if let previous {
+            let last = CGPoint(
+                x: min(max(previous.x, 0), 1),
+                y: min(max(previous.y, 0), 1)
+            )
+            let dx = (current.x - last.x) * width
+            let dy = (current.y - last.y) * height
+            let distance = sqrt(dx * dx + dy * dy)
+            let step = max(radius * 0.3, 1)
+            let count = max(1, Int(distance / step))
+            points.reserveCapacity(count)
+            for index in 1...count {
+                let t = CGFloat(index) / CGFloat(count)
+                points.append(
+                    CGPoint(
+                        x: last.x + (current.x - last.x) * t,
+                        y: last.y + (current.y - last.y) * t
+                    )
+                )
+            }
+        } else {
+            points.append(current)
+        }
+        for value in points {
+            dabAIMask(
+                session: session,
+                x: value.x * width,
+                y: value.y * height,
+                radius: radius,
+                weight: 0.9
+            )
+        }
+        session.generation &+= 1
+        scheduleAIRefinePreview()
+    }
+
+    func endAIStroke() {
+        scheduleAIRefinePreview()
+    }
+
+    func undoAIBrush() {
+        guard let session = aiRefineSession,
+              let previous = session.history.popLast() else {
+            return
+        }
+        session.mask = previous
+        aiCanUndoBrush = !session.history.isEmpty
+        session.generation &+= 1
+        scheduleAIRefinePreview()
+    }
+
+    func invertAIMask() {
+        guard let session = aiRefineSession,
+              session.target.isBackground else {
+            return
+        }
+        beginAIStroke()
+        for index in session.mask.indices {
+            session.mask[index] = 255 - session.mask[index]
+        }
+        session.generation &+= 1
+        scheduleAIRefinePreview()
+    }
+
+    private func dabAIMask(
+        session: EditorAIRefineSession,
+        x: CGFloat,
+        y: CGFloat,
+        radius: CGFloat,
+        weight: Float
+    ) {
+        let width = session.maskWidth
+        let height = session.maskHeight
+        let r = max(radius, 1)
+        let x0 = max(0, Int(floor(x - r)))
+        let x1 = min(width - 1, Int(ceil(x + r)))
+        let y0 = max(0, Int(floor(y - r)))
+        let y1 = min(height - 1, Int(ceil(y + r)))
+        guard x0 <= x1, y0 <= y1 else { return }
+        let mode = aiBrushMode
+        for py in y0...y1 {
+            let dy = CGFloat(py) - y
+            for px in x0...x1 {
+                let dx = CGFloat(px) - x
+                let distance = sqrt(dx * dx + dy * dy) / r
+                if distance >= 1 { continue }
+                let t = 1 - distance
+                let falloff = t * t * (3 - 2 * t)
+                let delta = Int((weight * Float(falloff) * 255).rounded())
+                let index = py * width + px
+                if mode == .add {
+                    session.mask[index] = UInt8(
+                        min(255, Int(session.mask[index]) + delta)
+                    )
+                } else {
+                    session.mask[index] = UInt8(
+                        max(0, Int(session.mask[index]) - delta)
+                    )
+                }
+            }
+        }
+    }
+
+    // MARK: - AI preview
+
+    private func beginAIRefine(
+        target: EditorAIRefineTarget,
+        source: EditorSourceSnapshot,
+        mask: EditorAIMask
+    ) {
+        aiBusy = false
+        aiTask = nil
+        aiDetail = nil
+        aiRefineSession?.task?.cancel()
+        let session = EditorAIRefineSession(
+            target: target,
+            source: source,
+            mask: mask
+        )
+        aiRefineSession = session
+        aiRefining = true
+        aiRefineTarget = target
+        aiRefinePreview = nil
+        aiMaskWidth = mask.width
+        aiMaskHeight = mask.height
+        aiCanUndoBrush = false
+        aiRefineTransparent = false
+        if case .retouch(let mode) = target {
+            aiRetouchMode = mode
+        }
+        scheduleAIRefinePreview()
+    }
+
+    private func clearAIRefine() {
+        aiRefineSession?.task?.cancel()
+        aiRefineSession = nil
+        aiRefining = false
+        aiRefineTarget = nil
+        aiRefinePreview = nil
+        aiCanUndoBrush = false
+        aiRefineTransparent = false
+        aiMaskWidth = 1
+        aiMaskHeight = 1
+    }
+
+    private func scheduleAIRefinePreview() {
+        guard let session = aiRefineSession else { return }
+        session.generation &+= 1
+        guard session.task == nil else { return }
+        session.task = Task { [weak self] in
+            guard let self else { return }
+            await self.runAIRefinePreview(session)
+        }
+    }
+
+    /// One preview render at a time; a burst of brush dabs only asks for the
+    /// newest frame instead of queueing a render per touch event.
+    private func runAIRefinePreview(
+        _ session: EditorAIRefineSession
+    ) async {
+        defer { session.task = nil }
+        while !Task.isCancelled {
+            let generation = session.generation
+            let source = session.source
+            let mask = EditorAIMask(
+                width: session.maskWidth,
+                height: session.maskHeight,
+                bytes: session.mask
+            )
+            let target = session.target
+            let strength = aiStrength
+            let tone = aiTone
+            let hairColor = aiHairColor
+            let blurStrength = aiBlurStrength
+            let transparent = aiRefineTransparent
+            let rendered = await Task.detached(
+                priority: .userInitiated
+            ) { () -> EditorSourceSnapshot? in
+                do {
+                    switch target {
+                    case .background(let mode):
+                        return try EditorAIService.backgroundPreview(
+                            source: source,
+                            mask: mask,
+                            mode: mode,
+                            transparent: transparent,
+                            blurStrength: blurStrength,
+                            maxSide: 1100
+                        )
+                    case .retouch(let mode):
+                        return try EditorAIService.retouchPreview(
+                            source: source,
+                            mask: mask,
+                            mode: mode,
+                            strength: strength,
+                            tone: tone,
+                            hairColor: hairColor,
+                            maxSide: 1100
+                        )
+                    }
+                } catch {
+                    return nil
+                }
+            }.value
+            guard !Task.isCancelled, aiRefineSession === session else {
+                return
+            }
+            if let rendered,
+               let image = EditorModel.image(
+                   from: rendered.rgba,
+                   width: rendered.width,
+                   height: rendered.height
+               ) {
+                aiRefinePreview = image
+            }
+            if generation == session.generation {
+                return
+            }
+        }
+    }
+
+    private func aiProgressHandler(
+        seq: Int
+    ) -> @Sendable (String) async -> Void {
+        { [weak self] message in
+            await MainActor.run {
+                guard let self, self.aiSeq == seq else { return }
+                self.aiDetail = message
+            }
+        }
+    }
+
     /// Swap the baked bitmap into the pipeline and reset the history, like
     /// the web's `load()` followed by `setState({...keep})`.
     private func finishAI(
@@ -669,6 +1113,7 @@ final class EditorModel {
         aiBusy = false
         aiTask = nil
         aiDetail = nil
+        clearAIRefine()
         guard let editor else {
             onToast?(Strings.editorAIFailed)
             return

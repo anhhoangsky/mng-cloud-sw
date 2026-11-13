@@ -68,6 +68,9 @@ struct EditorView: View {
     /// The collapsible model picker and the retouch controls of the AI pane.
     @State private var aiModelsOpen = false
     @State private var aiSettingsOpen = false
+    /// The live stroke of the AI mask brush (normalized source coordinates).
+    @State private var aiStrokeLast: CGPoint?
+    @State private var aiStrokeActive = false
 
     /// The four modes of the crop pane, in the web's order: ratio, rotation
     /// and the two 3D perspective axes.
@@ -215,6 +218,22 @@ struct EditorView: View {
                 cropMode = .ratio
             }
         }
+        .onChange(of: editor.aiRefining) { _, refining in
+            // The brush works on the full-source preview, so the stage zoom
+            // is reset both when the mask opens and when it closes.
+            aiStrokeActive = false
+            aiStrokeLast = nil
+            isComparing = false
+            withAnimation(.easeOut(duration: 0.2)) {
+                stageScale = 1
+                stageOffset = .zero
+                gestureScale = 1
+                gestureOffset = .zero
+            }
+            if refining {
+                aiModelsOpen = false
+            }
+        }
         .onChange(of: textFocus) { _, focus in
             if focus == nil, editingTextId != nil {
                 commitTextEditing()
@@ -257,11 +276,17 @@ struct EditorView: View {
                 }
                 Spacer(minLength: 12)
                 glassButton(Strings.editorSave, icon: nil, gold: true) {
-                    guard phase == .ready else { return }
+                    guard phase == .ready,
+                          !editor.aiRefining,
+                          !editor.aiBusy else {
+                        return
+                    }
                     withAnimation(Tokens.Motion.spring) {
                         exportOpen = true
                     }
                 }
+                .disabled(editor.aiRefining || editor.aiBusy)
+                .opacity(editor.aiRefining || editor.aiBusy ? 0.45 : 1)
             }
 
             HStack(spacing: 6) {
@@ -288,6 +313,8 @@ struct EditorView: View {
                     editor.flip(horizontal: false)
                 }
             }
+            .disabled(editor.aiRefining || editor.aiBusy)
+            .opacity(editor.aiRefining || editor.aiBusy ? 0.45 : 1)
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)
@@ -392,8 +419,16 @@ struct EditorView: View {
                                         height: fitted.height
                                     )
                                 }
-                            } else if !isComparing {
+                            } else if !isComparing && !editor.aiRefining {
                                 textOverlay(fitted: fitted)
+                                    .frame(
+                                        width: fitted.width,
+                                        height: fitted.height
+                                    )
+                            }
+
+                            if editor.aiRefining, editor.aiRefinePreview != nil {
+                                aiBrushCanvas(fitted: fitted)
                                     .frame(
                                         width: fitted.width,
                                         height: fitted.height
@@ -413,7 +448,12 @@ struct EditorView: View {
                     }
                 }
 
-                if editor.originalPreview != nil {
+                if editor.aiRefining, editor.aiRefinePreview == nil {
+                    ProgressView()
+                        .tint(Aurum.gold)
+                }
+
+                if editor.originalPreview != nil, !editor.aiRefining {
                     compareButton
                         .padding(.leading, 12)
                         .padding(.bottom, 12)
@@ -428,9 +468,11 @@ struct EditorView: View {
             .gesture(
                 DragGesture()
                     .onChanged { value in
+                        guard !editor.aiRefining else { return }
                         gestureOffset = value.translation
                     }
                     .onEnded { value in
+                        guard !editor.aiRefining else { return }
                         stageOffset.width += value.translation.width
                         stageOffset.height += value.translation.height
                         gestureOffset = .zero
@@ -440,9 +482,11 @@ struct EditorView: View {
             .simultaneousGesture(
                 MagnificationGesture()
                     .onChanged { value in
+                        guard !editor.aiRefining else { return }
                         gestureScale = value
                     }
                     .onEnded { value in
+                        guard !editor.aiRefining else { return }
                         pinchStart = max(min(stageScale * value, 6), 1)
                         stageScale = pinchStart
                         gestureScale = 1
@@ -450,7 +494,7 @@ struct EditorView: View {
                 including: editor.tab == .text ? .subviews : .all
             )
             .onTapGesture(count: 2) {
-                guard editor.tab != .text else { return }
+                guard editor.tab != .text, !editor.aiRefining else { return }
                 withAnimation(.easeOut(duration: 0.22)) {
                     if stageScale > 1.05 {
                         stageScale = 1
@@ -469,6 +513,49 @@ struct EditorView: View {
         }
         .frame(maxHeight: .infinity)
         .clipped()
+    }
+
+    /// A transparent layer over the full-source preview. A drag paints the
+    /// mask under the finger; the coordinates are normalized to the fitted
+    /// image, which is the same space the mask is sampled in.
+    private func aiBrushCanvas(fitted: CGSize) -> some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .highPriorityGesture(aiBrushGesture(fitted: fitted))
+    }
+
+    private func aiBrushGesture(fitted: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .onChanged { value in
+                guard editor.aiRefining,
+                      fitted.width > 1,
+                      fitted.height > 1 else {
+                    return
+                }
+                let point = CGPoint(
+                    x: value.location.x / fitted.width,
+                    y: value.location.y / fitted.height
+                )
+                guard point.x >= 0, point.x <= 1,
+                      point.y >= 0, point.y <= 1 else {
+                    return
+                }
+                if aiStrokeActive, let last = aiStrokeLast {
+                    editor.paintAIMask(at: point, from: last)
+                } else {
+                    aiStrokeActive = true
+                    editor.beginAIStroke()
+                    editor.paintAIMask(at: point, from: nil)
+                }
+                aiStrokeLast = point
+            }
+            .onEnded { _ in
+                if aiStrokeActive {
+                    editor.endAIStroke()
+                }
+                aiStrokeActive = false
+                aiStrokeLast = nil
+            }
     }
 
     // MARK: - Text layers
@@ -1080,9 +1167,12 @@ struct EditorView: View {
         )
     }
 
-    /// The edited photo, or the untouched original while the compare button
-    /// is held down.
+    /// The edited photo, the full-source mask preview while the AI brush is
+    /// open, or the untouched original while the compare button is held down.
     private var displayedPreview: UIImage? {
+        if editor.aiRefining, let refine = editor.aiRefinePreview {
+            return refine
+        }
         if isComparing, let original = editor.originalPreview {
             return original
         }
@@ -2046,11 +2136,22 @@ struct EditorView: View {
 
     // MARK: - AI pane
 
+    /// The AI tab: the mask brush while a pass is being refined, otherwise the
+    /// library of background and retouch actions.
+    @ViewBuilder
+    private var aiPane: some View {
+        if editor.aiRefining {
+            aiRefinePane
+        } else {
+            aiActionPane
+        }
+    }
+
     /// The AI tab of the web editor: the collapsible model picker, the four
     /// background actions and the five retouch actions on one rail. The
     /// native engine uses Vision on the device, so the pane works offline and
     /// no model is downloaded.
-    private var aiPane: some View {
+    private var aiActionPane: some View {
         VStack(spacing: 7) {
             aiModelPicker
                 .padding(.horizontal, 12)
@@ -2185,6 +2286,268 @@ struct EditorView: View {
         .padding(.vertical, 2)
     }
 
+    /// The web's mask toolbar: brush mode and size, the stroke undo, the
+    /// invert/transparent chips, the live blur and retouch sliders, and the
+    /// apply/cancel pair. Nothing is baked before "Hoàn tất".
+    private var aiRefinePane: some View {
+        VStack(spacing: 7) {
+            HStack(spacing: 6) {
+                Text(Strings.editorAIBrush)
+                    .font(Font.mng(11, weight: .semibold))
+                    .foregroundStyle(Aurum.gold)
+                aiBrushModeButton(.add, title: Strings.editorAIBrushAdd)
+                aiBrushModeButton(.erase, title: Strings.editorAIBrushErase)
+                Spacer(minLength: 4)
+                Text(Strings.editorAIOriginalNote)
+                    .font(Font.mng(8.5))
+                    .foregroundStyle(Aurum.muted.opacity(0.9))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            .padding(.horizontal, 12)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    aiSettingsSlider(
+                        title: Strings.editorAIBrushSize,
+                        value: Binding(
+                            get: { Double(editor.aiBrushSize) },
+                            set: { editor.setAIBrushSize(Float($0)) }
+                        ),
+                        range: 1...60
+                    )
+
+                    aiToolPill(
+                        Strings.editorAIBrushUndo,
+                        icon: "arrow.uturn.backward",
+                        enabled: editor.aiCanUndoBrush
+                    ) {
+                        editor.undoAIBrush()
+                    }
+
+                    if editor.aiRefineTarget?.isBackground == true {
+                        aiToolPill(
+                            Strings.editorAIBrushInvert,
+                            icon: "circle.lefthalf.filled"
+                        ) {
+                            editor.invertAIMask()
+                        }
+                    }
+
+                    if editor.aiRefineCanToggleTransparency {
+                        aiToolPill(
+                            Strings.editorAIBrushTransparent,
+                            icon: "square.dashed",
+                            active: editor.aiRefineTransparent
+                        ) {
+                            editor.toggleAIRefineTransparency()
+                        }
+                    }
+
+                    if editor.aiRefineShowsBlur {
+                        aiSettingsSlider(
+                            title: Strings.editorAIBlurStrength,
+                            value: Binding(
+                                get: { Double(editor.aiBlurStrength) * 100 },
+                                set: {
+                                    editor.setAIBlurStrength(Float($0) / 100)
+                                }
+                            ),
+                            range: 0...100
+                        )
+                    }
+
+                    if editor.aiRefineTarget?.isRetouch == true {
+                        aiSettingsSlider(
+                            title: Strings.editorAIStrength,
+                            value: Binding(
+                                get: { Double(editor.aiStrength) * 100 },
+                                set: { editor.setAIStrength(Float($0) / 100) }
+                            ),
+                            range: 0...100
+                        )
+                    }
+
+                    if editor.aiRefineRetouchMode == .tone {
+                        aiSettingsSlider(
+                            title: Strings.editorAITone,
+                            value: Binding(
+                                get: { Double(editor.aiTone) * 100 },
+                                set: { editor.setAITone(Float($0) / 100) }
+                            ),
+                            range: -100...100
+                        )
+                    }
+
+                    if editor.aiRefineRetouchMode == .hair {
+                        aiHairColorButtons
+                    }
+                }
+                .padding(.horizontal, 12)
+            }
+            .frame(height: 34)
+
+            HStack(spacing: 8) {
+                Text(editor.aiRefineHint)
+                    .font(Font.mng(8.5))
+                    .foregroundStyle(Aurum.muted)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button {
+                    editor.cancelAIRefine()
+                } label: {
+                    Text(Strings.editorAIBrushCancel)
+                        .font(Font.mng(11, weight: .semibold))
+                        .foregroundStyle(Aurum.text)
+                        .padding(.horizontal, 14)
+                        .frame(height: 30)
+                        .background(Aurum.glass, in: Capsule())
+                        .overlay {
+                            Capsule().stroke(
+                                Aurum.glassLine,
+                                lineWidth: 0.5
+                            )
+                        }
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    editor.applyAIRefine()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark")
+                            .font(Font.mng(10, weight: .bold))
+                        Text(Strings.editorAIBrushApply)
+                            .font(Font.mng(11, weight: .bold))
+                    }
+                    .foregroundStyle(Color(red: 0.10, green: 0.08, blue: 0.03))
+                    .padding(.horizontal, 14)
+                    .frame(height: 30)
+                    .background(Aurum.gold, in: Capsule())
+                }
+                .buttonStyle(GlassPressStyle(scale: 0.95))
+            }
+            .padding(.horizontal, 12)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func aiBrushModeButton(
+        _ mode: EditorAIBrushMode,
+        title: String
+    ) -> some View {
+        let active = editor.aiBrushMode == mode
+        return Button {
+            editor.setAIBrushMode(mode)
+        } label: {
+            HStack(spacing: 4) {
+                Image(
+                    systemName: mode == .add ? "plus" : "minus"
+                )
+                .font(Font.mng(9, weight: .bold))
+                Text(title)
+                    .font(Font.mng(10, weight: .semibold))
+            }
+            .foregroundStyle(active ? Aurum.gold : Aurum.text)
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(
+                active ? Aurum.goldSoft : Color.white.opacity(0.055),
+                in: Capsule()
+            )
+            .overlay {
+                Capsule().stroke(
+                    active
+                        ? Aurum.gold.opacity(0.34)
+                        : Color.white.opacity(0.08),
+                    lineWidth: 1
+                )
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(GlassPressStyle(scale: 0.94))
+    }
+
+    private func aiToolPill(
+        _ title: String,
+        icon: String,
+        active: Bool = false,
+        enabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(Font.mng(10, weight: .semibold))
+                Text(title)
+                    .font(Font.mng(10, weight: .semibold))
+            }
+            .foregroundStyle(active ? Aurum.gold : Aurum.text)
+            .padding(.horizontal, 9)
+            .frame(height: 30)
+            .background(
+                active ? Aurum.goldSoft : Color.white.opacity(0.055),
+                in: Capsule()
+            )
+            .overlay {
+                Capsule().stroke(
+                    active
+                        ? Aurum.gold.opacity(0.34)
+                        : Color.white.opacity(0.08),
+                    lineWidth: 1
+                )
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(GlassPressStyle(scale: 0.94))
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.45)
+    }
+
+    private var aiHairColorButtons: some View {
+        HStack(spacing: 6) {
+            Text(Strings.editorAIHairColor)
+                .font(Font.mng(9.5, weight: .semibold))
+                .foregroundStyle(Aurum.muted)
+            ForEach(EditorAIHairColor.allCases) { color in
+                let selected = editor.aiHairColor == color
+                Button {
+                    editor.selectAIHairColor(color)
+                } label: {
+                    Circle()
+                        .fill(
+                            Color(
+                                red: Double(color.components.red),
+                                green: Double(color.components.green),
+                                blue: Double(color.components.blue)
+                            )
+                        )
+                        .frame(width: 19, height: 19)
+                        .overlay {
+                            Circle().stroke(
+                                selected
+                                    ? Aurum.gold
+                                    : Color.white.opacity(0.18),
+                                lineWidth: selected ? 2 : 1
+                            )
+                        }
+                        .frame(width: 26, height: 26)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(color.title)
+            }
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 32)
+        .background(
+            Color.white.opacity(0.05),
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+    }
+
     /// The collapsible model picker of the web's `.au-model-coll`.
     private var aiModelPicker: some View {
         VStack(spacing: 6) {
@@ -2302,45 +2665,7 @@ struct EditorView: View {
                     range: -100...100
                 )
 
-                HStack(spacing: 6) {
-                    Text(Strings.editorAIHairColor)
-                        .font(Font.mng(9.5, weight: .semibold))
-                        .foregroundStyle(Aurum.muted)
-                    ForEach(EditorAIHairColor.allCases) { color in
-                        let selected = editor.aiHairColor == color
-                        Button {
-                            editor.selectAIHairColor(color)
-                        } label: {
-                            Circle()
-                                .fill(
-                                    Color(
-                                        red: Double(color.components.red),
-                                        green: Double(color.components.green),
-                                        blue: Double(color.components.blue)
-                                    )
-                                )
-                                .frame(width: 19, height: 19)
-                                .overlay {
-                                    Circle().stroke(
-                                        selected
-                                            ? Aurum.gold
-                                            : Color.white.opacity(0.18),
-                                        lineWidth: selected ? 2 : 1
-                                    )
-                                }
-                                .frame(width: 26, height: 26)
-                                .contentShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(color.title)
-                    }
-                }
-                .padding(.horizontal, 9)
-                .frame(height: 32)
-                .background(
-                    Color.white.opacity(0.05),
-                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-                )
+                aiHairColorButtons
             }
             .padding(.horizontal, 12)
         }

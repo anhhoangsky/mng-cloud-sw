@@ -494,6 +494,21 @@ enum Strings {
     static let editorAIDoneRetouch = "Đã retouch AI. Lịch sử chỉnh sửa đã được đặt lại."
     static let editorAIReverted = "Đã hoàn tác AI."
     static let editorAIRevert = "Hoàn tác AI"
+    static let editorAIBrush = "Cọ"
+    static let editorAIBrushAdd = "Thêm"
+    static let editorAIBrushErase = "Xoá"
+    static let editorAIBrushSize = "Cỡ cọ"
+    static let editorAIBrushUndo = "Hoàn tác nét"
+    static let editorAIBrushInvert = "Đảo mask"
+    static let editorAIBrushTransparent = "Nền trong suốt"
+    static let editorAIBrushApply = "Hoàn tất"
+    static let editorAIBrushCancel = "Huỷ"
+    static let editorAIBrushHint =
+        "Chạm kéo trên ảnh để chỉnh viền. Thêm = giữ chủ thể, Xoá = bỏ nền."
+    static let editorAIRetouchBrushHint =
+        "Cọ để tăng/giảm hiệu ứng: Thêm = thêm, Xoá = hoàn tác."
+    static let editorAIBlurStrength = "Độ mờ"
+    static let editorAIOriginalNote = "Đang chỉnh mask trên ảnh gốc"
     static let editorAITransparentNote =
         "Ảnh JPEG không lưu được nền trong suốt — chọn Nền trắng nếu cần."
     // Crop modes

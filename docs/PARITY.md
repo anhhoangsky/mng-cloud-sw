@@ -21,7 +21,7 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 | Settings | Kết nối / iCloud / Thư viện / Tài khoản / Giới thiệu; test, rescan, retry thumbs, clear temp | 🟡 ported: cloud probe rows, iCloud status, scan/thumbs/tmp actions, storage, duplicates entry, account/about; device check pending |
 | Duplicates | legacy summary, 30 groups per page, open group in viewer | 🟡 ported: summary + pending-thumbnail note, 30 groups per page, 128 pt grid, group-seeded viewer; device check pending |
 | Vault | native list/unlock/browse/upload/folder/delete/auto-lock (the Seafile E2EE reader was removed from the web app) | 🟡 ported: vault list, unlock, browser with folders/search, 4 MiB chunked upload, encrypted preview, rename, delete, library → vault move, 15-minute auto-lock; device check pending |
-| Editor | rotate → flip → crop, adjustments, filters, text, AI, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, five native tabs (Tinh chỉnh / Bộ lọc / Chữ / AI / Cắt), thirteen sliders, twenty-nine Aurum presets with six categories and the seven-slider tone tune, saved personal presets, text layers with CoreText export burn and an on-photo frame, continuous ±180° crop rotation with cover fill, ratio + screen presets, crop scrim/grid/bevel handles, perspective correction, an on-device Vision AI tab (background remove/person/blur/white, five retouch passes, model picker, progress/cancel and AI-only undo), hold-to-compare, export sheet with quality and the two save modes, multipart upload; beauty/liquify not ported; device check pending |
+| Editor | rotate → flip → crop, adjustments, filters, text, AI, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, five native tabs (Tinh chỉnh / Bộ lọc / Chữ / AI / Cắt), thirteen sliders, twenty-nine Aurum presets with six categories and the seven-slider tone tune, saved personal presets, text layers with CoreText export burn and an on-photo frame, continuous ±180° crop rotation with cover fill, ratio + screen presets, crop scrim/grid/bevel handles, perspective correction, an on-device Vision AI tab (background remove/person/blur/white, five retouch passes, model picker, mask brush with live blur/retouch preview, progress/cancel and AI-only undo), hold-to-compare, export sheet with quality and the two save modes, multipart upload; beauty/liquify not ported; device check pending |
 | Admin | lazy mount, users, password, activate, admin, delete, scan | 🟡 ported: Settings row for admins only, lazy list, create/reset/reprovision/update/delete/scan; device check pending |
 | iCloud | honest status, 2.2 s job poll, login/2FA/start/save/pause/cancel/logout | 🟡 ported: full importer sheet with the 2.2 s poll that stops with the sheet; device check pending |
 | PWA-only surfaces | service worker, Trusted Types, extension | ➖ |
@@ -207,8 +207,11 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - Difference: the web's AI runs downloaded ONNX models (ISNet/BiRefNet/
   MODNet, Real-ESRGAN, AI Retouch). The native AI tab is on-device instead:
   Vision subject and person segmentation, face landmarks, and Core Image
-  compositing for the same background and retouch actions. Beauty, liquify and
-  the web's model-mask brush are not ported.
+  compositing for the same background and retouch actions. Like the web, a
+  pass first returns a soft mask to a brush step (add/erase, size, stroke undo,
+  invert, transparent background) and the blur/retouch sliders stay live until
+  "Hoàn tất"; the mask is then baked into the source. Beauty and liquify are not
+  ported.
 
 ## Round 4 notes
 
@@ -298,9 +301,12 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   after another) so a long library scrolls without a flash of empty tiles.
 - The AI tab uses the same actions as `ui.ts` ("Xoá phông", "Tách người", "Mờ
   phông", "Nền trắng", then the five retouch passes) but runs Apple Vision on
-  the device instead of downloading ONNX models. The result is baked into a new
-  source bitmap while the crop, geometry, colour stack and text stay in place;
-  the history restarts and "Hoàn tác AI" restores the previous source.
+  the device instead of downloading ONNX models. Vision only produces the soft
+  mask; the full-source brush step then refines it and previews the live blur
+  and retouch settings. "Hoàn tất" bakes the result into a new source bitmap
+  while the crop, geometry, colour stack and text stay in place; the rows are
+  kept top-down through `EditorBitmap`, so the photo does not flip. The history
+  restarts and "Hoàn tác AI" restores the previous source.
 
 ## Round 5 notes
 

@@ -18,32 +18,13 @@ public enum EditorImageDecoder {
                 ?? CGImageSourceCreateImageAtIndex(source, 0, nil) else {
             return nil
         }
-        let width = image.width
-        let height = image.height
-        guard width > 0, height > 0 else { return nil }
-
-        let bytesPerRow = width * 4
-        guard let context = CGContext(
-            data: nil,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: bytesPerRow,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else {
+        guard let converted = EditorBitmap.topDownRGBA(from: image) else {
             return nil
         }
-        // The bitmap context keeps its rows in the order of the image, so the
-        // bytes can be handed to the editor as they are.
-        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-
-        guard let raw = context.data else { return nil }
-        let buffer = Data(bytes: raw, count: bytesPerRow * height)
         return (
-            UInt32(width),
-            UInt32(height),
-            unpremultiply(buffer, width: width, height: height)
+            UInt32(converted.width),
+            UInt32(converted.height),
+            converted.rgba
         )
     }
 
@@ -61,26 +42,5 @@ public enum EditorImageDecoder {
             kCGImageSourceThumbnailMaxPixelSize: maxSide,
         ]
         return CGImageSourceCreateThumbnailAtIndex(source, index, options as CFDictionary)
-    }
-
-    /// Core Graphics stores premultiplied alpha; the editor expects straight.
-    private static func unpremultiply(
-        _ buffer: Data,
-        width: Int,
-        height: Int
-    ) -> [UInt8] {
-        var bytes = [UInt8](buffer)
-        let count = min(bytes.count, width * height * 4)
-        var index = 0
-        while index + 3 < count {
-            let alpha = bytes[index + 3]
-            if alpha > 0 && alpha < 255 {
-                bytes[index] = UInt8(min(255, Int(bytes[index]) * 255 / Int(alpha)))
-                bytes[index + 1] = UInt8(min(255, Int(bytes[index + 1]) * 255 / Int(alpha)))
-                bytes[index + 2] = UInt8(min(255, Int(bytes[index + 2]) * 255 / Int(alpha)))
-            }
-            index += 4
-        }
-        return bytes
     }
 }

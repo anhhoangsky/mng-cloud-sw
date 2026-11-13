@@ -373,6 +373,49 @@ final class EditorTests: XCTestCase {
         XCTAssertEqual(replaced.outputSize().height, editor.outputSize().height)
     }
 
+    /// The shared bitmap conversion has to keep the top row first. The AI
+    /// snapshot path uses the same helper, so an accidental flip would turn
+    /// the photo upside down after every AI pass.
+    func testTheBitmapConversionKeepsTheRowsTopDown() throws {
+        let width = 4
+        let height = 4
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(width * height * 4)
+        for row in 0..<height {
+            let red = row < height / 2
+            for _ in 0..<width {
+                bytes.append(red ? 255 : 0)
+                bytes.append(0)
+                bytes.append(red ? 0 : 255)
+                bytes.append(255)
+            }
+        }
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData),
+              let image = CGImage(
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bitsPerPixel: 32,
+                bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo(
+                    rawValue: CGImageAlphaInfo.last.rawValue
+                ),
+                provider: provider,
+                decode: nil,
+                shouldInterpolate: false,
+                intent: .defaultIntent
+              ),
+              let converted = EditorBitmap.topDownRGBA(from: image) else {
+            return XCTFail("could not build the bitmap")
+        }
+        XCTAssertEqual(converted.width, width)
+        XCTAssertEqual(converted.height, height)
+        XCTAssertEqual(Array(converted.rgba[0..<4]), [255, 0, 0, 255])
+        let last = (height - 1) * width * 4
+        XCTAssertEqual(Array(converted.rgba[last..<(last + 4)]), [0, 0, 255, 255])
+    }
+
     /// A transparent cut-out has to survive the snapshot round trip without
     /// losing its alpha or flipping its rows.
     func testReplacingSourceKeepsStraightAlpha() throws {

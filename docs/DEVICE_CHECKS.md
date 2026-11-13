@@ -162,6 +162,17 @@ usable in the simulator.
 - [ ] A cancelled or failed save leaves the original untouched.
 - [ ] The AI tab sits between "Chữ" and "Cắt"; the model picker expands to
       Chất lượng / Cân bằng / Nhanh.
+- [ ] An AI background pass opens the brush step instead of baking at once:
+      "Thêm"/"Xoá", the size slider, the stroke undo, "Đảo mask" and "Nền
+      trong suốt" all update the full-source preview under the finger.
+- [ ] The brush preview is the whole source (not the cropped view), and the
+      photo stays upright before and after "Hoàn tất"; it does not flip.
+- [ ] "Mờ phông" keeps its "Độ mờ" slider live in the brush step; moving it
+      changes the blur before "Hoàn tất".
+- [ ] The retouch sliders (strength, tone, hair colour) stay adjustable in the
+      brush step and update the preview without rerunning Vision.
+- [ ] "Hoàn tất" bakes the painted mask; "Huỷ" leaves the photo untouched.
+      Leaving the AI tab while refining also discards the mask.
 - [ ] "Xoá phông" and "Tách người" cut the subject out; a PNG/WebP item keeps
       the transparent corners, and a JPEG item shows the alpha warning in the
       export sheet.
@@ -175,6 +186,8 @@ usable in the simulator.
 - [ ] After an AI pass the crop, geometry, colour and text are unchanged, the
       undo history restarts, and "Hoàn tác AI" restores the source from before
       the pass.
+- [ ] While the brush step is open the save button, undo/redo and the geometry
+      tools are disabled, and the text layers and hold-to-compare are hidden.
 - [ ] All AI actions work in airplane mode (Vision runs on the device).
 
 ## Administration (admin account only)
