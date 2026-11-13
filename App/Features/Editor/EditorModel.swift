@@ -1350,29 +1350,30 @@ final class EditorModel {
                 && crop == .full
                 && texts.isEmpty
             // A gesture renders smaller frames; the release rerenders at the
-            // full preview quality.
-            let side: UInt32 = editTransaction != nil ? 720 : 1200
+            // full preview quality. 640px still covers the phone stage while
+            // cutting the pixels of a live rotate/perspective drag roughly in
+            // half compared with the old 720px frames.
+            let side: UInt32 = editTransaction != nil ? 640 : 1200
             let rendered = await Task.detached(priority: .userInitiated) {
                 [editor, crop] in
                 var copy = editor
                 copy.setCrop(crop)
                 let rgba = copy.renderPreview(maxSide: side)
-                return (
-                    rgba: rgba,
+                // Build the bitmap on the render thread too: creating the
+                // provider and letting CoreGraphics wrap the RGBA buffer on
+                // the main actor was part of the slider hitch.
+                return EditorModel.image(
+                    from: rgba,
                     width: copy.lastRenderSize.width,
                     height: copy.lastRenderSize.height
                 )
             }.value
             guard !Task.isCancelled else { return }
-            if let image = EditorModel.image(
-                from: rendered.rgba,
-                width: rendered.width,
-                height: rendered.height
-            ) {
+            if let rendered {
                 if pristine, originalPreview == nil {
-                    originalPreview = image
+                    originalPreview = rendered
                 }
-                preview = image
+                preview = rendered
             }
             if generation == previewGeneration {
                 return
@@ -1420,7 +1421,7 @@ final class EditorModel {
     }
 
     /// Build a UIImage from straight RGBA bytes.
-    static func image(
+    nonisolated static func image(
         from rgba: [UInt8],
         width: UInt32,
         height: UInt32

@@ -586,10 +586,10 @@ struct LibraryView: View {
 
         updateTimelineTopDate()
 
-        // Silent paging: the grid knows the total item count, so it renders
-        // a placeholder for every photo and asks for the next older page as
-        // soon as the viewport reaches the boundary between the loaded page
-        // and those placeholders. There is no visible footer.
+        // Silent paging: the grid reserves room for the whole timeline and
+        // asks for the next older page as soon as the viewport reaches the
+        // boundary between the loaded rows and the placeholder rows above
+        // them. There is no visible footer.
         if usesTimelinePlaceholders {
             maybeLoadOlderPage()
         } else {
@@ -655,12 +655,15 @@ struct LibraryView: View {
     /// on every auto-scroll tick, so a fast fling or a marquee drag fills
     /// every placeholder it jumped over.
     ///
-    /// The trigger uses both the offset maths and the realized tile frames.
-    /// Frames are the safer of the two once the lazy grid has measured the
-    /// visible photos; the offset is the fallback when the viewport sits on
-    /// placeholders whose cells have no frame of their own.
+    /// The trigger is pure offset maths. Scanning the realized tile frames on
+    /// every scroll callback meant rebuilding a dictionary of every loaded
+    /// photo and walking all visible frames during the gesture, which showed
+    /// up as dropped frames on a long timeline. The virtual grid reserves the
+    /// full height up front, so the offset already identifies the first
+    /// visible row exactly.
     private func maybeLoadOlderPage() {
         guard !initialAnchorPending,
+              isCompact,
               library.filters.isTimeline,
               !library.isAlbumOpen,
               !library.page.items.isEmpty,
@@ -679,25 +682,24 @@ struct LibraryView: View {
             olderRequestArmed = true
         }
 
-        let boundary = timelineLoadedBoundary
-        let byOffset = timelineFirstVisibleIndex()
-        let byFrames = oldestVisibleTimelineIndex()
-        let reach = min(byOffset ?? Int.max, byFrames ?? Int.max)
-        guard reach != Int.max else { return }
-
-        // Six extra rows give the network request enough lead time that a
-        // stopped drag never shows an empty tile at the top of the screen.
-        guard reach <= boundary + timelinePagingLead else { return }
+        guard let reach = timelineFirstVisibleIndex() else { return }
+        guard reach <= timelineLoadedBoundary + timelinePagingLead else { return }
 
         olderRequestArmed = false
         olderRetryAt = Date().addingTimeInterval(1.6)
         Task { await library.loadOlderIfNeeded() }
     }
 
-    /// How many photos before the loaded boundary the pager starts the next
-    /// request. Six compact rows is about a screen and a half of lead time.
+    /// How many rows before the loaded boundary the pager starts the next
+    /// request. One page is 120 photos (40 compact rows), so twelve rows of
+    /// lead starts the request roughly a third of a page early: the next page
+    /// is already on its way before the loaded rows run out.
+    private var timelinePagingLeadRows: Int {
+        12
+    }
+
     private var timelinePagingLead: Int {
-        18
+        timelinePagingLeadRows * timelineColumnsCount
     }
 
     /// True while the viewport is close enough to the loaded boundary that
@@ -708,12 +710,8 @@ struct LibraryView: View {
         guard usesTimelinePlaceholders, !initialAnchorPending else {
             return false
         }
-        let boundary = timelineLoadedBoundary
-        let byOffset = timelineFirstVisibleIndex()
-        let byFrames = oldestVisibleTimelineIndex()
-        let reach = min(byOffset ?? Int.max, byFrames ?? Int.max)
-        guard reach != Int.max else { return false }
-        return reach <= boundary + timelinePagingLead
+        guard let reach = timelineFirstVisibleIndex() else { return false }
+        return reach <= timelineLoadedBoundary + timelinePagingLead
     }
 
     /// The oldest loaded row in the full-length grid. Everything above it is
@@ -740,38 +738,11 @@ struct LibraryView: View {
         return Int(max(0, scrollOffset) / rowHeight) * timelineColumnsCount
     }
 
-    /// The oldest chronological index among the realized tiles that are on
-    /// screen. This is more accurate than the offset once the grid has
-    /// measured the rows, and it keeps paging alive while the person drags a
-    /// selection at the edge without moving the finger.
-    private func oldestVisibleTimelineIndex() -> Int? {
-        guard !tileFrames.isEmpty, viewportGlobalMaxY > 0 else { return nil }
-        let headerBottom = model.headerBottom > 0 ? model.headerBottom : 0
-        let viewportBottom = viewportGlobalMaxY
-        let total = timelineTotal
-        var apiIndices: [Int64: Int] = [:]
-        for (index, item) in library.page.items.enumerated() {
-            apiIndices[item.id] = index
-        }
-        var oldest: Int?
-        for (id, frame) in tileFrames
-        where knownItemIDs.contains(id)
-            && frame.maxY > headerBottom + 1
-            && frame.minY < viewportBottom {
-            guard let apiIndex = apiIndices[id] else { continue }
-            let index = total - 1 - apiIndex
-            if oldest == nil || index < oldest! {
-                oldest = index
-            }
-        }
-        return oldest
-    }
-
     /// How far above the loaded boundary the grid may be dragged while the
-    /// older pages are still arriving. Six rows is about two screens of
-    /// shimmer; any deeper fling is stopped here so the view can never sit on
-    /// a placeholder that the sequential pager would need dozens of requests
-    /// to reach.
+    /// older pages are still arriving. Twelve rows match the request lead, so
+    /// a deep fling can never outrun the sequential pager by more than about
+    /// a page; any deeper fling is stopped here so the view cannot sit on a
+    /// placeholder that would need dozens of requests to reach.
     private var timelineOldestAllowedOffset: CGFloat? {
         guard usesTimelinePlaceholders,
               !initialAnchorPending,
@@ -779,7 +750,10 @@ struct LibraryView: View {
         else { return nil }
         let rowHeight = timelineRowHeight
         let boundaryRow = CGFloat(timelineLoadedBoundary / timelineColumnsCount)
-        return max(0, boundaryRow * rowHeight - rowHeight * 6)
+        return max(
+            0,
+            boundaryRow * rowHeight - rowHeight * CGFloat(timelinePagingLeadRows)
+        )
     }
 
     /// Move the underlying scroll view to a normalized offset (0 at the top
@@ -1136,24 +1110,35 @@ struct LibraryView: View {
     /// The rows are chronological, so the newest photo is the last one and
     /// sits at the bottom of the screen. The scroll view opens there.
     ///
-    /// The item count is known before the pages are, so the grid renders the
-    /// full timeline up front: loaded photos for the tail of the list and
-    /// placeholders for the oldest pages. This keeps the content height (and
-    /// therefore the scroll position and the scrollbar) stable while older
-    /// pages arrive, which is what the web gets by prepending and re-anchoring.
+    /// The item count is known before the pages are, so the grid reserves the
+    /// height of the entire timeline up front, but it only materializes the
+    /// rows near the viewport. A `LazyVGrid` still builds one child per item
+    /// (and SwiftUI measures every one on each scroll pass), which is what made
+    /// a large library crawl. The fixed-height spacer keeps the scroll
+    /// position and the scrollbar stable while older pages arrive, and the
+    /// virtual rows swap placeholders for photos only when they are about to
+    /// become visible.
+    @ViewBuilder
     private var timeline: some View {
-        LazyVGrid(columns: timelineColumns, spacing: timelineGap) {
-            if isCompact, !library.isAlbumOpen {
-                ForEach(0..<timelineTotal, id: \.self) { index in
-                    if let item = timelineItem(at: index) {
-                        timelineTile(item)
-                    } else {
-                        ShimmerTile()
-                            .aspectRatio(1, contentMode: .fill)
-                            .accessibilityHidden(true)
-                    }
+        if isCompact, !library.isAlbumOpen {
+            TimelineVirtualGrid(
+                total: timelineTotal,
+                width: max(viewportWidth, 1),
+                gap: Tokens.Layout.gridGap,
+                scrollOffset: scrollOffset,
+                viewportHeight: viewportHeight,
+                columns: timelineColumnsCount,
+                overscan: 4,
+                item: { timelineItem(at: $0) },
+                tile: { timelineTile($0) },
+                placeholder: {
+                    ShimmerTile()
+                        .aspectRatio(1, contentMode: .fill)
+                        .accessibilityHidden(true)
                 }
-            } else {
+            )
+        } else {
+            LazyVGrid(columns: timelineColumns, spacing: timelineGap) {
                 ForEach(library.page.items.reversed()) { item in
                     timelineTile(item)
                 }
@@ -1326,6 +1311,127 @@ struct LibraryView: View {
 
     private var bucketGap: CGFloat {
         isCompact ? 18 : 22
+    }
+}
+
+// MARK: - Virtual timeline
+
+/// The compact library grid, virtualized on a fixed 3-column geometry.
+///
+/// The timeline knows its final length from `total` before every page has
+/// loaded, so the view reserves the full height immediately: the scrollbar,
+/// the bottom anchor and the scroll position never move while older pages
+/// arrive. Only the rows around the viewport (plus a small overscan) are
+/// materialized; a tall `Color.clear` carries the height of all the others.
+///
+/// A `LazyVGrid` cannot do this job here. It builds one child per item up
+/// front, and each scroll pass measures all of them, so a 100k-photo library
+/// spends the frame budget on rows that are hundreds of screens away. The
+/// virtual grid turns that into a handful of rows around the finger.
+private struct TimelineVirtualGrid<Item, Tile: View, Placeholder: View>: View {
+    let total: Int
+    let width: CGFloat
+    let gap: CGFloat
+    let scrollOffset: CGFloat
+    let viewportHeight: CGFloat
+    let columns: Int
+    let overscan: Int
+    let item: (Int) -> Item?
+    let tile: (Item) -> Tile
+    let placeholder: () -> Placeholder
+
+    private var columnCount: Int {
+        max(columns, 1)
+    }
+
+    private var itemWidth: CGFloat {
+        max(
+            1,
+            (width - gap * CGFloat(columnCount - 1)) / CGFloat(columnCount)
+        )
+    }
+
+    private var rowHeight: CGFloat {
+        itemWidth + gap
+    }
+
+    private var rowCount: Int {
+        guard total > 0 else { return 0 }
+        return (total + columnCount - 1) / columnCount
+    }
+
+    private var contentHeight: CGFloat {
+        CGFloat(rowCount) * rowHeight
+    }
+
+    /// The rows that need a real view. The first row under the viewport is
+    /// derived from the content offset, which is exact because the content
+    /// above the grid has no height; the overscan keeps a row ready just
+    /// before it enters and just after it leaves.
+    private var visibleRows: Range<Int> {
+        guard rowCount > 0 else { return 0..<0 }
+        let height = max(rowHeight, 1)
+        let offset = max(scrollOffset, 0)
+        let firstVisible = Int(offset / height)
+        let first = max(0, min(firstVisible - overscan, rowCount - 1))
+        let last: Int
+        if viewportHeight > 1 {
+            let lastVisible = Int(
+                ceil((offset + viewportHeight) / height)
+            )
+            last = min(rowCount, lastVisible + overscan + 1)
+        } else {
+            // The viewport has not been measured yet, which only happens on
+            // the first layout pass. Render a screenful around the offset so
+            // the initial jump to the newest photo has content to show.
+            last = min(rowCount, first + overscan * 2 + 8)
+        }
+        return first..<max(first + 1, last)
+    }
+
+    var body: some View {
+        let itemSize = itemWidth
+        let rowSpacing = rowHeight
+        ZStack(alignment: .topLeading) {
+            Color.clear
+                .frame(width: width, height: contentHeight)
+
+            ForEach(visibleRows, id: \.self) { row in
+                let count = min(
+                    columnCount,
+                    max(0, total - row * columnCount)
+                )
+                HStack(spacing: gap) {
+                    ForEach(0..<count, id: \.self) { column in
+                        cell(
+                            at: row * columnCount + column,
+                            size: itemSize
+                        )
+                    }
+                }
+                .frame(width: width, alignment: .leading)
+                .offset(y: CGFloat(row) * rowSpacing)
+            }
+        }
+        .frame(
+            width: width,
+            height: contentHeight,
+            alignment: .topLeading
+        )
+    }
+
+    @ViewBuilder
+    private func cell(at index: Int, size: CGFloat) -> some View {
+        if index < total, let value = item(index) {
+            tile(value)
+                .frame(width: size, height: size)
+        } else if index < total {
+            placeholder()
+                .frame(width: size, height: size)
+        } else {
+            Color.clear
+                .frame(width: size, height: size)
+        }
     }
 }
 

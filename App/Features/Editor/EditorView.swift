@@ -50,7 +50,7 @@ struct EditorView: View {
     /// mirroring the web's `au-cropping` / `au-ratioing` / `au-rotating`.
     @State private var isCropDragging = false
     @State private var isRatioing = false
-    @State private var isRotating = false
+    @State private var isGeometryEditing = false
     @State private var ratioResetTask: Task<Void, Never>?
     /// The origin of a text node gesture, so every change is relative to the
     /// first frame instead of accumulating rounding errors.
@@ -61,6 +61,10 @@ struct EditorView: View {
     @State private var textScaleStartDistance: CGFloat = 1
     @State private var textRotateOrigin: Float?
     @State private var textRotateStartAngle: CGFloat = 0
+    /// The first location of the current handle drag. A cancelled gesture
+    /// never gets its `onEnded`, so this identifies a fresh drag even when
+    /// the previous origin was not cleared.
+    @State private var textRotateDragStart: CGPoint?
 
     /// The four modes of the crop pane, in the web's order: ratio, rotation
     /// and the two 3D perspective axes.
@@ -179,11 +183,12 @@ struct EditorView: View {
             textDragId = nil
             textScaleOrigin = nil
             textRotateOrigin = nil
+            textRotateDragStart = nil
             textPlacing = false
             if tab != .crop {
                 isCropDragging = false
                 isRatioing = false
-                isRotating = false
+                isGeometryEditing = false
             }
             if tab == .text || oldTab == .crop {
                 stageScale = 1
@@ -220,16 +225,16 @@ struct EditorView: View {
         )
     }
 
-    /// The chrome fades while the crop frame, the ratio rail or the rotation
+    /// The chrome fades while the crop frame, the ratio rail or a geometry
     /// ruler owns the screen, like the web's `au-cropping` classes.
     private var chromeHidden: Bool {
-        editor.tab == .crop && (isCropDragging || isRatioing || isRotating)
+        editor.tab == .crop && (isCropDragging || isRatioing || isGeometryEditing)
     }
 
-    /// The mode rail fades during a ratio change and a rotation, but stays
-    /// while the frame is dragged (the web keeps the deck there).
+    /// The mode rail fades during a ratio change and a geometry drag, but
+    /// stays while the frame is dragged (the web keeps the deck there).
     private var cropModesHidden: Bool {
-        editor.tab == .crop && (isRatioing || isRotating)
+        editor.tab == .crop && (isRatioing || isGeometryEditing)
     }
 
     // MARK: - Header
@@ -361,8 +366,8 @@ struct EditorView: View {
                                         crop: editor.crop,
                                         isFixedAspect: editor.aspect != .free,
                                         scrimVisible: !isCropDragging && !isRatioing,
-                                        showGrid: isCropDragging || isRotating,
-                                        isRotating: isRotating,
+                                        showGrid: isCropDragging || isGeometryEditing,
+                                        isGeometryEditing: isGeometryEditing,
                                         onChange: { editor.setCrop($0) },
                                         onBegin: { editor.beginCropEdit() },
                                         onDragState: { active in
@@ -753,6 +758,10 @@ struct EditorView: View {
                     .foregroundStyle(Color.black.opacity(0.65))
             }
             .shadow(color: Color.black.opacity(0.5), radius: 6, y: 3)
+            .frame(width: 44, height: 44)
+            // Keep the visible gold dot on the old spot while the 44 pt
+            // frame gives the thumb a real target.
+            .offset(y: -8)
             .contentShape(Circle())
             .highPriorityGesture(rotateHandleGesture(layer, fitted: fitted))
     }
@@ -879,9 +888,14 @@ struct EditorView: View {
                 value.location.y - center.y,
                 value.location.x - center.x
             ) * 180 / .pi
-            if textRotateOrigin == nil {
+            // `onEnded` is not called when a competing gesture cancels this
+            // drag. A new start location then begins a clean session instead
+            // of reusing the stale origin and snapping the layer.
+            if textRotateOrigin == nil
+                || textRotateDragStart != value.startLocation {
                 textRotateOrigin = layer.rotation
                 textRotateStartAngle = angle
+                textRotateDragStart = value.startLocation
                 editor.selectText(layer.id)
                 editor.beginEdit()
             }
@@ -893,6 +907,7 @@ struct EditorView: View {
         }
         .onEnded { _ in
             textRotateOrigin = nil
+            textRotateDragStart = nil
             editor.endEdit()
         }
     }
@@ -2196,7 +2211,7 @@ struct EditorView: View {
                     editor.endEdit()
                 }
                 withAnimation(.easeOut(duration: 0.18)) {
-                    isRotating = editing
+                    isGeometryEditing = editing
                 }
             }
         )
@@ -2204,7 +2219,9 @@ struct EditorView: View {
     }
 
     /// One axis of the 3D correction: the web's -100…100 ruler with a tick
-    /// every two steps. A drag is one undo step, like the rotation ruler.
+    /// every two steps. A drag is one undo step, like the rotation ruler, and
+    /// it removes the glass blur exactly the same way so the outside of the
+    /// frame stays legible while the perspective changes.
     private func perspectiveContext(vertical: Bool) -> some View {
         TickSlider(
             value: Binding(
@@ -2229,6 +2246,9 @@ struct EditorView: View {
                     editor.beginEdit()
                 } else {
                     editor.endEdit()
+                }
+                withAnimation(.easeOut(duration: 0.18)) {
+                    isGeometryEditing = editing
                 }
             }
         )
@@ -2856,7 +2876,7 @@ private struct CropOverlay: View {
     let isFixedAspect: Bool
     let scrimVisible: Bool
     let showGrid: Bool
-    let isRotating: Bool
+    let isGeometryEditing: Bool
     let onChange: (EditorCrop) -> Void
     let onBegin: () -> Void
     let onDragState: (Bool) -> Void
@@ -2879,24 +2899,26 @@ private struct CropOverlay: View {
                 // translucent shadow. The world outside is blurred and
                 // dimmed while the photo inside stays untouched.
                 //
-                // While the rotation ruler is held the blur is removed and
-                // only the dim remains, matching `.au-root.au-rotating
-                // .au-scrim` on the web: the area outside the frame must stay
-                // legible while the angle changes.
+                // While a rotation or perspective ruler is held the blur is
+                // removed and only the dim remains, matching
+                // `.au-root.au-rotating .au-scrim` on the web: the area
+                // outside the frame must stay legible while the geometry
+                // changes. The two perspective sliders follow the same rule
+                // as the angle ruler.
                 CropHoleShape(hole: rect)
                     .fill(
                         .ultraThinMaterial,
                         style: FillStyle(eoFill: true)
                     )
-                    .opacity(isRotating ? 0 : 1)
+                    .opacity(isGeometryEditing ? 0 : 1)
                     .animation(
                         .easeInOut(duration: 0.16),
-                        value: isRotating
+                        value: isGeometryEditing
                     )
                     .overlay {
                         CropHoleShape(hole: rect)
                             .fill(
-                                Color.black.opacity(isRotating ? 0.42 : 0.30),
+                                Color.black.opacity(isGeometryEditing ? 0.42 : 0.30),
                                 style: FillStyle(eoFill: true)
                             )
                     }
@@ -2918,18 +2940,18 @@ private struct CropOverlay: View {
                 // The frame itself drags the whole rectangle.
                 Rectangle()
                     .stroke(
-                        dragging || isRotating
+                        dragging || isGeometryEditing
                             ? Aurum.gold
                             : Color.white.opacity(0.7),
-                        lineWidth: dragging || isRotating ? 1.5 : 1
+                        lineWidth: dragging || isGeometryEditing ? 1.5 : 1
                     )
                     .frame(width: rect.width, height: rect.height)
                     .position(x: rect.midX, y: rect.midY)
                     .shadow(
-                        color: dragging || isRotating
+                        color: dragging || isGeometryEditing
                             ? Aurum.gold.opacity(0.35)
                             : Color.black.opacity(0.18),
-                        radius: dragging || isRotating ? 12 : 10,
+                        radius: dragging || isGeometryEditing ? 12 : 10,
                         y: 4
                     )
                     .contentShape(Rectangle())

@@ -98,6 +98,33 @@ final class EditorTests: XCTestCase {
         XCTAssertEqual(EditorCrop(x: 0.9, y: 0.9, width: 0.9, height: 0.9).width, 0.1, accuracy: 0.000001)
     }
 
+    func testTextRotationWrapsInsteadOfClamping() {
+        // The handle can spin past the ±180° branch cut; the stored angle has
+        // to keep turning instead of sticking at the limit.
+        let layer = EditorTextLayer(id: "text", text: "A")
+        XCTAssertEqual(
+            EditorTextLayer(id: "text", rotation: 190).normalized().rotation,
+            -170,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            EditorTextLayer(id: "text", rotation: 540).normalized().rotation,
+            180,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            EditorTextLayer(id: "text", rotation: -190).normalized().rotation,
+            170,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            EditorTextLayer(id: "text", rotation: 725).normalized().rotation,
+            5,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(layer.normalized().rotation, 0)
+    }
+
     func testRotationMapsTheFirstSourcePixelToTheExpectedCorner() throws {
         let source: [UInt8] = [255, 0, 0, 255, 0, 255, 0, 255]
 

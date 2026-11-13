@@ -159,7 +159,12 @@ public struct EditorTextLayer: Codable, Equatable, Sendable, Identifiable {
         self.font = font
     }
 
-    /// Clamp the geometry so the exporter can trust the layer.
+    /// Keep the geometry usable without losing a turn.
+    ///
+    /// The rotation wraps like the web's `((startRot + dDeg + 540) % 360) -
+    /// 180` instead of clamping: a handle drag that crosses the ±180° branch
+    /// cut would otherwise stop at the limit and jump, while the wrapped
+    /// value keeps turning in the same direction.
     public func normalized() -> EditorTextLayer {
         var copy = self
         if !copy.x.isFinite { copy.x = 0.5 }
@@ -170,7 +175,12 @@ public struct EditorTextLayer: Codable, Equatable, Sendable, Identifiable {
         copy.x = min(max(copy.x, 0), 1)
         copy.y = min(max(copy.y, 0), 1)
         copy.size = min(max(copy.size, 0.015), 0.30)
-        copy.rotation = min(max(copy.rotation, -180), 180)
+        if copy.rotation > 180 || copy.rotation < -180 {
+            var wrapped = copy.rotation.truncatingRemainder(dividingBy: 360)
+            if wrapped > 180 { wrapped -= 360 }
+            if wrapped < -180 { wrapped += 360 }
+            copy.rotation = wrapped
+        }
         copy.opacity = min(max(copy.opacity, 0), 1)
         return copy
     }
@@ -632,7 +642,13 @@ public struct Editor: Sendable {
         outWidth: UInt32,
         outHeight: UInt32
     ) -> [UInt8] {
-        var out = [UInt8](repeating: 0, count: Int(outWidth) * Int(outHeight) * 4)
+        let pixelWidth = Int(outWidth)
+        let pixelHeight = Int(outHeight)
+        var out = [UInt8](
+            repeating: 0,
+            count: pixelWidth * pixelHeight * 4
+        )
+        guard pixelWidth > 0, pixelHeight > 0 else { return out }
         let geometry = sampleGeometry()
         let effective = effectiveAdjustments()
         let identity = effective.identity && !effective.grayscale
@@ -645,61 +661,106 @@ public struct Editor: Sendable {
             sqrt(centerX * centerX + centerY * centerY),
             1
         )
+        let exactCopy = identity && xScale == 1 && yScale == 1
+            && !geometry.hasFine && !geometry.hasPerspective
+        let bytesPerRow = pixelWidth * 4
 
-        let bytesPerRow = Int(outWidth) * 4
-        for row in 0..<Int(outHeight) {
-            let displayY = Float(crop.y) + (Float(row) + 0.5) * yScale
-            for column in 0..<Int(outWidth) {
-                let displayX = Float(crop.x) + (Float(column) + 0.5) * xScale
-                let sampled: [UInt8]
-                if identity && xScale == 1 && yScale == 1
-                    && !geometry.hasFine && !geometry.hasPerspective {
-                    // Exact copy keeps the common no-op preview byte-for-byte.
-                    sampled = sourcePixel(displayX, displayY, geometry: geometry)
-                } else {
-                    sampled = sampleBilinear(
-                        displayX,
-                        displayY,
-                        geometry: geometry
-                    )
+        // A live rotate or perspective drag renders hundreds of thousands of
+        // pixels. The old loop built four or five short arrays for every one
+        // of them (`pixel` and `sampleBilinear`), which turned a gesture into
+        // millions of allocations. The buffers stay borrowed for the whole
+        // pass and every sample is a SIMD value on the stack.
+        let sourcePixels = source
+        out.withUnsafeMutableBufferPointer { destination in
+            sourcePixels.withUnsafeBufferPointer { pixels in
+                for row in 0..<pixelHeight {
+                    let displayY = Float(crop.y)
+                        + (Float(row) + 0.5) * yScale
+                    let rowOffset = row * bytesPerRow
+                    for column in 0..<pixelWidth {
+                        let displayX = Float(crop.x)
+                            + (Float(column) + 0.5) * xScale
+                        let sampled = exactCopy
+                            ? sourcePixel(
+                                displayX,
+                                displayY,
+                                geometry: geometry,
+                                source: pixels
+                            )
+                            : sampleBilinear(
+                                displayX,
+                                displayY,
+                                geometry: geometry,
+                                source: pixels
+                            )
+                        let offset = rowOffset + column * 4
+                        if identity {
+                            // The colour pass is the identity here, so the
+                            // original channels pass through untouched.
+                            destination[offset] = sampled.x
+                            destination[offset + 1] = sampled.y
+                            destination[offset + 2] = sampled.z
+                            destination[offset + 3] = sampled.w
+                        } else {
+                            let adjusted = Editor.applyPixel(
+                                sampled.x,
+                                sampled.y,
+                                sampled.z,
+                                effective,
+                                normalizedX: (Float(column) + 0.5 - centerX)
+                                    / maxRadius,
+                                normalizedY: (Float(row) + 0.5 - centerY)
+                                    / maxRadius
+                            )
+                            destination[offset] = adjusted.0
+                            destination[offset + 1] = adjusted.1
+                            destination[offset + 2] = adjusted.2
+                            destination[offset + 3] = sampled.w
+                        }
+                    }
                 }
-                let adjusted = Editor.applyPixel(
-                    sampled[0],
-                    sampled[1],
-                    sampled[2],
-                    effective,
-                    normalizedX: (Float(column) + 0.5 - centerX) / maxRadius,
-                    normalizedY: (Float(row) + 0.5 - centerY) / maxRadius
-                )
-                let offset = row * bytesPerRow + column * 4
-                out[offset] = adjusted.0
-                out[offset + 1] = adjusted.1
-                out[offset + 2] = adjusted.2
-                out[offset + 3] = sampled[3]
             }
         }
         return out
     }
 
+    @inline(__always)
     private func sourcePixel(
         _ displayX: Float,
         _ displayY: Float,
-        geometry: SampleGeometry
-    ) -> [UInt8] {
-        let source = displayToSource(displayX, displayY, geometry: geometry)
-        let x = Int(min(max(floor(source.0), 0), Float(width) - 1))
-        let y = Int(min(max(floor(source.1), 0), Float(height) - 1))
-        return pixel(x, y)
+        geometry: SampleGeometry,
+        source pixels: UnsafeBufferPointer<UInt8>
+    ) -> SIMD4<UInt8> {
+        let point = displayToSource(
+            displayX,
+            displayY,
+            geometry: geometry
+        )
+        let x = Int(min(max(floor(point.0), 0), Float(width) - 1))
+        let y = Int(min(max(floor(point.1), 0), Float(height) - 1))
+        let offset = (y * Int(width) + x) * 4
+        return SIMD4<UInt8>(
+            pixels[offset],
+            pixels[offset + 1],
+            pixels[offset + 2],
+            pixels[offset + 3]
+        )
     }
 
+    @inline(__always)
     private func sampleBilinear(
         _ displayX: Float,
         _ displayY: Float,
-        geometry: SampleGeometry
-    ) -> [UInt8] {
-        let source = displayToSource(displayX, displayY, geometry: geometry)
-        let fx = source.0 - 0.5
-        let fy = source.1 - 0.5
+        geometry: SampleGeometry,
+        source pixels: UnsafeBufferPointer<UInt8>
+    ) -> SIMD4<UInt8> {
+        let point = displayToSource(
+            displayX,
+            displayY,
+            geometry: geometry
+        )
+        let fx = point.0 - 0.5
+        let fy = point.1 - 0.5
         let x0 = floor(fx)
         let y0 = floor(fy)
         let tx = fx - x0
@@ -712,29 +773,63 @@ public struct Editor: Sendable {
         let x1i = Int(min(max(x0 + 1, 0), Float(maxX)))
         let y1i = Int(min(max(y0 + 1, 0), Float(maxY)))
 
-        let p00 = pixel(x0i, y0i)
-        let p10 = pixel(x1i, y0i)
-        let p01 = pixel(x0i, y1i)
-        let p11 = pixel(x1i, y1i)
+        let rowStride = Int(width) * 4
+        let offset00 = y0i * rowStride + x0i * 4
+        let offset10 = y0i * rowStride + x1i * 4
+        let offset01 = y1i * rowStride + x0i * 4
+        let offset11 = y1i * rowStride + x1i * 4
 
-        var out = [UInt8](repeating: 0, count: 4)
-        for channel in 0..<4 {
-            let top = Float(p00[channel]) + (Float(p10[channel]) - Float(p00[channel])) * tx
-            let bottom = Float(p01[channel]) + (Float(p11[channel]) - Float(p01[channel])) * tx
-            let value = top + (bottom - top) * ty
-            out[channel] = UInt8(min(max(value.rounded(), 0), 255))
-        }
-        return out
+        return SIMD4<UInt8>(
+            blend(
+                pixels[offset00],
+                pixels[offset10],
+                pixels[offset01],
+                pixels[offset11],
+                tx,
+                ty
+            ),
+            blend(
+                pixels[offset00 + 1],
+                pixels[offset10 + 1],
+                pixels[offset01 + 1],
+                pixels[offset11 + 1],
+                tx,
+                ty
+            ),
+            blend(
+                pixels[offset00 + 2],
+                pixels[offset10 + 2],
+                pixels[offset01 + 2],
+                pixels[offset11 + 2],
+                tx,
+                ty
+            ),
+            blend(
+                pixels[offset00 + 3],
+                pixels[offset10 + 3],
+                pixels[offset01 + 3],
+                pixels[offset11 + 3],
+                tx,
+                ty
+            )
+        )
     }
 
-    private func pixel(_ x: Int, _ y: Int) -> [UInt8] {
-        let offset = (y * Int(width) + x) * 4
-        return [
-            source[offset],
-            source[offset + 1],
-            source[offset + 2],
-            source[offset + 3],
-        ]
+    @inline(__always)
+    private func blend(
+        _ topLeft: UInt8,
+        _ topRight: UInt8,
+        _ bottomLeft: UInt8,
+        _ bottomRight: UInt8,
+        _ tx: Float,
+        _ ty: Float
+    ) -> UInt8 {
+        let top = Float(topLeft)
+            + (Float(topRight) - Float(topLeft)) * tx
+        let bottom = Float(bottomLeft)
+            + (Float(bottomRight) - Float(bottomLeft)) * tx
+        let value = top + (bottom - top) * ty
+        return UInt8(min(max(value.rounded(), 0), 255))
     }
 
     /// The projective cap of the web editor's `PERSPECTIVE_MAX`.

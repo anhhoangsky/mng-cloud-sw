@@ -20,8 +20,13 @@ usable in the simulator.
 
 ## Library
 
-- [ ] The timeline groups by year/month with 120-item pages; "Tải thêm" adds
-      the next page and keeps the scroll anchor.
+- [ ] The timeline loads older photos as the grid is scrolled, without a
+      "Tải thêm" footer; the scroll position and the scrollbar stay put while a
+      page arrives.
+- [ ] Scrolling a large "Tất cả" timeline stays smooth well past the first
+      page: only the rows around the viewport are created, and a deep fling
+      stops at the shimmer boundary instead of leaving the pager dozens of
+      requests behind.
 - [ ] The kind chips (Ảnh/Video/Live/Yêu thích) filter instantly.
 - [ ] Long press opens the tile menu: yêu thích, tải xuống, thông tin, chuyển
       vào kho mã hóa, xoá.
@@ -130,7 +135,8 @@ usable in the simulator.
       selected frame, so the text stays on the canvas.
 - [ ] "Khung chữ" shows the dashed measured frame; the rotate and scale
       handles stay usable, the frame follows the glyphs while scaling, and a
-      drag starts without a jump.
+      drag starts without a jump. The rotate handle keeps turning past ±180°
+      instead of stopping at the limit, and the 44 pt target is easy to catch.
 - [ ] The crop rail has exactly four modes (Tỉ lệ, Xoay, Trên / dưới,
       Trái / phải); the rotate/flip buttons are not repeated inside it.
 - [ ] The crop ruler covers −180…180° with the gold zero and there is no
@@ -140,9 +146,10 @@ usable in the simulator.
       the effect. Each drag previews live and is one undo step.
 - [ ] At ±100 on either perspective axis no empty corner appears inside the
       crop frame; the frame stays covered.
-- [ ] While the rotation ruler is held the area outside the frame loses its
-      blur and keeps only the dim (the photo stays sharp); releasing restores
-      the glass.
+- [ ] While the rotation ruler or either perspective ruler is held the area
+      outside the frame loses its blur and keeps only the dim (the photo stays
+      sharp); releasing restores the glass. The rotate and perspective
+      previews follow the finger without visible stutter.
 - [ ] Pinching the photo in the crop tab keeps the dim scrim over the whole
       image; the frame still samples the zoomed pixels.
 - [ ] Leaving the crop tab applies the frame, and returning to it keeps the
