@@ -172,8 +172,13 @@ final class LibraryModel {
 
     /// Warm the thumbnails of the rows that are about to scroll into view.
     private func prefetchThumbnails() {
-        let upcoming = page.items.suffix(8).map { $0.thumbnailPath(size: 360) }
-        ThumbCache.shared.prefetch(paths: upcoming, client: client)
+        let upcoming = page.items.suffix(8).map { item in
+            ThumbCache.Request(
+                path: item.thumbnailPath(size: 360),
+                fallbacks: item.thumbnailFallbackPaths
+            )
+        }
+        ThumbCache.shared.prefetch(upcoming, client: client)
     }
 
     private func loadTimeline(seq: Int) async {        do {

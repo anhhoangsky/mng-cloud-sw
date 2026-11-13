@@ -62,20 +62,32 @@ struct EditorView: View {
     @State private var textRotateOrigin: Float?
     @State private var textRotateStartAngle: CGFloat = 0
 
-    /// The modes of the crop pane. The engine stores only quarter turns, so
-    /// the web's two perspective modes are not offered.
+    /// The four modes of the crop pane, in the web's order: ratio, rotation
+    /// and the two 3D perspective axes.
     private enum CropMode: String, CaseIterable, Identifiable {
         case ratio
         case rotation
+        case perspectiveY
+        case perspectiveX
 
         var id: String { rawValue }
 
         var title: String {
-            self == .ratio ? Strings.editorCropRatio : Strings.editorCropRotation
+            switch self {
+            case .ratio: return Strings.editorCropRatio
+            case .rotation: return Strings.editorCropRotation
+            case .perspectiveY: return Strings.editorCropPerspectiveVertical
+            case .perspectiveX: return Strings.editorCropPerspectiveHorizontal
+            }
         }
 
         var icon: String {
-            self == .ratio ? "crop" : "rotate.right"
+            switch self {
+            case .ratio: return "crop"
+            case .rotation: return "rotate.right"
+            case .perspectiveY: return "arrow.up.and.down"
+            case .perspectiveX: return "arrow.left.and.right"
+            }
         }
     }
 
@@ -453,6 +465,16 @@ struct EditorView: View {
     @ViewBuilder
     private func textOverlay(fitted: CGSize) -> some View {
         ZStack(alignment: .topLeading) {
+            // Tapping the photo outside the field writes the draft back and
+            // keeps the selected frame, so the text stays on the canvas.
+            if editingTextId != nil {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        commitTextEditing()
+                    }
+            }
+
             ForEach(editor.texts) { layer in
                 if editingTextId == layer.id {
                     inlineTextEditor(layer, fitted: fitted)
@@ -1329,6 +1351,14 @@ struct EditorView: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 10) {
+                        // Saved presets lead the rail like the web's personal
+                        // row, separated from the built-in tones by "Mặc định".
+                        ForEach(editor.userPresets) { preset in
+                            savedPresetButton(preset)
+                        }
+                        if !editor.userPresets.isEmpty {
+                            filterSeparator
+                        }
                         ForEach(editor.visibleFilters, id: \.self) { filter in
                             filterThumbnail(filter)
                                 .id(filter)
@@ -1338,7 +1368,11 @@ struct EditorView: View {
                     .padding(.vertical, 2)
                 }
                 .onChange(of: editor.filter) { _, filter in
-                    guard editor.visibleFilters.contains(filter) else {
+                    // A saved preset may sit at the head of the rail while
+                    // its underlying tone is far to the right; keep the head
+                    // in view instead of scrolling away from the active card.
+                    guard editor.activeSavedPresetId == nil,
+                          editor.visibleFilters.contains(filter) else {
                         return
                     }
                     withAnimation(.easeOut(duration: 0.24)) {
@@ -1347,37 +1381,37 @@ struct EditorView: View {
                 }
             }
 
-            savedPresetsSection
-
-            savePresetRow
-
             tuneSection
         }
     }
 
-    /// The personal row of the web filter pane: the presets the person saved,
-    /// with the active one highlighted and an inline delete button.
-    @ViewBuilder
-    private var savedPresetsSection: some View {
-        if !editor.userPresets.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(Strings.editorPresetSavedTitle.uppercased())
-                    .font(Font.mng(8.5, weight: .bold))
-                    .tracking(0.35)
-                    .foregroundStyle(Color.white.opacity(0.38))
-                    .padding(.horizontal, 14)
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 8) {
-                        ForEach(editor.userPresets) { preset in
-                            savedPresetButton(preset)
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 2)
-                }
-            }
+    /// The divider between the personal row and the built-in tones, drawn
+    /// with the vertical hairline and tiny caps of `.au-filter-sep`.
+    private var filterSeparator: some View {
+        VStack(spacing: 4) {
+            Spacer(minLength: 0)
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0),
+                            Color.white.opacity(0.35),
+                            Color.white.opacity(0),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: 1, height: 20)
+            Text(Strings.editorFilterDefaultLabel.uppercased())
+                .font(Font.mng(7, weight: .bold))
+                .tracking(0.35)
+                .foregroundStyle(Color.white.opacity(0.45))
+                .lineLimit(1)
+            Spacer(minLength: 0)
         }
+        .frame(width: 42, height: 68)
+        .allowsHitTesting(false)
     }
 
     private func savedPresetButton(
@@ -1390,31 +1424,38 @@ struct EditorView: View {
             } label: {
                 VStack(spacing: 4) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .fill(Color(red: 0.11, green: 0.11, blue: 0.13))
                         if let thumbnail = editor.filterThumbnails[preset.filter] {
                             Image(uiImage: thumbnail)
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
-                                .frame(width: 46, height: 46)
+                                .frame(width: 52, height: 52)
                                 .clipShape(
                                     RoundedRectangle(
-                                        cornerRadius: 9,
+                                        cornerRadius: 10,
                                         style: .continuous
                                     )
                                 )
                         } else {
                             Image(systemName: "bookmark")
-                                .font(Font.mng(15))
+                                .font(Font.mng(16))
                                 .foregroundStyle(Aurum.muted)
                         }
                     }
-                    .frame(width: 46, height: 46)
+                    .frame(width: 52, height: 52)
                     .overlay {
-                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .stroke(
-                                active ? Aurum.gold : .clear,
-                                lineWidth: 2
+                                active
+                                    ? AnyShapeStyle(Aurum.gold)
+                                    : AnyShapeStyle(
+                                        Color.white.opacity(0.28)
+                                    ),
+                                style: StrokeStyle(
+                                    lineWidth: active ? 2 : 1,
+                                    dash: active ? [] : [4, 3]
+                                )
                             )
                     }
                     .shadow(
@@ -1425,10 +1466,10 @@ struct EditorView: View {
                         y: 3
                     )
                     Text(preset.name)
-                        .font(Font.mng(9, weight: .semibold))
+                        .font(Font.mng(9.5, weight: .semibold))
                         .foregroundStyle(active ? Aurum.gold : Aurum.muted)
                         .lineLimit(1)
-                        .frame(width: 56)
+                        .frame(width: 54)
                 }
             }
             .buttonStyle(.plain)
@@ -1440,18 +1481,18 @@ struct EditorView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(Font.mng(7, weight: .bold))
-                    .foregroundStyle(Color.white)
+                    .foregroundStyle(Color(red: 0.94, green: 0.64, blue: 0.56))
                     .frame(width: 16, height: 16)
-                    .background(Color.black.opacity(0.78), in: Circle())
-                    .overlay {
-                        Circle().stroke(Color.white.opacity(0.25), lineWidth: 0.5)
-                    }
+                    .background(
+                        Color(red: 0.23, green: 0.23, blue: 0.25),
+                        in: Circle()
+                    )
             }
             .buttonStyle(.plain)
             .offset(x: 4, y: -4)
             .accessibilityLabel(Strings.editorPresetDelete)
         }
-        .frame(width: 60)
+        .frame(width: 56)
     }
 
     /// The name field and the save action of the web's "Lưu bộ lọc" row.
@@ -1603,8 +1644,27 @@ struct EditorView: View {
             .padding(.horizontal, 14)
 
             if editor.tuneOpen {
-                tuneControls
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                VStack(spacing: 8) {
+                    tuneControls
+
+                    // The web moved "Đã lưu" and the save form into the tune
+                    // collapse, so the filter rail stays a pure preset list.
+                    VStack(alignment: .leading, spacing: 6) {
+                        Rectangle()
+                            .fill(Color.white.opacity(0.07))
+                            .frame(height: 0.5)
+                            .padding(.horizontal, 14)
+
+                        Text(Strings.editorPresetSavedTitle.uppercased())
+                            .font(Font.mng(8.5, weight: .bold))
+                            .tracking(0.35)
+                            .foregroundStyle(Color.white.opacity(0.38))
+                            .padding(.horizontal, 14)
+
+                        savePresetRow
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
     }
@@ -1951,8 +2011,9 @@ struct EditorView: View {
         )
     }
 
-    /// The crop pane: the ratio/rotation mode rail with its reset, the four
-    /// photo transforms, and the ratio chips or the continuous angle ruler.
+    /// The crop pane: the ratio, rotation and two perspective modes with
+    /// their reset, plus the context of the open mode. The rotate and flip
+    /// tools live in the header, so the pane keeps only framing controls.
     private var cropPane: some View {
         VStack(spacing: 8) {
             HStack(spacing: 6) {
@@ -1976,7 +2037,7 @@ struct EditorView: View {
                 .accessibilityLabel(
                     cropMode == .ratio
                         ? Strings.editorCropReset
-                        : Strings.editorCropRotation
+                        : cropMode.title
                 )
             }
             .padding(.horizontal, 12)
@@ -1984,36 +2045,16 @@ struct EditorView: View {
             .allowsHitTesting(!cropModesHidden)
             .animation(.easeOut(duration: 0.18), value: cropModesHidden)
 
-            // The four transform controls of the web header: rotate left and
-            // right, flip horizontal and vertical. They stay in the crop pane
-            // so a turn or a flip is one tap away while framing.
-            HStack(spacing: 8) {
-                toolButton("rotate.left", label: Strings.editorRotateLeft) {
-                    editor.rotate(-1)
-                }
-                toolButton("rotate.right", label: Strings.editorRotateRight) {
-                    editor.rotate(1)
-                }
-                toolButton(
-                    "arrow.left.and.right.righttriangle.left.righttriangle.right",
-                    label: Strings.editorFlipH
-                ) {
-                    editor.flip(horizontal: true)
-                }
-                toolButton("arrow.up.and.down", label: Strings.editorFlipV) {
-                    editor.flip(horizontal: false)
-                }
-            }
-            .padding(.horizontal, 12)
-            .opacity(cropModesHidden ? 0 : 1)
-            .allowsHitTesting(!cropModesHidden)
-            .animation(.easeOut(duration: 0.18), value: cropModesHidden)
-
             Group {
-                if cropMode == .ratio {
+                switch cropMode {
+                case .ratio:
                     ratioContext
-                } else {
+                case .rotation:
                     rotationContext
+                case .perspectiveY:
+                    perspectiveContext(vertical: true)
+                case .perspectiveX:
+                    perspectiveContext(vertical: false)
                 }
             }
             .frame(minHeight: 44)
@@ -2023,27 +2064,33 @@ struct EditorView: View {
     private func cropModeButton(_ mode: CropMode) -> some View {
         let active = cropMode == mode
         let value: String
-        if mode == .ratio {
+        switch mode {
+        case .ratio:
             value = editor.aspect.title
-        } else {
+        case .rotation:
             let angle = Int(editor.rotation) * 90
                 + Int(editor.fineRotation.rounded())
             value = "\(angle)°"
+        case .perspectiveY:
+            value = signedValue(editor.perspectiveY)
+        case .perspectiveX:
+            value = signedValue(editor.perspectiveX)
         }
         return Button {
             withAnimation(.easeOut(duration: 0.2)) {
                 cropMode = mode
             }
         } label: {
-            HStack(spacing: 7) {
+            HStack(spacing: 5) {
                 Image(systemName: mode.icon)
-                    .font(Font.mng(16, weight: .medium))
+                    .font(Font.mng(15, weight: .medium))
                     .foregroundStyle(Aurum.gold)
                 Text(value)
-                    .font(Font.mng(12, weight: .bold))
+                    .font(Font.mng(11.5, weight: .bold))
                     .monospacedDigit()
                     .foregroundStyle(Aurum.gold)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.72)
             }
             .frame(maxWidth: .infinity)
             .frame(height: 36)
@@ -2073,6 +2120,11 @@ struct EditorView: View {
         .buttonStyle(GlassPressStyle(scale: 0.97))
         .accessibilityLabel(mode.title)
         .accessibilityValue(value)
+    }
+
+    private func signedValue(_ value: Float) -> String {
+        let rounded = Int(value.rounded())
+        return rounded > 0 ? "+\(rounded)" : "\(rounded)"
     }
 
     private var ratioContext: some View {
@@ -2151,6 +2203,38 @@ struct EditorView: View {
         .padding(.horizontal, 12)
     }
 
+    /// One axis of the 3D correction: the web's -100…100 ruler with a tick
+    /// every two steps. A drag is one undo step, like the rotation ruler.
+    private func perspectiveContext(vertical: Bool) -> some View {
+        TickSlider(
+            value: Binding(
+                get: {
+                    vertical ? editor.perspectiveY : editor.perspectiveX
+                },
+                set: {
+                    editor.setPerspective(vertical: vertical, value: $0)
+                }
+            ),
+            label: vertical
+                ? Strings.editorCropPerspectiveVertical
+                : Strings.editorCropPerspectiveHorizontal,
+            minimum: -100,
+            maximum: 100,
+            step: 1,
+            tickStep: 2,
+            zero: true,
+            ruler: true,
+            onEditingChanged: { editing in
+                if editing {
+                    editor.beginEdit()
+                } else {
+                    editor.endEdit()
+                }
+            }
+        )
+        .padding(.horizontal, 12)
+    }
+
     /// The ratio change keeps the chips visible while the rest of the chrome
     /// fades for about half a second, like `markRatioing()` on the web.
     private func markRatioing() {
@@ -2168,9 +2252,14 @@ struct EditorView: View {
     }
 
     private func resetCropMode() {
-        if cropMode == .rotation {
+        switch cropMode {
+        case .rotation:
             editor.resetRotation()
-        } else {
+        case .perspectiveY:
+            editor.resetPerspective(vertical: true)
+        case .perspectiveX:
+            editor.resetPerspective(vertical: false)
+        case .ratio:
             editor.resetCrop()
             markRatioing()
         }
@@ -2789,10 +2878,20 @@ private struct CropOverlay: View {
                 // A real glass scrim: the crop frame is a hole, not a
                 // translucent shadow. The world outside is blurred and
                 // dimmed while the photo inside stays untouched.
+                //
+                // While the rotation ruler is held the blur is removed and
+                // only the dim remains, matching `.au-root.au-rotating
+                // .au-scrim` on the web: the area outside the frame must stay
+                // legible while the angle changes.
                 CropHoleShape(hole: rect)
                     .fill(
                         .ultraThinMaterial,
                         style: FillStyle(eoFill: true)
+                    )
+                    .opacity(isRotating ? 0 : 1)
+                    .animation(
+                        .easeInOut(duration: 0.16),
+                        value: isRotating
                     )
                     .overlay {
                         CropHoleShape(hole: rect)

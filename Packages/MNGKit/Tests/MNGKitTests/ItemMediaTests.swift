@@ -52,6 +52,20 @@ final class ItemMediaTests: XCTestCase {
         )
     }
 
+    func testMissingThumbnailsFallBackToPreviewAndOriginal() throws {
+        let photo = try item(#"{"id":9,"media_type":"photo"}"#)
+        XCTAssertEqual(
+            photo.thumbnailFallbackPaths,
+            [
+                "/api/v1/items/9/preview?v=3",
+                "/api/v1/items/9/media",
+            ]
+        )
+
+        let video = try item(#"{"id":10,"media_type":"video"}"#)
+        XCTAssertTrue(video.thumbnailFallbackPaths.isEmpty)
+    }
+
     func testMediaURLStaysOnOrigin() throws {
         let server = try XCTUnwrap(MNGServer(string: "https://cloud.example.com/mng-cloud/"))
         XCTAssertEqual(

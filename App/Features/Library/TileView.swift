@@ -38,7 +38,8 @@ struct TileView: View {
                     ZStack(alignment: .topTrailing) {
                         ThumbnailView(
                             client: model.client,
-                            path: item.thumbnailPath(size: 360)
+                            path: item.thumbnailPath(size: 360),
+                            fallbacks: item.thumbnailFallbackPaths
                         )
 
                         badges

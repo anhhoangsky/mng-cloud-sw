@@ -261,6 +261,8 @@ final class EditorModel {
         var crop: EditorCrop
         var rotation: UInt8
         var fineRotation: Float
+        var perspectiveX: Float
+        var perspectiveY: Float
         var flipH: Bool
         var flipV: Bool
         var texts: [EditorTextLayer]
@@ -295,6 +297,10 @@ final class EditorModel {
     /// The fine angle of the crop rotation, in degrees, −180…180. This is the
     /// web's continuous rotation; `rotation` stays the quarter turn.
     private(set) var fineRotation: Float = 0
+    /// The web editor's 3D perspective sliders, -100…100. Positive Y grows
+    /// the top edge, positive X grows the left edge.
+    private(set) var perspectiveX: Float = 0
+    private(set) var perspectiveY: Float = 0
     private(set) var flipH = false
     private(set) var flipV = false
     private(set) var crop: EditorCrop = .full
@@ -390,6 +396,8 @@ final class EditorModel {
             self.editor = editor
             rotation = 0
             fineRotation = 0
+            perspectiveX = 0
+            perspectiveY = 0
             flipH = false
             flipV = false
             crop = .full
@@ -733,6 +741,50 @@ final class EditorModel {
         pushHistory(coalescing: true)
         fineRotation = next
         editor.setFineRotation(next)
+        self.editor = editor
+        renderPreview()
+    }
+
+    /// Set one axis of the 3D perspective correction. The slider drag opens
+    /// a transaction in the view, so a whole drag is one undo step.
+    func setPerspective(vertical: Bool, value: Float) {
+        guard var editor else { return }
+        let next = value.isFinite ? min(max(value, -100), 100) : 0
+        let previous = vertical ? perspectiveY : perspectiveX
+        guard abs(next - previous) > 0.01 else { return }
+        pushHistory(coalescing: true)
+        if vertical {
+            perspectiveY = next
+        } else {
+            perspectiveX = next
+        }
+        editor.setPerspective(x: perspectiveX, y: perspectiveY)
+        self.editor = editor
+        renderPreview()
+    }
+
+    /// Reset one perspective axis, or both when the reset button belongs to
+    /// the ratio/rotation mode. The crop itself is untouched.
+    func resetPerspective(vertical: Bool? = nil) {
+        guard var editor else { return }
+        let x: Float
+        let y: Float
+        switch vertical {
+        case .some(true):
+            x = perspectiveX
+            y = 0
+        case .some(false):
+            x = 0
+            y = perspectiveY
+        case .none:
+            x = 0
+            y = 0
+        }
+        guard x != perspectiveX || y != perspectiveY else { return }
+        pushHistory()
+        perspectiveX = x
+        perspectiveY = y
+        editor.setPerspective(x: x, y: y)
         self.editor = editor
         renderPreview()
     }
@@ -1083,6 +1135,8 @@ final class EditorModel {
                 crop: crop,
                 rotation: rotation,
                 fineRotation: fineRotation,
+                perspectiveX: perspectiveX,
+                perspectiveY: perspectiveY,
                 flipH: flipH,
                 flipV: flipV,
                 texts: texts
@@ -1146,6 +1200,8 @@ final class EditorModel {
             crop: crop,
             rotation: rotation,
             fineRotation: fineRotation,
+            perspectiveX: perspectiveX,
+            perspectiveY: perspectiveY,
             flipH: flipH,
             flipV: flipV,
             texts: texts
@@ -1158,6 +1214,8 @@ final class EditorModel {
         crop = snapshot.crop
         rotation = snapshot.rotation
         fineRotation = snapshot.fineRotation
+        perspectiveX = snapshot.perspectiveX
+        perspectiveY = snapshot.perspectiveY
         flipH = snapshot.flipH
         flipV = snapshot.flipV
         texts = snapshot.texts
@@ -1165,6 +1223,7 @@ final class EditorModel {
         aspect = .free
         editor.setGeometry(rotate: rotation, flipH: flipH, flipV: flipV)
         editor.setFineRotation(fineRotation)
+        editor.setPerspective(x: perspectiveX, y: perspectiveY)
         editor.setAdjustments(adjustments)
         editor.setFilter(filter)
         editor.setCrop(crop)
@@ -1284,6 +1343,8 @@ final class EditorModel {
                 && editor.currentFilter == .original
                 && rotation == 0
                 && abs(fineRotation) < 0.01
+                && abs(perspectiveX) < 0.01
+                && abs(perspectiveY) < 0.01
                 && !flipH
                 && !flipV
                 && crop == .full

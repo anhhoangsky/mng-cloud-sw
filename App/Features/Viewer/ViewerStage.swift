@@ -18,6 +18,10 @@ struct ViewerStage: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var image: UIImage?
+    /// The item the bitmap in `image` belongs to. Keeping this apart from the
+    /// view's `item` stops the previous photo from flashing while the next
+    /// preview is being resolved.
+    @State private var imageID: Int64?
     @State private var scale: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var scaleBase: CGFloat = 1
@@ -65,7 +69,11 @@ struct ViewerStage: View {
     var body: some View {
         GeometryReader { proxy in
             stage(size: proxy.size)
-                .onChange(of: item.id) { _, _ in
+                .onChange(of: item.id) { oldID, _ in
+                    // Changing pages must stop the previous clip. The guard
+                    // inside the controller keeps a video that just started
+                    // on the new page from being torn down.
+                    videoController.stopIfCurrent(itemID: oldID)
                     resetInteraction()
                 }
                 .onChange(of: model.liveMode) { _, _ in
@@ -182,8 +190,8 @@ struct ViewerStage: View {
                 y: offset.height + swipeY
             )
             .opacity(swipeOpacity)
-        } else if let image {
-            Image(uiImage: image)
+        } else if let displayImage {
+            Image(uiImage: displayImage)
                 .resizable()
                 .aspectRatio(contentMode: shouldFill(size) ? .fill : .fit)
                 .frame(width: size.width, height: size.height)
@@ -199,6 +207,23 @@ struct ViewerStage: View {
             Color.clear
                 .frame(width: size.width, height: size.height)
         }
+    }
+
+    /// The bitmap to draw for the current page.
+    ///
+    /// A bitmap that belongs to the previous item is never drawn again: on a
+    /// page change the cached preview (or the thumbnail the timeline already
+    /// downloaded) stands in on the first frame, then `loadPreview` upgrades
+    /// it. This removes the black flash that used to follow every swipe.
+    private var displayImage: UIImage? {
+        if imageID == item.id, let image {
+            return image
+        }
+        if let preview = PreviewCache.shared.cachedImage(for: item.previewPath) {
+            return preview
+        }
+        return ThumbCache.shared.cachedImage(for: item.thumbnailPath(size: 360))
+            ?? ThumbCache.shared.cachedImage(for: item.thumbnailPath(size: 160))
     }
 
     /// PWA `is-fill`: once the chrome is hidden and the photo already matches
@@ -291,6 +316,9 @@ struct ViewerStage: View {
                 offsetBase = offset
             } else if abs(dx) > abs(dy) * 1.15 {
                 dragMode = .horizontal
+                // Give the neighbouring preview as much of the drag as
+                // possible to download and decode before the release.
+                prefetchNeighbors()
             } else if dy > 0, abs(dy) > abs(dx) * 1.15 {
                 dragMode = .vertical
             } else {
@@ -474,6 +502,11 @@ struct ViewerStage: View {
 
     private func advance(_ direction: Int, size: CGSize) {
         let id = item.id
+        // The destination was prefetched when this page loaded, so its bitmap
+        // is normally already decoded. Install it while the outgoing page is
+        // still off screen; the page change then draws the next photo on its
+        // first frame instead of going through a black placeholder.
+        let target = neighbor(direction)
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.14)) {
             swipeX = -CGFloat(direction) * size.width * 0.6
             swipeOpacity = 0
@@ -481,6 +514,10 @@ struct ViewerStage: View {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 110_000_000)
             guard model.current?.id == id else { return }
+            if let target, let cached = cachedImage(for: target) {
+                image = cached
+                imageID = target.id
+            }
             if direction > 0 {
                 model.goNext()
             } else {
@@ -491,6 +528,36 @@ struct ViewerStage: View {
             swipeScale = 1
             swipeOpacity = 1
         }
+    }
+
+    /// The page a horizontal swipe would land on.
+    private func neighbor(_ direction: Int) -> Item? {
+        let items = model.items
+        let index = model.index + direction
+        guard items.indices.contains(index) else { return nil }
+        return items[index]
+    }
+
+    /// A bitmap that can be drawn immediately for a page. Previews come first;
+    /// the 360px thumbnail is the fallback the timeline usually warmed.
+    private func cachedImage(for item: Item) -> UIImage? {
+        if let preview = PreviewCache.shared.cachedImage(for: item.previewPath) {
+            return preview
+        }
+        return ThumbCache.shared.cachedImage(for: item.thumbnailPath(size: 360))
+            ?? ThumbCache.shared.cachedImage(for: item.thumbnailPath(size: 160))
+    }
+
+    /// Warm the pages on either side of the current one. Called when a page
+    /// opens and as soon as a horizontal swipe is recognised, so a release has
+    /// a decoded bitmap waiting.
+    private func prefetchNeighbors() {
+        var paths: [String] = []
+        for direction in [-1, 1] {
+            guard let item = neighbor(direction), !item.isVideo else { continue }
+            paths.append(item.previewPath)
+        }
+        PreviewCache.shared.prefetch(paths, client: client)
     }
 
     private func resetInteraction() {
@@ -529,41 +596,58 @@ struct ViewerStage: View {
     private func loadPreview() async {
         guard !item.isVideo else { return }
         let id = item.id
-        image = nil
 
-        // iOS decodes the HEIF family natively, so a HEIC photo is read from
-        // the original instead of the lossy JPEG preview the server renders
-        // for browsers.
-        if item.isHeif {
-            if let original = await loadOriginalImage() {
-                guard !Task.isCancelled, item.id == id else { return }
-                image = original
-                return
+        // Never keep the previous page's bitmap on screen while a new preview
+        // resolves. A cached neighbour is already decoded (see
+        // `prefetchNeighbors`), so this normally fills on the first frame.
+        if imageID != id {
+            if let cached = cachedImage(for: item) {
+                image = cached
+                imageID = id
+            } else {
+                image = nil
+                imageID = nil
             }
-            guard !Task.isCancelled, item.id == id else { return }
+        }
+        prefetchNeighbors()
+
+        let preview = await PreviewCache.shared.image(
+            for: item.previewPath,
+            client: client
+        )
+        guard !Task.isCancelled, item.id == id else { return }
+        var resolved = false
+        if let preview {
+            image = preview
+            imageID = id
+            resolved = true
         }
 
-        if let preview = await PreviewCache.shared.image(
-            for: item.previewPath,
+        // iOS decodes the HEIF family natively. When the generated preview is
+        // missing, the original is decoded (off the main actor) instead of
+        // leaving the page on a thumbnail. Reading the original on every HEIC
+        // page made swiping compete for bandwidth and decode time with the
+        // page the person was already looking at, so it is the fallback only.
+        if !resolved, item.isHeif, let original = await loadOriginalImage() {
+            guard !Task.isCancelled, item.id == id else { return }
+            image = original
+            imageID = id
+            resolved = true
+        }
+
+        if !resolved, let thumbnail = await ThumbCache.shared.image(
+            for: item.thumbnailPath(size: 360),
             client: client
         ) {
             guard !Task.isCancelled, item.id == id else { return }
-            image = preview
-            return
-        }
-
-        guard !Task.isCancelled, item.id == id else { return }
-        if let data = await ThumbCache.shared.data(
-            for: item.thumbnailPath(size: 360),
-            client: client
-        ), let thumbnail = UIImage(data: data) {
-            guard !Task.isCancelled, item.id == id else { return }
             image = thumbnail
+            imageID = id
         }
 
-        // One delayed retry, matching `schedule_preview_retry`: the visible
-        // thumbnail only switches after the preview has decoded.
-        guard !Task.isCancelled, item.id == id else { return }
+        guard !resolved, !Task.isCancelled, item.id == id else { return }
+
+        // One delayed retry, matching `schedule_preview_retry`: the thumbnail
+        // stays on screen and the preview replaces it without a cross-fade.
         try? await Task.sleep(nanoseconds: 4_500_000_000)
         guard !Task.isCancelled, item.id == id else { return }
         if let preview = await PreviewCache.shared.image(
@@ -571,9 +655,8 @@ struct ViewerStage: View {
             client: client
         ) {
             guard !Task.isCancelled, item.id == id else { return }
-            withAnimation(.easeOut(duration: 0.28)) {
-                image = preview
-            }
+            image = preview
+            imageID = id
         }
     }
 
@@ -594,7 +677,9 @@ struct ViewerStage: View {
                 )
             }
             let data = try Data(contentsOf: file.url)
-            return ViewerStage.decode(data)
+            return await Task.detached(priority: .userInitiated) {
+                ViewerStage.decode(data)
+            }.value
         } catch {
             return nil
         }

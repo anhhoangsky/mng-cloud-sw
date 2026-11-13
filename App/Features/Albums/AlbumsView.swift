@@ -675,7 +675,8 @@ private struct AlbumPhotoTile: View {
                     ZStack(alignment: .bottomLeading) {
                         ThumbnailView(
                             client: model.client,
-                            path: item.thumbnailPath(size: 360)
+                            path: item.thumbnailPath(size: 360),
+                            fallbacks: item.thumbnailFallbackPaths
                         )
 
                         HStack(spacing: 5) {
@@ -738,7 +739,8 @@ private struct SmartAlbumRow: View {
                     if let cover {
                         ThumbnailView(
                             client: model.client,
-                            path: cover.thumbnailPath(size: 360)
+                            path: cover.thumbnailPath(size: 360),
+                            fallbacks: cover.thumbnailFallbackPaths
                         )
                     } else {
                         Image(systemName: "rectangle.stack")
@@ -826,7 +828,8 @@ private struct AlbumCard: View {
             if slot < album.covers.count {
                 ThumbnailView(
                     client: model.client,
-                    path: album.covers[slot].thumbnailPath(size: 360)
+                    path: album.covers[slot].thumbnailPath(size: 360),
+                    fallbacks: album.covers[slot].thumbnailFallbackPaths
                 )
             } else {
                 Image(systemName: "photo")

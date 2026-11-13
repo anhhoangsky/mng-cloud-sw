@@ -84,6 +84,7 @@ struct ViewerFilmstrip: View {
             ThumbnailView(
                 client: client,
                 path: item.thumbnailPath(size: 160),
+                fallbacks: item.thumbnailFallbackPaths,
                 placeholder: Color.white.opacity(0.12)
             )
             .frame(width: 46, height: 46)

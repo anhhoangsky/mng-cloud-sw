@@ -28,6 +28,18 @@ public extension Item {
         return "\(base)\(separator)live=1"
     }
 
+    /// Sources to try when `/thumb` has not been written yet.
+    ///
+    /// The worker can lag behind an older row, and `mngd` answers that with a
+    /// 404 placeholder without queueing a new job. The preview route redirects
+    /// plain JPEGs to the original and iOS decodes the render-only formats, so
+    /// these paths still give the grid a real photo. Videos keep the empty
+    /// list: their preview route points back at the same missing thumbnail.
+    var thumbnailFallbackPaths: [String] {
+        guard !isVideo else { return [] }
+        return [previewPath, mediaPath()]
+    }
+
     /// Original-download path (`?download=1`).
     var downloadPath: String {
         download.isEmpty ? "/api/v1/items/\(id)/media?download=1" : download

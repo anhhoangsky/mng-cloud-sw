@@ -29,20 +29,27 @@ usable in the simulator.
 - [ ] Favorite is optimistic and rolls back when the server refuses.
 - [ ] Multi-select shows the selection bar; delete asks once for the whole
       selection.
-- [ ] Scrolling up to older photos fills the shimmer cells with thumbnails
-      without stopping on a placeholder; with no older page left the grid ends
-      at the last real photo.
-- [ ] A tile whose thumbnail was missing shows the retry while it stays on
-      screen, and loading it again after scrolling away succeeds.
+- [ ] Scrolling up to older photos fills the shimmer cells with real photos
+      even when the server has not written their thumbnail yet: the tile falls
+      back to the preview/original instead of staying on an icon.
+- [ ] Scrolling a row of missing thumbnails back and forth stays smooth; a
+      failed path cools down for 25 s instead of retrying and cross-fading on
+      every pass.
 
 ## Viewer
 
-- [ ] Swiping moves to the next photo; the filmstrip scrolls to the current
-      item and stays centered.
+- [ ] Swiping moves to the next photo smoothly: the next page is drawn from the
+      prefetched bitmap, without a black flash or a jump at the end of the
+      slide, including when swiping quickly through several photos.
+- [ ] The filmstrip scrolls to the current item and stays centered.
 - [ ] Pinch and double tap zoom; double tap again resets.
 - [ ] Swiping down dismisses the viewer.
+- [ ] Every viewer button (close, favorite, info, edit, previous/next, share,
+      save, delete, LIVE) uses the same liquid glass as the shell header.
 - [ ] A video plays with the correct range requests and can be seeked.
-- [ ] A Live Photo shows the video companion.
+- [ ] Swiping or jumping (filmstrip, arrow keys) from a playing video to any
+      other photo or video stops the previous audio immediately.
+- [ ] A Live Photo shows the video companion, and turning LIVE off stops it.
 - [ ] Share exports the file and opens the system share sheet.
 
 ## Albums and search
@@ -51,7 +58,9 @@ usable in the simulator.
       apply per section.
 - [ ] Scrolling the Album tab is smooth while the AI/people/places sections
       load: the page does not jump under the finger when the skeletons are
-      replaced.
+      replaced, and the cover grid does not judder while thumbnails decode.
+- [ ] Album photo tiles and collection covers whose thumbnail is missing fall
+      back to the preview/original with a real photo.
 - [ ] The people grid shows 87 people, 8 provinces and 15 districts on the
       reference library.
 - [ ] The search field waits 280 ms, shows the five chips and the four hints.
@@ -102,27 +111,42 @@ usable in the simulator.
 ## Editor
 
 - [ ] The pencil in the viewer opens the editor for photos but not for videos.
-- [ ] Rotate/flip, the six crop ratios and the nine sliders update the preview
-      immediately; the crop rectangle can be dragged.
+- [ ] The header rotate/flip buttons, the six crop ratios, the four crop modes
+      and the nine sliders update the preview immediately; the crop rectangle
+      can be dragged.
 - [ ] Dragging a slider previews on the photo while the finger moves, and one
       undo tap returns to the value from before the drag.
 - [ ] The filter chips match the web editor (Nguyên bản, Rực rỡ, Ấm áp, Mát
       lạnh, Đen trắng, Mờ ảo).
-- [ ] A named filter preset saves, appears in "Bộ lọc đã lưu", applies and can
-      be deleted; tapping the active preset restores the earlier look; the
-      list survives a relaunch.
+- [ ] A named filter preset saves, appears at the head of the filter rail,
+      applies and can be deleted; the "Mặc định" hairline separates it from the
+      built-in filters; the save form lives inside "Tùy chỉnh tone"; tapping
+      the active preset restores the earlier look; the list survives a
+      relaunch.
 - [ ] The text tab has no add-text button; "Chạm đặt" places a layer at the
       tap, typing updates the photo without tapping outside, and the keyboard
       does not resize the stage.
+- [ ] Tapping the photo outside the text field commits the draft and keeps the
+      selected frame, so the text stays on the canvas.
 - [ ] "Khung chữ" shows the dashed measured frame; the rotate and scale
       handles stay usable, the frame follows the glyphs while scaling, and a
       drag starts without a jump.
-- [ ] The crop ruler covers −180…180° with the gold zero, the ±90° buttons and
-      the flips stay visible, and there is no "Xong" button.
+- [ ] The crop rail has exactly four modes (Tỉ lệ, Xoay, Trên / dưới,
+      Trái / phải); the rotate/flip buttons are not repeated inside it.
+- [ ] The crop ruler covers −180…180° with the gold zero and there is no
+      "Xong" button.
+- [ ] Dragging "Trên / dưới" to the right grows the top edge; dragging
+      "Trái / phải" to the right grows the left edge. Negative values mirror
+      the effect. Each drag previews live and is one undo step.
+- [ ] At ±100 on either perspective axis no empty corner appears inside the
+      crop frame; the frame stays covered.
+- [ ] While the rotation ruler is held the area outside the frame loses its
+      blur and keeps only the dim (the photo stays sharp); releasing restores
+      the glass.
 - [ ] Pinching the photo in the crop tab keeps the dim scrim over the whole
       image; the frame still samples the zoomed pixels.
 - [ ] Leaving the crop tab applies the frame, and returning to it keeps the
-      frame and the angle.
+      frame, the angle and both perspective values.
 - [ ] "Lưu ảnh" with "Ghi đè ảnh gốc" replaces the file and refreshes the
       library; "Lưu thành bản sao" keeps the original.
 - [ ] A cancelled or failed save leaves the original untouched.

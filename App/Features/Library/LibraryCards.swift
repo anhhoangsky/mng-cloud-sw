@@ -76,7 +76,8 @@ struct CollageView: View {
         if let item = slotItem(index) {
             ThumbnailView(
                 client: client,
-                path: item.thumbnailPath(size: 360)
+                path: item.thumbnailPath(size: 360),
+                fallbacks: item.thumbnailFallbackPaths
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()

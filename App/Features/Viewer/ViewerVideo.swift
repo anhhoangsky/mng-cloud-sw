@@ -32,6 +32,11 @@ final class ViewerVideoController {
 
     @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
     @ObservationIgnored private var url: URL?
+    /// The item currently loaded into `player`. A page change tears the old
+    /// clip down; the id guard keeps the newly started page from being
+    /// stopped when SwiftUI calls the old view's `onDisappear` afterwards.
+    @ObservationIgnored private var loadedItemID: Int64?
+    @ObservationIgnored private var loadedLive = false
     @ObservationIgnored private var cookies: [HTTPCookie] = []
     @ObservationIgnored private var retried = false
     /// Live Photo companions loop like the native Live Photo.
@@ -40,6 +45,7 @@ final class ViewerVideoController {
     @ObservationIgnored private var pausedInBackground = false
 
     func load(
+        itemID: Int64,
         url: URL,
         cookies: [HTTPCookie],
         autoplay: Bool,
@@ -47,6 +53,8 @@ final class ViewerVideoController {
         muted: Bool = false
     ) {
         self.url = url
+        self.loadedItemID = itemID
+        self.loadedLive = loops
         self.cookies = cookies
         self.loops = loops
         retried = false
@@ -88,10 +96,26 @@ final class ViewerVideoController {
         player.play()
     }
 
+    /// Stop a clip when the viewer leaves its page. The item id guard means a
+    /// late `onDisappear` from the outgoing view cannot tear down the video
+    /// that the next page just loaded.
+    func stopIfCurrent(itemID: Int64, live: Bool? = nil) {
+        guard loadedItemID == itemID else { return }
+        // The same Live Photo can swap its still for the companion stream; a
+        // late `onDisappear` from the previous mode must not stop the new one.
+        if let live, loadedLive != live {
+            return
+        }
+        teardown()
+    }
+
     func teardown() {
         cancellables.removeAll()
         player.pause()
         player.replaceCurrentItem(with: nil)
+        loadedItemID = nil
+        loadedLive = false
+        url = nil
         waiting = false
         hasStarted = false
         isPlaying = false
@@ -257,6 +281,11 @@ struct ViewerVideo: View {
         .onAppear {
             load()
         }
+        .onDisappear {
+            // Swiping from a video (or turning a Live Photo off) removes this
+            // view while the shared controller would otherwise keep playing.
+            controller.stopIfCurrent(itemID: item.id, live: live)
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 controller.enterForeground()
@@ -306,6 +335,7 @@ struct ViewerVideo: View {
         let cookies = HTTPCookieStorage.shared.cookies(for: url) ?? []
         // A Live Photo companion plays muted, like the native Live Photo.
         controller.load(
+            itemID: item.id,
             url: url,
             cookies: cookies,
             autoplay: autoplay,

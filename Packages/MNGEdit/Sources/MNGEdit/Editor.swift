@@ -473,6 +473,11 @@ public struct Editor: Sendable {
     /// The continuous angle of the photo, in degrees, −180…180, applied on
     /// top of the quarter turns around the centre of the oriented image.
     private var fineRotation: Float = 0
+    /// Z-axis perspective correction, -100…100. Positive `perspectiveY`
+    /// grows the top edge, positive `perspectiveX` grows the left edge, the
+    /// same convention as the web editor's `perspectiveY`/`perspectiveX`.
+    private var perspectiveX: Float = 0
+    private var perspectiveY: Float = 0
     private var flipH = false
     private var flipV = false
     private var crop: EditorCrop = .full
@@ -503,6 +508,8 @@ public struct Editor: Sendable {
 
     public var rotation: UInt8 { rotate }
     public var fineRotationDegrees: Float { fineRotation }
+    public var perspectiveXDegrees: Float { perspectiveX }
+    public var perspectiveYDegrees: Float { perspectiveY }
     public var isFlippedHorizontally: Bool { flipH }
     public var isFlippedVertically: Bool { flipV }
     public var currentCrop: EditorCrop { crop }
@@ -527,6 +534,13 @@ public struct Editor: Sendable {
         if next > 180 { next -= 360 }
         if next < -180 { next += 360 }
         fineRotation = next
+    }
+
+    /// Set the Z-axis perspective correction. The values are the web editor's
+    /// -100…100 sliders; `PERSPECTIVE_MAX` caps the actual projective term.
+    public mutating func setPerspective(x: Float, y: Float) {
+        perspectiveX = x.isFinite ? min(max(x, -100), 100) : 0
+        perspectiveY = y.isFinite ? min(max(y, -100), 100) : 0
     }
 
     public mutating func setCrop(_ crop: EditorCrop) {
@@ -619,7 +633,7 @@ public struct Editor: Sendable {
         outHeight: UInt32
     ) -> [UInt8] {
         var out = [UInt8](repeating: 0, count: Int(outWidth) * Int(outHeight) * 4)
-        let oriented = orientedSize()
+        let geometry = sampleGeometry()
         let effective = effectiveAdjustments()
         let identity = effective.identity && !effective.grayscale
 
@@ -638,15 +652,15 @@ public struct Editor: Sendable {
             for column in 0..<Int(outWidth) {
                 let displayX = Float(crop.x) + (Float(column) + 0.5) * xScale
                 let sampled: [UInt8]
-                if identity && xScale == 1 && yScale == 1 && fineRotation == 0 {
+                if identity && xScale == 1 && yScale == 1
+                    && !geometry.hasFine && !geometry.hasPerspective {
                     // Exact copy keeps the common no-op preview byte-for-byte.
-                    sampled = sourcePixel(displayX, displayY)
+                    sampled = sourcePixel(displayX, displayY, geometry: geometry)
                 } else {
                     sampled = sampleBilinear(
                         displayX,
                         displayY,
-                        orientedWidth: oriented.width,
-                        orientedHeight: oriented.height
+                        geometry: geometry
                     )
                 }
                 let adjusted = Editor.applyPixel(
@@ -667,8 +681,12 @@ public struct Editor: Sendable {
         return out
     }
 
-    private func sourcePixel(_ displayX: Float, _ displayY: Float) -> [UInt8] {
-        let source = displayToSource(displayX, displayY)
+    private func sourcePixel(
+        _ displayX: Float,
+        _ displayY: Float,
+        geometry: SampleGeometry
+    ) -> [UInt8] {
+        let source = displayToSource(displayX, displayY, geometry: geometry)
         let x = Int(min(max(floor(source.0), 0), Float(width) - 1))
         let y = Int(min(max(floor(source.1), 0), Float(height) - 1))
         return pixel(x, y)
@@ -677,10 +695,9 @@ public struct Editor: Sendable {
     private func sampleBilinear(
         _ displayX: Float,
         _ displayY: Float,
-        orientedWidth: UInt32,
-        orientedHeight: UInt32
+        geometry: SampleGeometry
     ) -> [UInt8] {
-        let source = displayToSource(displayX, displayY)
+        let source = displayToSource(displayX, displayY, geometry: geometry)
         let fx = source.0 - 0.5
         let fy = source.1 - 0.5
         let x0 = floor(fx)
@@ -720,44 +737,219 @@ public struct Editor: Sendable {
         ]
     }
 
+    /// The projective cap of the web editor's `PERSPECTIVE_MAX`.
+    private static let perspectiveMax: Float = 0.32
+
+    /// The constants of one sampling pass.
+    ///
+    /// Trigonometry and the perspective cover zoom are computed once per
+    /// render; the per-pixel mapper only uses multiply/divide, which keeps a
+    /// live slider drag usable even on a phone.
+    private struct SampleGeometry {
+        let orientedWidth: Float
+        let orientedHeight: Float
+        let halfWidth: Float
+        let halfHeight: Float
+        let rotate: UInt8
+        let flipH: Bool
+        let flipV: Bool
+        let hasFine: Bool
+        let cos: Float
+        let sin: Float
+        let fineZoom: Float
+        let hasPerspective: Bool
+        let warpX: Float
+        let warpY: Float
+        let perspectiveZoom: Float
+    }
+
+    private func sampleGeometry() -> SampleGeometry {
+        let oriented = orientedSize()
+        let halfWidth = Float(oriented.width) * 0.5
+        let halfHeight = Float(oriented.height) * 0.5
+        let hasFine = abs(fineRotation) > 0.0001
+        let radians = fineRotation * .pi / 180
+        let cosine = hasFine ? cos(radians) : 1
+        let sine = hasFine ? sin(radians) : 0
+        // Zoom just enough that the rotated rectangle still covers the whole
+        // frame: the same cover rule as the web transform.
+        let fineZoom = hasFine
+            ? max(
+                abs(cosine) + (halfHeight / halfWidth) * abs(sine),
+                abs(cosine) + (halfWidth / halfHeight) * abs(sine)
+            )
+            : 1
+        let warpX = perspectiveX / 100 * Editor.perspectiveMax
+        let warpY = perspectiveY / 100 * Editor.perspectiveMax
+        let hasPerspective = abs(warpX) > 0.00001 || abs(warpY) > 0.00001
+        let perspectiveZoom = hasPerspective
+            ? Editor.perspectiveCover(
+                warpX: warpX,
+                warpY: warpY,
+                halfWidth: halfWidth,
+                halfHeight: halfHeight,
+                cosine: cosine,
+                sine: sine,
+                fineZoom: fineZoom,
+                hasFine: hasFine
+            )
+            : 1
+        return SampleGeometry(
+            orientedWidth: Float(oriented.width),
+            orientedHeight: Float(oriented.height),
+            halfWidth: halfWidth,
+            halfHeight: halfHeight,
+            rotate: rotate,
+            flipH: flipH,
+            flipV: flipV,
+            hasFine: hasFine,
+            cos: cosine,
+            sin: sine,
+            fineZoom: fineZoom,
+            hasPerspective: hasPerspective,
+            warpX: warpX,
+            warpY: warpY,
+            perspectiveZoom: perspectiveZoom
+        )
+    }
+
+    /// Smallest extra zoom that keeps every corner of the display frame
+    /// inside the image after the fine rotation and the projective warp.
+    private static func perspectiveCover(
+        warpX: Float,
+        warpY: Float,
+        halfWidth: Float,
+        halfHeight: Float,
+        cosine: Float,
+        sine: Float,
+        fineZoom: Float,
+        hasFine: Bool
+    ) -> Float {
+        if perspectiveCovers(
+            zoom: 1,
+            warpX: warpX,
+            warpY: warpY,
+            halfWidth: halfWidth,
+            halfHeight: halfHeight,
+            cosine: cosine,
+            sine: sine,
+            fineZoom: fineZoom,
+            hasFine: hasFine
+        ) {
+            return 1
+        }
+        var low: Float = 1
+        var high: Float = 8
+        if !perspectiveCovers(
+            zoom: high,
+            warpX: warpX,
+            warpY: warpY,
+            halfWidth: halfWidth,
+            halfHeight: halfHeight,
+            cosine: cosine,
+            sine: sine,
+            fineZoom: fineZoom,
+            hasFine: hasFine
+        ) {
+            return high
+        }
+        for _ in 0..<28 {
+            let middle = (low + high) * 0.5
+            if perspectiveCovers(
+                zoom: middle,
+                warpX: warpX,
+                warpY: warpY,
+                halfWidth: halfWidth,
+                halfHeight: halfHeight,
+                cosine: cosine,
+                sine: sine,
+                fineZoom: fineZoom,
+                hasFine: hasFine
+            ) {
+                high = middle
+            } else {
+                low = middle
+            }
+        }
+        return high
+    }
+
+    private static func perspectiveCovers(
+        zoom: Float,
+        warpX: Float,
+        warpY: Float,
+        halfWidth: Float,
+        halfHeight: Float,
+        cosine: Float,
+        sine: Float,
+        fineZoom: Float,
+        hasFine: Bool
+    ) -> Bool {
+        let xs: [Float] = [-halfWidth, halfWidth]
+        let ys: [Float] = [-halfHeight, halfHeight]
+        for dx in xs {
+            for dy in ys {
+                var x = dx
+                var y = dy
+                if hasFine {
+                    let rx = (cosine * dx + sine * dy) / fineZoom
+                    let ry = (-sine * dx + cosine * dy) / fineZoom
+                    x = rx
+                    y = ry
+                }
+                let nx = x / (halfWidth * zoom)
+                let ny = y / (halfHeight * zoom)
+                let w = 1 - warpY * ny - warpX * nx
+                if abs(w) < 0.0001 {
+                    return false
+                }
+                if abs(nx / w) > 1.0005 || abs(ny / w) > 1.0005 {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
     /// Map a display-space continuous coordinate (pixel centers) back to the
     /// stored source.
     ///
     /// The fine angle is undone around the centre of the oriented image
     /// first, with the cover scale that keeps the turned photo filling the
-    /// frame. Flip is applied next (it is a display-space transform), then
-    /// the inverse quarter turn.
-    private func displayToSource(_ displayX: Float, _ displayY: Float) -> (Float, Float) {
-        let oriented = orientedSize()
-        let orientedWidth = Float(oriented.width)
-        let orientedHeight = Float(oriented.height)
-        var display = (x: displayX, y: displayY)
+    /// frame. The projective warp is undone next, then flip (it is a
+    /// display-space transform) and the inverse quarter turn.
+    private func displayToSource(
+        _ displayX: Float,
+        _ displayY: Float,
+        geometry: SampleGeometry
+    ) -> (Float, Float) {
+        var x = displayX - geometry.halfWidth
+        var y = displayY - geometry.halfHeight
 
-        if fineRotation != 0 {
-            let radians = fineRotation * .pi / 180
-            let cosine = cos(radians)
-            let sine = sin(radians)
-            // Zoom just enough that the rotated rectangle still covers the
-            // whole frame: the same cover rule as the web transform.
-            let cover = max(
-                abs(cosine) + (orientedHeight / orientedWidth) * abs(sine),
-                abs(cosine) + (orientedWidth / orientedHeight) * abs(sine)
-            )
-            let dx = displayX - orientedWidth / 2
-            let dy = displayY - orientedHeight / 2
-            display.x = (
-                cosine * dx + sine * dy
-            ) / max(cover, 0.0001) + orientedWidth / 2
-            display.y = (
-                -sine * dx + cosine * dy
-            ) / max(cover, 0.0001) + orientedHeight / 2
+        if geometry.hasFine {
+            let rx = (geometry.cos * x + geometry.sin * y) / geometry.fineZoom
+            let ry = (-geometry.sin * x + geometry.cos * y) / geometry.fineZoom
+            x = rx
+            y = ry
         }
 
-        let dx = flipH ? orientedWidth - display.x : display.x
-        let dy = flipV ? orientedHeight - display.y : display.y
+        if geometry.hasPerspective {
+            let nx = x / (geometry.halfWidth * geometry.perspectiveZoom)
+            let ny = y / (geometry.halfHeight * geometry.perspectiveZoom)
+            let w = 1 - geometry.warpY * ny - geometry.warpX * nx
+            let inverse = abs(w) < 0.0001 ? 0 : 1 / w
+            x = nx * inverse * geometry.halfWidth
+            y = ny * inverse * geometry.halfHeight
+        }
+
+        x += geometry.halfWidth
+        y += geometry.halfHeight
+
+        let dx = geometry.flipH ? geometry.orientedWidth - x : x
+        let dy = geometry.flipV ? geometry.orientedHeight - y : y
         let imageWidth = Float(width)
         let imageHeight = Float(height)
-        switch rotate {
+        switch geometry.rotate {
         case 1: return (dy, imageHeight - dx)
         case 2: return (imageWidth - dx, imageHeight - dy)
         case 3: return (imageWidth - dy, dx)

@@ -418,9 +418,10 @@ private struct ViewerFooter: View {
             .foregroundStyle(.white)
             .frame(height: 32)
             .padding(.horizontal, 11)
-            .background(Color.white.opacity(0.14), in: Capsule())
+            .background { GlassSurface(shape: Capsule()) }
+            .contentShape(Capsule())
         }
-        .buttonStyle(ViewerPressStyle())
+        .buttonStyle(GlassPressStyle())
         .accessibilityLabel(Strings.livePhoto)
     }
 }
@@ -437,7 +438,6 @@ private struct ViewerNavButton: View {
         ViewerCircleButton(
             icon: icon,
             label: label,
-            kind: .nav,
             action: action
         )
         .opacity(enabled ? 1 : 0)
@@ -447,52 +447,27 @@ private struct ViewerNavButton: View {
 }
 
 private struct ViewerCircleButton: View {
-    enum Kind {
-        case glass
-        case nav
-    }
-
     let icon: String
     var tint: Color = .white
     let label: String
-    var kind: Kind = .glass
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             ZStack {
-                Circle()
-                    .fill(.ultraThinMaterial)
-
-                Circle()
-                    .fill(Color.white.opacity(kind == .nav ? 0.1 : 0.14))
-
-                if kind == .glass {
-                    Circle()
-                        .strokeBorder(Color.white.opacity(0.2), lineWidth: 0.5)
-                }
+                // The same liquid glass as the shell header and the editor:
+                // real system glass on iOS 26, the layered rim/ sheen
+                // approximation on earlier releases.
+                GlassSurface(shape: Circle())
 
                 Image(systemName: icon)
                     .font(Font.mng(17, weight: .semibold))
                     .foregroundStyle(tint)
             }
             .frame(width: 44, height: 44)
-            .shadow(
-                color: kind == .glass ? .black.opacity(0.26) : .clear,
-                radius: 11,
-                x: 0,
-                y: 6
-            )
+            .contentShape(Circle())
         }
-        .buttonStyle(ViewerPressStyle())
+        .buttonStyle(GlassPressStyle(scale: 0.93))
         .accessibilityLabel(label)
-    }
-}
-
-private struct ViewerPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.93 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }

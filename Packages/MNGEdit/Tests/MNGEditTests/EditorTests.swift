@@ -168,6 +168,87 @@ final class EditorTests: XCTestCase {
         XCTAssertEqual(editor.renderPreview(), source)
     }
 
+    func testPerspectiveValuesAreClamped() throws {
+        var editor = try Editor(
+            width: 2,
+            height: 2,
+            rgba: [UInt8](repeating: 255, count: 16)
+        )
+        editor.setPerspective(x: 140, y: -160)
+        XCTAssertEqual(editor.perspectiveXDegrees, 100)
+        XCTAssertEqual(editor.perspectiveYDegrees, -100)
+
+        editor.setPerspective(x: .nan, y: .infinity)
+        XCTAssertEqual(editor.perspectiveXDegrees, 0)
+        XCTAssertEqual(editor.perspectiveYDegrees, 0)
+    }
+
+    /// A stripe at a quarter of the frame has to move outwards on the axis
+    /// whose positive direction grows that edge: Y grows the top, X the left.
+    func testPositivePerspectivePullsTheTopAndLeftOutwards() throws {
+        let side = 64
+        let stripe = 14..<18
+        var vertical: [UInt8] = []
+        var horizontal: [UInt8] = []
+        vertical.reserveCapacity(side * side * 4)
+        horizontal.reserveCapacity(side * side * 4)
+        for y in 0..<side {
+            for x in 0..<side {
+                vertical += stripe.contains(y)
+                    ? [255, 0, 0, 255]
+                    : [0, 0, 255, 255]
+                horizontal += stripe.contains(x)
+                    ? [255, 0, 0, 255]
+                    : [0, 0, 255, 255]
+            }
+        }
+
+        func stripeCenter(_ rgba: [UInt8], columns: Bool) -> Int {
+            var best = -1
+            var bestCount = 0
+            for line in 0..<side {
+                var count = 0
+                for other in 0..<side {
+                    let x = columns ? line : other
+                    let y = columns ? other : line
+                    let offset = (y * side + x) * 4
+                    if rgba[offset] > 180 && rgba[offset + 2] < 80 {
+                        count += 1
+                    }
+                }
+                if count > bestCount {
+                    bestCount = count
+                    best = line
+                }
+            }
+            return best
+        }
+
+        var up = try Editor(width: 64, height: 64, rgba: vertical)
+        up.setPerspective(x: 0, y: 100)
+        let upRow = stripeCenter(up.renderPreview(), columns: false)
+
+        var down = try Editor(width: 64, height: 64, rgba: vertical)
+        down.setPerspective(x: 0, y: -100)
+        let downRow = stripeCenter(down.renderPreview(), columns: false)
+
+        XCTAssertGreaterThanOrEqual(upRow, 0)
+        XCTAssertLessThan(upRow, 12)
+        XCTAssertGreaterThan(downRow, upRow + 2)
+
+        var left = try Editor(width: 64, height: 64, rgba: horizontal)
+        left.setPerspective(x: 100, y: 0)
+        let leftColumn = stripeCenter(left.renderPreview(), columns: true)
+
+        var right = try Editor(width: 64, height: 64, rgba: horizontal)
+        right.setPerspective(x: -100, y: 0)
+        let rightColumn = stripeCenter(right.renderPreview(), columns: true)
+
+        XCTAssertGreaterThanOrEqual(leftColumn, 0)
+        XCTAssertLessThan(leftColumn, 12)
+        XCTAssertGreaterThan(rightColumn, leftColumn + 2)
+    }
+
     func testAdjustmentsAreClampedAndParseJSON() throws {
         let adjustments = try EditorAdjustments.parse(
             json: #"{"brightness":900,"contrast":-900,"vignette":10}"#

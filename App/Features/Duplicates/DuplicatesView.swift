@@ -223,7 +223,8 @@ struct DuplicatesView: View {
                     .overlay {
                         ThumbnailView(
                             client: model.client,
-                            path: item.thumbnailPath(size: 360)
+                            path: item.thumbnailPath(size: 360),
+                            fallbacks: item.thumbnailFallbackPaths
                         )
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
