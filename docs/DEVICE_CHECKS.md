@@ -160,6 +160,22 @@ usable in the simulator.
 - [ ] "Lưu ảnh" with "Ghi đè ảnh gốc" replaces the file and refreshes the
       library; "Lưu thành bản sao" keeps the original.
 - [ ] A cancelled or failed save leaves the original untouched.
+- [ ] The AI tab sits between "Chữ" and "Cắt"; the model picker expands to
+      Chất lượng / Cân bằng / Nhanh.
+- [ ] "Xoá phông" and "Tách người" cut the subject out; a PNG/WebP item keeps
+      the transparent corners, and a JPEG item shows the alpha warning in the
+      export sheet.
+- [ ] "Mờ phông" blurs the background and "Nền trắng" paints it white while
+      the subject stays untouched.
+- [ ] The five retouch actions (Trắng da, Mịn da, Xóa mụn, Tông da, Đổi màu
+      tóc) apply to a portrait, and a photo without a face reports "Không tìm
+      thấy khuôn mặt rõ nét."
+- [ ] The progress dialog reports the live step, and "Hủy AI" closes it
+      without changing the photo.
+- [ ] After an AI pass the crop, geometry, colour and text are unchanged, the
+      undo history restarts, and "Hoàn tác AI" restores the source from before
+      the pass.
+- [ ] All AI actions work in airplane mode (Vision runs on the device).
 
 ## Administration (admin account only)
 

@@ -19,6 +19,7 @@ final class EditorModel {
         case adjust
         case filter
         case text
+        case ai
         case crop
 
         var id: String { rawValue }
@@ -330,6 +331,20 @@ final class EditorModel {
     /// The history of the edits.
     private(set) var canUndo = false
     private(set) var canRedo = false
+    /// The AI tab state. The engine bakes a new base bitmap, so the history
+    /// starts over exactly like the web editor after `load()`.
+    private(set) var aiModel: EditorAIModel = .quality
+    private(set) var aiBusy = false
+    private(set) var aiDetail: String?
+    private(set) var aiRetouchMode: EditorAIRetouchMode = .whiten
+    private(set) var aiStrength: Float = 0.65
+    private(set) var aiTone: Float = 0
+    private(set) var aiHairColor: EditorAIHairColor = .espresso
+    /// True when the current source came from a cut-out, so the export sheet
+    /// can warn that a JPEG item cannot keep the alpha channel.
+    private(set) var aiCutout = false
+    /// True while the source from before the latest AI pass can be restored.
+    private(set) var canRevertAI = false
 
     var onToast: ((String) -> Void)?
     var onSaved: (() -> Void)?
@@ -344,6 +359,12 @@ final class EditorModel {
     /// can be merged.
     @ObservationIgnored private var lastHistoryAt: TimeInterval = 0
     @ObservationIgnored private var thumbnailTask: Task<Void, Never>?
+    /// The AI request in flight and a generation number that makes a late
+    /// result from a cancelled pass harmless.
+    @ObservationIgnored private var aiTask: Task<Void, Never>?
+    @ObservationIgnored private var aiSeq = 0
+    /// The source from before the latest AI pass, for the AI-only undo.
+    @ObservationIgnored private var aiPreviousSource: EditorSourceSnapshot?
     /// Bumped on every preview request. One render loop at a time reads the
     /// latest state, so a burst of slider events cannot queue dozens of
     /// renders: the loop finishes the frame in flight and renders again.
@@ -369,6 +390,14 @@ final class EditorModel {
     /// Load the original image and prepare the editor.
     func open(item: Item) async {
         loadSeq &+= 1
+        aiSeq &+= 1
+        aiTask?.cancel()
+        aiTask = nil
+        aiBusy = false
+        aiDetail = nil
+        aiCutout = false
+        aiPreviousSource = nil
+        canRevertAI = false
         let seq = loadSeq
         state = .loading
         self.item = item
@@ -437,6 +466,14 @@ final class EditorModel {
 
     func close() {
         loadSeq &+= 1
+        aiSeq &+= 1
+        aiTask?.cancel()
+        aiTask = nil
+        aiBusy = false
+        aiDetail = nil
+        aiCutout = false
+        aiPreviousSource = nil
+        canRevertAI = false
         renderTask?.cancel()
         renderTask = nil
         thumbnailTask?.cancel()
@@ -466,6 +503,212 @@ final class EditorModel {
         if previous != tab, previous == .crop || tab == .crop {
             renderPreview()
         }
+    }
+
+    // MARK: - AI
+
+    /// Whether the item's container can store the alpha channel of a cut-out.
+    var aiSupportsTransparency: Bool {
+        guard let item else { return false }
+        let mime = item.mime.lowercased()
+        if mime == "image/png" {
+            return true
+        }
+        if mime == "image/webp" {
+            return EditorExportFormat.webp.isEncodable
+        }
+        return false
+    }
+
+    func selectAIModel(_ model: EditorAIModel) {
+        guard !aiBusy else { return }
+        aiModel = model
+    }
+
+    func selectAIRetouchMode(_ mode: EditorAIRetouchMode) {
+        aiRetouchMode = mode
+    }
+
+    func setAIStrength(_ value: Float) {
+        aiStrength = min(max(value, 0), 1)
+    }
+
+    func setAITone(_ value: Float) {
+        aiTone = min(max(value, -1), 1)
+    }
+
+    func selectAIHairColor(_ color: EditorAIHairColor) {
+        aiHairColor = color
+    }
+
+    /// Remove, blur or replace the background of the original source pixels.
+    func runAIBackground(_ mode: EditorAIBackgroundMode) {
+        guard let editor, state == .ready, !aiBusy else { return }
+        let source = editor.sourceSnapshot()
+        let model = aiModel
+        aiSeq &+= 1
+        let seq = aiSeq
+        aiBusy = true
+        aiDetail = Strings.editorAIRunning
+        aiTask = Task { [weak self] in
+            do {
+                let result = try await EditorAIService.background(
+                    source: source,
+                    mode: mode,
+                    model: model
+                ) { [weak self] message in
+                    await MainActor.run {
+                        guard let self, self.aiSeq == seq else { return }
+                        self.aiDetail = message
+                    }
+                }
+                try Task.checkCancellation()
+                guard let self, self.aiSeq == seq else { return }
+                self.finishAI(
+                    result,
+                    message: mode.keepsTransparency
+                        ? Strings.editorAIDoneCutout
+                        : Strings.editorAIDoneBackground,
+                    cutout: mode.keepsTransparency
+                )
+            } catch {
+                guard let self, self.aiSeq == seq else { return }
+                self.failAI(error)
+            }
+        }
+    }
+
+    /// Run one skin or hair pass on the original source pixels.
+    func applyAIRetouch(_ mode: EditorAIRetouchMode) {
+        guard let editor, state == .ready, !aiBusy else { return }
+        let source = editor.sourceSnapshot()
+        let strength = aiStrength
+        let tone = aiTone
+        let hairColor = aiHairColor
+        aiRetouchMode = mode
+        aiSeq &+= 1
+        let seq = aiSeq
+        aiBusy = true
+        aiDetail = Strings.editorAIRunning
+        aiTask = Task { [weak self] in
+            do {
+                let result = try await EditorAIService.retouch(
+                    source: source,
+                    mode: mode,
+                    strength: strength,
+                    tone: tone,
+                    hairColor: hairColor
+                ) { [weak self] message in
+                    await MainActor.run {
+                        guard let self, self.aiSeq == seq else { return }
+                        self.aiDetail = message
+                    }
+                }
+                try Task.checkCancellation()
+                guard let self, self.aiSeq == seq else { return }
+                self.finishAI(
+                    result,
+                    message: Strings.editorAIDoneRetouch,
+                    cutout: false
+                )
+            } catch {
+                guard let self, self.aiSeq == seq else { return }
+                self.failAI(error)
+            }
+        }
+    }
+
+    func cancelAI() {
+        guard aiBusy else { return }
+        aiSeq &+= 1
+        aiTask?.cancel()
+        aiTask = nil
+        aiBusy = false
+        aiDetail = nil
+        onToast?(Strings.editorAICancelled)
+    }
+
+    /// Put the source from before the latest AI pass back, keeping the crop,
+    /// geometry, colour stack and text. The pass itself is not in the normal
+    /// history because it replaces the bitmap, so this is the AI-only undo.
+    func revertAI() {
+        guard !aiBusy,
+              let previous = aiPreviousSource,
+              let editor else {
+            return
+        }
+        do {
+            self.editor = try editor.replacingSource(previous)
+        } catch {
+            onToast?(Strings.editorAIFailed)
+            return
+        }
+        aiPreviousSource = nil
+        canRevertAI = false
+        aiCutout = false
+        undoStack = []
+        redoStack = []
+        editTransaction = nil
+        canUndo = false
+        canRedo = false
+        activeSavedPresetId = nil
+        savedReturnState = nil
+        filterThumbnails = [:]
+        preview = nil
+        renderPreview()
+        onToast?(Strings.editorAIReverted)
+    }
+
+    /// Swap the baked bitmap into the pipeline and reset the history, like
+    /// the web's `load()` followed by `setState({...keep})`.
+    private func finishAI(
+        _ result: EditorSourceSnapshot,
+        message: String,
+        cutout: Bool
+    ) {
+        aiBusy = false
+        aiTask = nil
+        aiDetail = nil
+        guard let editor else {
+            onToast?(Strings.editorAIFailed)
+            return
+        }
+        do {
+            self.editor = try editor.replacingSource(result)
+        } catch {
+            onToast?(Strings.editorAIFailed)
+            return
+        }
+        aiPreviousSource = editor.sourceSnapshot()
+        canRevertAI = true
+        undoStack = []
+        redoStack = []
+        editTransaction = nil
+        canUndo = false
+        canRedo = false
+        activeSavedPresetId = nil
+        savedReturnState = nil
+        filterThumbnails = [:]
+        preview = nil
+        aiCutout = cutout
+        renderPreview()
+        onToast?(message)
+    }
+
+    private func failAI(_ error: Error) {
+        aiBusy = false
+        aiTask = nil
+        aiDetail = nil
+        if error is CancellationError {
+            onToast?(Strings.editorAICancelled)
+            return
+        }
+        if let localized = error as? LocalizedError,
+           let message = localized.errorDescription {
+            onToast?(message)
+            return
+        }
+        onToast?(Strings.editorAIFailed)
     }
 
     func selectMode(_ mode: SaveMode) {

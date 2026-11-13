@@ -65,6 +65,9 @@ struct EditorView: View {
     /// never gets its `onEnded`, so this identifies a fresh drag even when
     /// the previous origin was not cleared.
     @State private var textRotateDragStart: CGPoint?
+    /// The collapsible model picker and the retouch controls of the AI pane.
+    @State private var aiModelsOpen = false
+    @State private var aiSettingsOpen = false
 
     /// The four modes of the crop pane, in the web's order: ratio, rotation
     /// and the two 3D perspective axes.
@@ -152,6 +155,11 @@ struct EditorView: View {
                         .buttonStyle(.plain)
                 }
                 .padding(24)
+            }
+
+            if editor.aiBusy {
+                aiProgressOverlay
+                    .zIndex(30)
             }
 
             if exportOpen {
@@ -1129,6 +1137,8 @@ struct EditorView: View {
                 filterPane
             case .text:
                 textPane
+            case .ai:
+                aiPane
             case .crop:
                 cropPane
             }
@@ -2034,6 +2044,469 @@ struct EditorView: View {
         )
     }
 
+    // MARK: - AI pane
+
+    /// The AI tab of the web editor: the collapsible model picker, the four
+    /// background actions and the five retouch actions on one rail. The
+    /// native engine uses Vision on the device, so the pane works offline and
+    /// no model is downloaded.
+    private var aiPane: some View {
+        VStack(spacing: 7) {
+            aiModelPicker
+                .padding(.horizontal, 12)
+
+            if aiSettingsOpen {
+                aiRetouchSettings
+                    .transition(.opacity)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(EditorAIBackgroundMode.allCases) { mode in
+                        aiActionButton(
+                            mode.title,
+                            icon: mode.icon,
+                            primary: mode.isPrimary
+                        ) {
+                            editor.runAIBackground(mode)
+                        }
+                    }
+
+                    aiRailSeparator(Strings.editorAIRetouchTitle)
+
+                    ForEach(EditorAIRetouchMode.allCases) { mode in
+                        aiActionButton(
+                            mode.title,
+                            icon: mode.icon,
+                            primary: mode.isPrimary,
+                            active: editor.aiRetouchMode == mode
+                        ) {
+                            editor.applyAIRetouch(mode)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+            }
+            .frame(height: 34)
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.03),
+                        .init(color: .black, location: 0.97),
+                        .init(color: .clear, location: 1),
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        aiSettingsOpen.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(Font.mng(11, weight: .semibold))
+                        Text(Strings.editorAISettings)
+                            .font(Font.mng(10.5, weight: .semibold))
+                        Image(
+                            systemName: aiSettingsOpen
+                                ? "chevron.up"
+                                : "chevron.down"
+                        )
+                        .font(Font.mng(8, weight: .bold))
+                    }
+                    .foregroundStyle(
+                        aiSettingsOpen ? Aurum.gold : Aurum.muted
+                    )
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .background(
+                        aiSettingsOpen ? Aurum.goldSoft : Color.white.opacity(0.055),
+                        in: Capsule()
+                    )
+                    .overlay {
+                        Capsule().stroke(
+                            aiSettingsOpen
+                                ? Aurum.gold.opacity(0.34)
+                                : Color.white.opacity(0.08),
+                            lineWidth: 1
+                        )
+                    }
+                }
+                .buttonStyle(.plain)
+
+                if editor.canRevertAI {
+                    Button {
+                        editor.revertAI()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.uturn.backward")
+                                .font(Font.mng(10, weight: .semibold))
+                            Text(Strings.editorAIRevert)
+                                .font(Font.mng(10.5, weight: .semibold))
+                        }
+                        .foregroundStyle(Aurum.text)
+                        .padding(.horizontal, 10)
+                        .frame(height: 28)
+                        .background(Aurum.glass, in: Capsule())
+                        .overlay {
+                            Capsule().stroke(
+                                Aurum.glassLine,
+                                lineWidth: 0.5
+                            )
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer(minLength: 4)
+
+                Text(
+                    editor.aiSupportsTransparency
+                        ? Strings.editorAIHint
+                        : Strings.editorAITransparentNote
+                )
+                .font(Font.mng(9))
+                .foregroundStyle(
+                    editor.aiSupportsTransparency
+                        ? Aurum.muted
+                        : Aurum.gold.opacity(0.78)
+                )
+                .lineLimit(2)
+                .multilineTextAlignment(.trailing)
+                .frame(maxWidth: 190, alignment: .trailing)
+            }
+            .padding(.horizontal, 12)
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// The collapsible model picker of the web's `.au-model-coll`.
+    private var aiModelPicker: some View {
+        VStack(spacing: 6) {
+            Button {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    aiModelsOpen.toggle()
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "cpu")
+                        .font(Font.mng(12, weight: .semibold))
+                    Text(Strings.editorAIModel)
+                        .font(Font.mng(11.5, weight: .semibold))
+                    Text(editor.aiModel.title)
+                        .font(Font.mng(11.5, weight: .bold))
+                        .foregroundStyle(Aurum.gold)
+                    if editor.aiModel == .quality {
+                        Text(Strings.editorAIModelRecommended.uppercased())
+                            .font(Font.mng(7.5, weight: .bold))
+                            .tracking(0.35)
+                            .foregroundStyle(Aurum.gold)
+                            .padding(.horizontal, 5)
+                            .frame(height: 15)
+                            .background(
+                                Aurum.gold.opacity(0.14),
+                                in: Capsule()
+                            )
+                    }
+                    Spacer(minLength: 0)
+                    Image(
+                        systemName: aiModelsOpen ? "chevron.up" : "chevron.down"
+                    )
+                    .font(Font.mng(9, weight: .bold))
+                }
+                .foregroundStyle(Aurum.muted)
+                .padding(.horizontal, 10)
+                .frame(height: 32)
+                .background(
+                    Color.white.opacity(0.055),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if aiModelsOpen {
+                HStack(spacing: 6) {
+                    ForEach(EditorAIModel.allCases) { model in
+                        aiModelOption(model)
+                    }
+                }
+                .transition(.opacity)
+            }
+        }
+    }
+
+    private func aiModelOption(_ model: EditorAIModel) -> some View {
+        let active = editor.aiModel == model
+        return Button {
+            editor.selectAIModel(model)
+        } label: {
+            VStack(spacing: 1) {
+                Text(model.title)
+                    .font(Font.mng(10.5, weight: .semibold))
+                Text(model.detail)
+                    .font(Font.mng(7.5))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .foregroundStyle(active ? Aurum.gold : Aurum.muted)
+            .frame(maxWidth: .infinity)
+            .frame(height: 36)
+            .background(
+                active ? Aurum.goldSoft : Color.white.opacity(0.05),
+                in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(
+                        active
+                            ? Aurum.gold.opacity(0.34)
+                            : Color.white.opacity(0.07),
+                        lineWidth: 1
+                    )
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The compact retouch defaults: strength, warmth of the skin tone and the
+    /// dye of the hair action. They are applied by the next retouch tap.
+    private var aiRetouchSettings: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                aiSettingsSlider(
+                    title: Strings.editorAIStrength,
+                    value: Binding(
+                        get: { Double(editor.aiStrength) * 100 },
+                        set: { editor.setAIStrength(Float($0) / 100) }
+                    ),
+                    range: 0...100
+                )
+
+                aiSettingsSlider(
+                    title: Strings.editorAITone,
+                    value: Binding(
+                        get: { Double(editor.aiTone) * 100 },
+                        set: { editor.setAITone(Float($0) / 100) }
+                    ),
+                    range: -100...100
+                )
+
+                HStack(spacing: 6) {
+                    Text(Strings.editorAIHairColor)
+                        .font(Font.mng(9.5, weight: .semibold))
+                        .foregroundStyle(Aurum.muted)
+                    ForEach(EditorAIHairColor.allCases) { color in
+                        let selected = editor.aiHairColor == color
+                        Button {
+                            editor.selectAIHairColor(color)
+                        } label: {
+                            Circle()
+                                .fill(
+                                    Color(
+                                        red: Double(color.components.red),
+                                        green: Double(color.components.green),
+                                        blue: Double(color.components.blue)
+                                    )
+                                )
+                                .frame(width: 19, height: 19)
+                                .overlay {
+                                    Circle().stroke(
+                                        selected
+                                            ? Aurum.gold
+                                            : Color.white.opacity(0.18),
+                                        lineWidth: selected ? 2 : 1
+                                    )
+                                }
+                                .frame(width: 26, height: 26)
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(color.title)
+                    }
+                }
+                .padding(.horizontal, 9)
+                .frame(height: 32)
+                .background(
+                    Color.white.opacity(0.05),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                )
+            }
+            .padding(.horizontal, 12)
+        }
+        .frame(height: 34)
+    }
+
+    private func aiSettingsSlider(
+        title: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>
+    ) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(Font.mng(9.5, weight: .semibold))
+                .foregroundStyle(Aurum.muted)
+            Slider(value: value, in: range)
+                .tint(Aurum.gold)
+                .frame(width: 82)
+            Text("\(Int(value.wrappedValue.rounded()))")
+                .font(Font.mng(9.5, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(Aurum.gold)
+                .frame(width: 28, alignment: .trailing)
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 32)
+        .background(
+            Color.white.opacity(0.05),
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+    }
+
+    /// One pill of the AI rail. The primary action keeps the gold gradient of
+    /// the web's `.au-ai-pill.is-primary`; the last retouch pass stays marked
+    /// so a second tap is understandable.
+    private func aiActionButton(
+        _ title: String,
+        icon: String,
+        primary: Bool = false,
+        active: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        let highlighted = primary || active
+        return Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(Font.mng(12, weight: .semibold))
+                Text(title)
+                    .font(Font.mng(10.5, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(highlighted ? Aurum.gold : Aurum.text)
+            .padding(.horizontal, 11)
+            .frame(height: 32)
+            .background {
+                if primary {
+                    LinearGradient(
+                        colors: [
+                            Aurum.gold.opacity(0.20),
+                            Aurum.gold.opacity(0.09),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                } else if active {
+                    Aurum.gold.opacity(0.16)
+                } else {
+                    Color.white.opacity(0.055)
+                }
+            }
+            .clipShape(Capsule())
+            .overlay {
+                Capsule().stroke(
+                    highlighted
+                        ? Aurum.gold.opacity(0.34)
+                        : Color.white.opacity(0.08),
+                    lineWidth: 1
+                )
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(GlassPressStyle(scale: 0.94))
+        .disabled(editor.aiBusy)
+    }
+
+    private func aiRailSeparator(_ title: String) -> some View {
+        VStack(spacing: 2) {
+            LinearGradient(
+                colors: [
+                    .clear,
+                    Color.white.opacity(0.30),
+                    .clear,
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(width: 1, height: 13)
+            Text(title.uppercased())
+                .font(Font.mng(7, weight: .bold))
+                .tracking(0.35)
+                .foregroundStyle(Color.white.opacity(0.32))
+                .fixedSize()
+        }
+        .padding(.horizontal, 1)
+        .allowsHitTesting(false)
+    }
+
+    /// The progress dialog of the web's `au-ai` panel, with the live detail
+    /// of the Vision pass and the cancel action.
+    private var aiProgressOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.52)
+                .ignoresSafeArea()
+                .onTapGesture {}
+
+            VStack(spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(Aurum.goldSoft)
+                        .frame(width: 52, height: 52)
+                    ProgressView()
+                        .tint(Aurum.gold)
+                }
+
+                Text(Strings.editorAIRunning)
+                    .font(Font.mng(15, weight: .semibold))
+                    .foregroundStyle(Aurum.text)
+
+                Text(editor.aiDetail ?? Strings.editorAIHint)
+                    .font(Font.mng(11.5))
+                    .foregroundStyle(Aurum.muted)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .frame(maxWidth: 240)
+
+                Button {
+                    editor.cancelAI()
+                } label: {
+                    Text(Strings.editorAICancel)
+                        .font(Font.mng(13, weight: .semibold))
+                        .foregroundStyle(Aurum.text)
+                        .padding(.horizontal, 18)
+                        .frame(height: 36)
+                        .background(Aurum.glass, in: Capsule())
+                        .overlay {
+                            Capsule().stroke(
+                                Aurum.glassLine,
+                                lineWidth: 0.5
+                            )
+                        }
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(22)
+            .background(
+                .ultraThinMaterial,
+                in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Aurum.glassLine, lineWidth: 0.5)
+            }
+        }
+        .transition(.opacity)
+    }
+
     /// The crop pane: the ratio, rotation and two perspective modes with
     /// their reset, plus the context of the open mode. The rotate and flip
     /// tools live in the header, so the pane keeps only framing controls.
@@ -2366,6 +2839,7 @@ struct EditorView: View {
             dockTab(.adjust, "slider.horizontal.3", Strings.editorTuneTab)
             dockTab(.filter, "camera.filters", Strings.editorFilterTab)
             dockTab(.text, "textformat", Strings.editorTextTab)
+            dockTab(.ai, "wand.and.stars", Strings.editorAITab)
             dockTab(.crop, "crop", Strings.editorCropTab)
         }
         .padding(5)
@@ -2435,6 +2909,15 @@ struct EditorView: View {
                     .padding(.top, 4)
 
                 exportMeta
+
+                if editor.aiCutout, !editor.aiSupportsTransparency {
+                    Text(Strings.editorAITransparentNote)
+                        .font(Font.mng(10.5, weight: .medium))
+                        .foregroundStyle(Aurum.gold.opacity(0.86))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 22)
+                        .padding(.top, 8)
+                }
 
                 if phase == .saving {
                     VStack(spacing: 9) {

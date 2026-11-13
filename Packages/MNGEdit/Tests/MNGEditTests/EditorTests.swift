@@ -334,4 +334,64 @@ final class EditorTests: XCTestCase {
         }
         XCTAssertEqual(try EditorExportFormat(key: "jpg"), .jpeg)
     }
+
+    /// The AI passes swap the base bitmap but keep every edit above it.
+    func testReplacingSourceKeepsTheEditState() throws {
+        let original = pixels(4, 3)
+        var editor = try Editor(width: 4, height: 3, rgba: original)
+        editor.setGeometry(rotate: 1, flipH: true, flipV: false)
+        editor.setFineRotation(12.5)
+        editor.setPerspective(x: 14, y: -9)
+        editor.setCrop(EditorCrop(x: 0, y: 0, width: 1, height: 0.5))
+        editor.setAdjustments(
+            EditorAdjustments(brightness: 18, contrast: -7, saturation: 9)
+        )
+        editor.setFilter(.warm)
+        let text = EditorTextLayer(id: "caption", text: "Aurum")
+        editor.setTextLayers([text])
+
+        let snapshot = EditorSourceSnapshot(
+            width: 4,
+            height: 3,
+            rgba: Array(pixels(4, 3).reversed())
+        )
+        let replaced = try editor.replacingSource(snapshot)
+
+        XCTAssertEqual(replaced.width, 4)
+        XCTAssertEqual(replaced.height, 3)
+        XCTAssertEqual(replaced.rotation, 1)
+        XCTAssertEqual(replaced.isFlippedHorizontally, true)
+        XCTAssertEqual(replaced.isFlippedVertically, false)
+        XCTAssertEqual(replaced.fineRotationDegrees, 12.5)
+        XCTAssertEqual(replaced.perspectiveXDegrees, 14)
+        XCTAssertEqual(replaced.perspectiveYDegrees, -9)
+        XCTAssertEqual(replaced.currentCrop, editor.currentCrop)
+        XCTAssertEqual(replaced.currentAdjustments, editor.currentAdjustments)
+        XCTAssertEqual(replaced.currentFilter, .warm)
+        XCTAssertEqual(replaced.textLayers, [text])
+        XCTAssertEqual(replaced.outputSize().width, editor.outputSize().width)
+        XCTAssertEqual(replaced.outputSize().height, editor.outputSize().height)
+    }
+
+    /// A transparent cut-out has to survive the snapshot round trip without
+    /// losing its alpha or flipping its rows.
+    func testReplacingSourceKeepsStraightAlpha() throws {
+        var editor = try Editor(
+            width: 3,
+            height: 1,
+            rgba: [UInt8](repeating: 0, count: 12)
+        )
+        let snapshot = EditorSourceSnapshot(
+            width: 3,
+            height: 1,
+            rgba: [
+                255, 0, 0, 255,
+                0, 255, 0, 128,
+                0, 0, 255, 0,
+            ]
+        )
+        editor = try editor.replacingSource(snapshot)
+        let rgba = editor.renderPreview()
+        XCTAssertEqual(Array(rgba[0..<12]), snapshot.rgba)
+    }
 }

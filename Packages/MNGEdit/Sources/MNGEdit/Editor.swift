@@ -68,6 +68,25 @@ public struct EditorCropPixels: Equatable, Sendable {
     }
 }
 
+/// A detached copy of the pixels the editor loaded.
+///
+/// The AI features bake a new base bitmap (a cut-out, a replaced background
+/// or a retouched source) and then hand it back to the editor. Keeping the
+/// buffer in a small value type lets that pass run off the main actor without
+/// exposing the mutable storage of `Editor`.
+public struct EditorSourceSnapshot: Equatable, Sendable {
+    public var width: UInt32
+    public var height: UInt32
+    /// Straight (non-premultiplied) sRGB RGBA, row-major, top row first.
+    public var rgba: [UInt8]
+
+    public init(width: UInt32, height: UInt32, rgba: [UInt8]) {
+        self.width = width
+        self.height = height
+        self.rgba = rgba
+    }
+}
+
 /// The horizontal alignment of a text layer.
 public enum EditorTextAlign: String, Codable, Equatable, CaseIterable, Sendable {
     case left
@@ -567,6 +586,39 @@ public struct Editor: Sendable {
 
     public mutating func setFilter(_ filter: EditorFilter) {
         self.filter = filter
+    }
+
+    /// A copy of the pixels currently loaded, for an AI pass.
+    public func sourceSnapshot() -> EditorSourceSnapshot {
+        EditorSourceSnapshot(
+            width: width,
+            height: height,
+            rgba: source
+        )
+    }
+
+    /// Swap the base bitmap while keeping every edit on top of it.
+    ///
+    /// The AI actions work in source space at the original resolution, so the
+    /// crop, the geometry, the colour stack and the text layers remain valid.
+    /// The returned editor starts with a fresh preview cache, exactly like the
+    /// web editor's `load()` followed by `setState({...keep})`.
+    public func replacingSource(
+        _ snapshot: EditorSourceSnapshot
+    ) throws -> Editor {
+        var copy = try Editor(
+            width: snapshot.width,
+            height: snapshot.height,
+            rgba: snapshot.rgba
+        )
+        copy.setGeometry(rotate: rotate, flipH: flipH, flipV: flipV)
+        copy.setFineRotation(fineRotation)
+        copy.setPerspective(x: perspectiveX, y: perspectiveY)
+        copy.setCrop(crop)
+        copy.setAdjustments(adjustments)
+        copy.setFilter(filter)
+        copy.setTextLayers(texts)
+        return copy
     }
 
     /// Size of the rotated and flipped image before cropping.
