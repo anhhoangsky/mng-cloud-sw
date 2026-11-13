@@ -204,7 +204,7 @@ struct EditorView: View {
         }
         .ignoresSafeArea(
             .keyboard,
-            edges: editor.tab == .text ? .bottom : []
+            edges: editor.tab == .text ? .bottom : Edge.Set()
         )
     }
 
