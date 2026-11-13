@@ -14,10 +14,33 @@ struct DuplicatesView: View {
         GridItem(.adaptive(minimum: 128), spacing: 10, alignment: .top)
     ]
 
+    /// A stable row for the list. The old index-based `ForEach` could read a
+    /// group that had already been replaced when the model started its
+    /// second load, which is what crashed the sheet on a re-open.
+    private struct GroupRow: Identifiable {
+        let index: Int
+        let group: DuplicateGroup
+
+        var id: String {
+            let first = group.items.first?.item.id ?? 0
+            return "\(index)-\(first)-\(group.date)"
+        }
+    }
+
+    private var rows: [GroupRow] {
+        duplicates.visibleGroups.enumerated().map { offset, group in
+            GroupRow(index: offset + 1, group: group)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                // A group card can hold dozens of thumbnails. Building all
+                // thirty cards at once kept every thumbnail request (and its
+                // decoded image) alive, which made the second open much
+                // heavier than the first.
+                LazyVStack(alignment: .leading, spacing: 16) {
                     Text(Strings.duplicatesSubtitle)
                         .font(Font.mng(13))
                         .foregroundStyle(Palette.text3)
@@ -45,54 +68,89 @@ struct DuplicatesView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch duplicates.state {
-        case .idle, .loading:
-            emptyState(
-                icon: "magnifyingglass",
-                title: Strings.duplicatesLoadingTitle,
-                body: Strings.duplicatesLoadingBody
-            )
-        case .failed(let message):
-            emptyState(
-                icon: "exclamationmark.triangle",
-                title: Strings.duplicatesErrorTitle,
-                body: message
-            )
-        case .ready:
-            summary
-
-            if duplicates.groups.isEmpty {
+        if duplicates.groups.isEmpty {
+            switch duplicates.state {
+            case .idle, .loading:
+                emptyState(
+                    icon: "magnifyingglass",
+                    title: Strings.duplicatesLoadingTitle,
+                    body: Strings.duplicatesLoadingBody
+                )
+            case .failed(let message):
+                emptyState(
+                    icon: "exclamationmark.triangle",
+                    title: Strings.duplicatesErrorTitle,
+                    body: message
+                )
+            case .ready:
+                summaryRow
                 emptyState(
                     icon: "checkmark.circle",
                     title: Strings.duplicatesEmptyTitle,
                     body: Strings.duplicatesEmptyBody
                 )
-            } else {
-                ForEach(duplicates.visibleGroups.indices, id: \.self) { index in
-                    groupCard(
-                        index: index + 1,
-                        group: duplicates.visibleGroups[index]
-                    )
-                }
-
-                if duplicates.remaining > 0 {
-                    Button {
-                        duplicates.expand()
-                    } label: {
-                        Text(Strings.duplicateMore(duplicates.remaining))
-                            .font(Font.mng(13, weight: .semibold))
-                            .foregroundStyle(Palette.accent)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 42)
-                            .background(
-                                Palette.accentSoft,
-                                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 2)
-                }
             }
+        } else {
+            summaryRow
+
+            if let message = duplicates.errorMessage {
+                // The previous result stays readable while a refresh fails.
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(Font.mng(15))
+                        .foregroundStyle(Palette.danger)
+                    Text(message)
+                        .font(Font.mng(12))
+                        .foregroundStyle(Palette.text2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 6)
+                    Button(Strings.retry) {
+                        Task { await duplicates.load() }
+                    }
+                    .font(Font.mng(13, weight: .semibold))
+                    .foregroundStyle(Palette.accent)
+                    .buttonStyle(.plain)
+                }
+                .padding(12)
+                .background(
+                    Palette.dangerSoft,
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                )
+            }
+
+            ForEach(rows) { row in
+                groupCard(index: row.index, group: row.group)
+            }
+
+            if duplicates.remaining > 0 {
+                Button {
+                    duplicates.expand()
+                } label: {
+                    Text(Strings.duplicateMore(duplicates.remaining))
+                        .font(Font.mng(13, weight: .semibold))
+                        .foregroundStyle(Palette.accent)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 42)
+                        .background(
+                            Palette.accentSoft,
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        )
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+            }
+        }
+    }
+
+    private var summaryRow: some View {
+        HStack(spacing: 8) {
+            summary
+            if duplicates.state == .loading {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(Palette.text3)
+            }
+            Spacer(minLength: 0)
         }
     }
 
@@ -130,7 +188,7 @@ struct DuplicatesView: View {
             .padding(.horizontal, 2)
 
             LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
-                ForEach(group.items, id: \.item.id) { row in
+                ForEach(uniqueItems(of: group), id: \.item.id) { row in
                     duplicateThumb(item: row.item, group: group)
                 }
             }
@@ -144,6 +202,14 @@ struct DuplicatesView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Palette.hairline, lineWidth: 0.5)
         }
+    }
+
+    /// A group should never list the same row twice, but the server is the
+    /// source of truth for the hash clusters. Collapse a repeated id here so
+    /// the grid never receives two identical identities.
+    private func uniqueItems(of group: DuplicateGroup) -> [DuplicateItem] {
+        var seen = Set<Int64>()
+        return group.items.filter { seen.insert($0.item.id).inserted }
     }
 
     private func duplicateThumb(item: Item, group: DuplicateGroup) -> some View {
@@ -191,8 +257,12 @@ struct DuplicatesView: View {
     private func open(_ item: Item, in group: DuplicateGroup) {
         let items = group.items.map(\.item)
         guard !items.isEmpty else { return }
+        // The viewer is an overlay of the shell, not a presentation of this
+        // sheet. Asking the shell to open it after `onDismiss` avoids racing
+        // a dismissal animation, which is the other half of the second-open
+        // failure.
+        model.deferViewerOpen(items: items, id: item.id)
         dismiss()
-        model.library.openViewer(items: items, id: item.id)
     }
 
     private func emptyState(icon: String, title: String, body: String) -> some View {

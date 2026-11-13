@@ -16,7 +16,12 @@ struct ShellView: View {
 
     var body: some View {
         shell
-            .sheet(item: $model.activeSheet) { sheet in
+            .sheet(item: $model.activeSheet, onDismiss: {
+                // A duplicate thumbnail asks for the viewer while the sheet
+                // is still closing. Opening it here keeps the two
+                // presentations in sequence.
+                model.flushPendingViewerOpen()
+            }) { sheet in
                 switch sheet {
                 case .connections:
                     ConnectionsSheet(model: model)

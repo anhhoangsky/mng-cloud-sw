@@ -113,6 +113,14 @@ final class ShellModel {
     var toast: String?
     var shareFile: DownloadedFile?
     var activeSheet: ShellSheet?
+    /// A viewer request captured by a sheet that must finish dismissing
+    /// first. A sheet and the root viewer cannot animate in and out over each
+    /// other reliably, so the request waits for `onDismiss`.
+    struct ViewerRequest {
+        let items: [Item]
+        let id: Int64
+    }
+    @ObservationIgnored private(set) var pendingViewerRequest: ViewerRequest?
     /// Library items waiting to be moved into the encrypted vault. The vault
     /// consumes the request as soon as it is unlocked.
     var pendingVaultMove: [Int64] = []
@@ -312,6 +320,7 @@ final class ShellModel {
         defaults.set(key, forKey: Self.activeCloudKey)
         let changed = key != activeCloud
         activeCloud = key
+        pendingViewerRequest = nil
         activeSheet = nil
 
         let label = cloud.label.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -331,6 +340,7 @@ final class ShellModel {
     func logout() async {
         guard !isLoggingOut else { return }
         isLoggingOut = true
+        pendingViewerRequest = nil
         await store.logout()
         isLoggingOut = false
         if let error = store.logoutError {
@@ -485,7 +495,23 @@ final class ShellModel {
     }
 
     func presentDuplicates() {
+        // A sheet of an earlier session must never open a stale viewer.
+        pendingViewerRequest = nil
         activeSheet = .duplicates
+    }
+
+    /// Remember a viewer request while the current sheet dismisses.
+    func deferViewerOpen(items: [Item], id: Int64) {
+        guard !items.isEmpty else { return }
+        pendingViewerRequest = ViewerRequest(items: items, id: id)
+    }
+
+    /// Called from the shell's `onDismiss`. Opens the viewer only once the
+    /// sheet is gone, so the second open cannot race the dismissal.
+    func flushPendingViewerOpen() {
+        guard let request = pendingViewerRequest else { return }
+        pendingViewerRequest = nil
+        library.openViewer(items: request.items, id: request.id)
     }
 
     /// Open the administration console. Only administrators can reach it.
@@ -556,6 +582,7 @@ final class ShellModel {
     /// 401 from any tab ends the session exactly once; the session state
     /// machine owns the retry/login transition.
     func expireSession() {
+        pendingViewerRequest = nil
         Task { [weak self] in
             guard let self else { return }
             await store.expireSession()

@@ -39,14 +39,21 @@ final class DuplicatesModel {
         max(0, groups.count - shown)
     }
 
+    var errorMessage: String? {
+        if case .failed(let message) = state { return message }
+        return nil
+    }
+
     /// `open_duplicates`: every open reloads from scratch and resets paging.
+    ///
+    /// The previous result stays in place while the refresh is in flight.
+    /// Clearing it up front used to empty the list the instant the sheet
+    /// appeared for the second time, which left the old rows looking at a
+    /// collection that no longer had those indexes.
     func load() async {
         requestSeq &+= 1
         let seq = requestSeq
         state = .loading
-        groups = []
-        stats = DuplicateStats()
-        shown = 0
         do {
             let data = try await client.duplicates()
             guard seq == requestSeq else { return }
@@ -55,7 +62,7 @@ final class DuplicatesModel {
             shown = min(data.groups.count, Self.pageSize)
             state = .ready
         } catch let error as APIError {
-            guard seq == requestSeq else { return }
+            guard seq == requestSeq, !Task.isCancelled else { return }
             if error.status == 401 {
                 state = .idle
                 onUnauthorized?()
@@ -63,7 +70,9 @@ final class DuplicatesModel {
             }
             state = .failed(error.message)
         } catch {
-            guard seq == requestSeq else { return }
+            // Dismissing the sheet cancels the task. That cancellation is not
+            // a failed refresh and must not overwrite the result.
+            guard seq == requestSeq, !Task.isCancelled else { return }
             state = .failed(APIMessages.network)
         }
     }

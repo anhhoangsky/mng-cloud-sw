@@ -281,6 +281,24 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - The timeline warms the thumbnails of the next rows (eight at a time, one
   after another) so a long library scrolls without a flash of empty tiles.
 
+## Round 5 notes
+
+- The Album page is a `LazyVStack` of sections. Off-screen grids and the
+  people strip (`LazyHStack`) are only built when they approach the viewport,
+  so opening the tab no longer starts every thumbnail request at once.
+- Section skeletons reserve the final height: the photo preview skeleton uses
+  the same nine cells as the grid and a spacer for "Xem tất cả", people/places/
+  districts shimmer inside their own sections, and the AI banner reserves its
+  second text line. Data arriving during a scroll therefore replaces content in
+  place instead of pushing the page under the finger.
+- Year cards use a fixed two-by-two `Grid` for their four covers instead of a
+  lazy grid inside the page grid, removing a measurement pass from every card.
+- The duplicates sheet keeps the previous result visible while it reloads.
+  Its list is keyed by group identity rather than array indexes, so replacing
+  the groups on a second open can never index a collection that has already
+  changed. A thumbnail asks the shell to open the viewer from the sheet's
+  `onDismiss`, once the dismissal has finished.
+
 ## Visual checks per UI phase
 
 - iPhone SE (compact, 375 pt), iPhone 15/16 (393 pt), iPad 11" portrait and

@@ -110,10 +110,6 @@ final class AlbumsModel {
         ai?.running == true
     }
 
-    var showsExploreSkeleton: Bool {
-        !exploreLoaded && exploreState == .loading
-    }
-
     var exploreError: String? {
         guard !exploreLoaded else { return nil }
         if case .failed(let message) = exploreState { return message }
@@ -278,7 +274,7 @@ final class AlbumsModel {
     private func loadExplore(force: Bool) async {
         exploreSeq &+= 1
         let seq = exploreSeq
-        if !exploreLoaded {
+        if !exploreLoaded, exploreState != .loading {
             exploreState = .loading
         }
 
@@ -305,10 +301,17 @@ final class AlbumsModel {
         let needsReload = force
             || !exploreLoaded
             || exploreSignature != signature
-        ai = status
+        // The poll runs every twenty seconds while the worker is busy. Only
+        // publish a real change, so an identical snapshot does not rebuild
+        // the whole album page for nothing.
+        if ai != status {
+            ai = status
+        }
 
         guard needsReload else {
-            exploreState = .ready
+            if exploreState != .ready {
+                exploreState = .ready
+            }
             return
         }
 

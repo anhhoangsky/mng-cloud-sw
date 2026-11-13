@@ -13,12 +13,12 @@ struct AlbumsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: isCompact ? 26 : 32) {
+            // Lazy sections keep the off-screen grids (and their thumbnails)
+            // out of the layout until they are needed. With a plain VStack
+            // every grid below the fold was created at once on tab entry,
+            // which is where the scroll used to stutter.
+            LazyVStack(alignment: .leading, spacing: isCompact ? 26 : 32) {
                 AIProgressBanner(status: albums.ai)
-
-                if albums.showsExploreSkeleton {
-                    ExploreSkeleton(isCompact: isCompact)
-                }
 
                 if let message = albums.exploreError {
                     AlbumPageError(message: message) {
@@ -154,9 +154,40 @@ struct AlbumsView: View {
                         title: Strings.albumYears,
                         message: Strings.albumYearsEmpty
                     )
+                } else if albums.albumsState == .loading {
+                    yearsSkeleton
                 }
             }
         }
+    }
+
+    /// One row of year cards. The cover block is a square because the four
+    /// thumbnails inside it are, so replacing the skeleton with the real card
+    /// keeps the page height unchanged.
+    private var yearsSkeleton: some View {
+        LazyVGrid(columns: albumColumns(albums.yearsGrid), spacing: cardGap) {
+            ForEach(0..<2, id: \.self) { _ in
+                VStack(alignment: .leading, spacing: 0) {
+                    ShimmerTile()
+                        .aspectRatio(1, contentMode: .fit)
+                    VStack(alignment: .leading, spacing: 5) {
+                        ShimmerTile()
+                            .frame(width: 78, height: 14)
+                            .clipShape(Capsule())
+                        ShimmerTile()
+                            .frame(width: 48, height: 10)
+                            .clipShape(Capsule())
+                    }
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 10)
+                }
+                .background(
+                    Palette.bgElevated2,
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                )
+            }
+        }
+        .accessibilityHidden(true)
     }
 
     private var peopleSection: some View {
@@ -172,7 +203,9 @@ struct AlbumsView: View {
             if albums.peopleOpen {
                 if !albums.people.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 14) {
+                        // The strip can hold hundreds of faces; a lazy row
+                        // only builds the cards that are actually on screen.
+                        LazyHStack(spacing: 14) {
                             ForEach(albums.sortedPeople) { person in
                                 PersonCard(
                                     model: model,
@@ -183,6 +216,8 @@ struct AlbumsView: View {
                         }
                         .padding(.bottom, 10)
                     }
+                } else if albums.exploreState == .loading {
+                    peopleSkeleton
                 } else if albums.exploreLoaded {
                     AlbumSectionEmpty(
                         icon: "person.crop.circle",
@@ -192,6 +227,22 @@ struct AlbumsView: View {
                 }
             }
         }
+    }
+
+    /// Six face placeholders at the same size as a real card. Explore fills
+    /// the strip in place instead of replacing one large block above the
+    /// whole page with a different one.
+    private var peopleSkeleton: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(spacing: 14) {
+                ForEach(0..<6, id: \.self) { _ in
+                    PersonCardSkeleton(size: personSize(albums.peopleGrid))
+                }
+            }
+            .padding(.bottom, 10)
+        }
+        .scrollDisabled(true)
+        .accessibilityHidden(true)
     }
 
     private var placesSection: some View {
@@ -213,6 +264,8 @@ struct AlbumsView: View {
                             }
                         }
                     }
+                } else if albums.exploreState == .loading {
+                    placesSkeleton
                 } else if albums.exploreLoaded {
                     AlbumSectionEmpty(
                         icon: "mappin.and.ellipse",
@@ -222,6 +275,17 @@ struct AlbumsView: View {
                 }
             }
         }
+    }
+
+    private var placesSkeleton: some View {
+        LazyVGrid(columns: placeColumns(albums.placesGrid), spacing: 12) {
+            ForEach(0..<4, id: \.self) { _ in
+                ShimmerTile()
+                    .aspectRatio(1.42, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+        }
+        .accessibilityHidden(true)
     }
 
     private var districtsSection: some View {
@@ -243,6 +307,8 @@ struct AlbumsView: View {
                             }
                         }
                     }
+                } else if albums.exploreState == .loading {
+                    districtsSkeleton
                 } else if albums.exploreLoaded {
                     AlbumSectionEmpty(
                         icon: "mappin.and.ellipse",
@@ -252,6 +318,33 @@ struct AlbumsView: View {
                 }
             }
         }
+    }
+
+    private var districtsSkeleton: some View {
+        LazyVGrid(columns: districtColumns(albums.districtsGrid), spacing: 12) {
+            ForEach(0..<2, id: \.self) { _ in
+                HStack(spacing: 13) {
+                    ShimmerTile()
+                        .frame(width: 56, height: 56)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    VStack(alignment: .leading, spacing: 6) {
+                        ShimmerTile()
+                            .frame(width: 118, height: 13)
+                            .clipShape(Capsule())
+                        ShimmerTile()
+                            .frame(width: 82, height: 10)
+                            .clipShape(Capsule())
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(11)
+                .background(
+                    Palette.bgGrouped,
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                )
+            }
+        }
+        .accessibilityHidden(true)
     }
 
     // MARK: - Bindings
@@ -520,12 +613,21 @@ private struct AlbumPhotoSection: View {
         AlbumSorting.items(items, sort: sort)
     }
 
+    /// The skeleton uses the same number of cells as the preview grid, so
+    /// swapping the shimmer for the first page does not change the height of
+    /// the section and cannot push the page under the finger.
     private var skeleton: some View {
-        LazyVGrid(columns: columns, spacing: grid.spacing) {
-            ForEach(0..<12, id: \.self) { _ in
-                ShimmerTile()
-                    .aspectRatio(1, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        VStack(spacing: 0) {
+            LazyVGrid(columns: columns, spacing: grid.spacing) {
+                ForEach(0..<(previewLimit ?? 12), id: \.self) { _ in
+                    ShimmerTile()
+                        .aspectRatio(1, contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                }
+            }
+            if previewLimit != nil {
+                // Reserve the "Xem tất cả" row that appears with the data.
+                Color.clear.frame(height: 54)
             }
         }
         .accessibilityHidden(true)
@@ -685,28 +787,17 @@ private struct AlbumCard: View {
     var body: some View {
         Button(action: onOpen) {
             VStack(alignment: .leading, spacing: 0) {
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(), spacing: 2),
-                        GridItem(.flexible(), spacing: 2),
-                    ],
-                    spacing: 2
-                ) {
-                    ForEach(0..<4, id: \.self) { slot in
-                        ZStack {
-                            Palette.fill2
-                            if slot < album.covers.count {
-                                ThumbnailView(
-                                    client: model.client,
-                                    path: album.covers[slot].thumbnailPath(size: 360)
-                                )
-                            } else {
-                                Image(systemName: "photo")
-                                    .font(Font.mng(18))
-                                    .foregroundStyle(Palette.text4)
-                            }
-                        }
-                        .aspectRatio(1, contentMode: .fit)
+                // Four fixed covers do not need a lazy grid. Two greedy rows
+                // split the card width evenly and keep every cover square,
+                // without another lazy container to measure inside the page.
+                VStack(spacing: 2) {
+                    HStack(spacing: 2) {
+                        cover(slot: 0)
+                        cover(slot: 1)
+                    }
+                    HStack(spacing: 2) {
+                        cover(slot: 2)
+                        cover(slot: 3)
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -727,6 +818,23 @@ private struct AlbumCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private func cover(slot: Int) -> some View {
+        ZStack {
+            Palette.fill2
+            if slot < album.covers.count {
+                ThumbnailView(
+                    client: model.client,
+                    path: album.covers[slot].thumbnailPath(size: 360)
+                )
+            } else {
+                Image(systemName: "photo")
+                    .font(Font.mng(18))
+                    .foregroundStyle(Palette.text4)
+            }
+        }
+        .aspectRatio(1, contentMode: .fit)
     }
 }
 
@@ -785,6 +893,27 @@ private struct PersonCard: View {
             .buttonStyle(.plain)
             .offset(x: -2, y: 2)
             .accessibilityLabel("\(Strings.personRenameTitle) \(AlbumCatalog.personTitle(person))")
+        }
+        .frame(width: size + 8)
+    }
+}
+
+private struct PersonCardSkeleton: View {
+    let size: CGFloat
+
+    var body: some View {
+        VStack(spacing: 7) {
+            Circle()
+                .fill(Palette.fill2)
+                .frame(width: size, height: size)
+
+            ShimmerTile()
+                .frame(width: size * 0.62, height: 16)
+                .clipShape(Capsule())
+
+            ShimmerTile()
+                .frame(width: size * 0.42, height: 13)
+                .clipShape(Capsule())
         }
         .frame(width: size + 8)
     }
@@ -955,67 +1084,20 @@ private struct AIProgressBanner: View {
                     .font(Font.mng(14, weight: .semibold))
                     .foregroundStyle(Palette.text)
                     .lineLimit(1)
+                // Reserve the second line even while the sentence is short.
+                // The AI counters change the sentence every few seconds, and
+                // a banner that grows a line would push the whole page down
+                // under the person's finger.
                 Text(body)
                     .font(Font.mng(12))
                     .foregroundStyle(Palette.text3)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(2, reservesSpace: true)
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 13)
         .background(Palette.bgGrouped, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-}
-
-private struct ExploreSkeleton: View {
-    let isCompact: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                Circle().fill(Palette.fill2).frame(width: 9, height: 9)
-                VStack(alignment: .leading, spacing: 4) {
-                    ShimmerTile().frame(width: 150, height: 11).clipShape(Capsule())
-                    ShimmerTile().frame(width: 220, height: 9).clipShape(Capsule())
-                }
-            }
-            .padding(13)
-            .background(Palette.bgGrouped, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-            Text(Strings.albumPeople)
-                .font(Font.mng(16, weight: .semibold))
-                .foregroundStyle(Palette.text2)
-
-            HStack(spacing: 14) {
-                ForEach(0..<6, id: \.self) { _ in
-                    VStack(spacing: 7) {
-                        Circle().fill(Palette.fill2).frame(width: 96, height: 96)
-                        ShimmerTile().frame(width: 60, height: 9).clipShape(Capsule())
-                        ShimmerTile().frame(width: 38, height: 8).clipShape(Capsule())
-                    }
-                    .frame(width: 104)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .clipped()
-
-            Text(Strings.albumPlaces)
-                .font(Font.mng(16, weight: .semibold))
-                .foregroundStyle(Palette.text2)
-
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: isCompact ? 150 : 170), spacing: 12)],
-                spacing: 12
-            ) {
-                ForEach(0..<3, id: \.self) { _ in
-                    ShimmerTile()
-                        .aspectRatio(1.42, contentMode: .fit)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-            }
-        }
-        .accessibilityHidden(true)
     }
 }
 

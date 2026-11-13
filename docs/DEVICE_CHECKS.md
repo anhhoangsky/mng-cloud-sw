@@ -44,6 +44,9 @@ usable in the simulator.
 
 - [ ] The seven sections collapse and expand; the sort and density controls
       apply per section.
+- [ ] Scrolling the Album tab is smooth while the AI/people/places sections
+      load: the page does not jump under the finger when the skeletons are
+      replaced.
 - [ ] The people grid shows 87 people, 8 provinces and 15 districts on the
       reference library.
 - [ ] The search field waits 280 ms, shows the five chips and the four hints.
@@ -69,6 +72,8 @@ usable in the simulator.
       `hashed < total`.
 - [ ] "Xem thêm N nhóm" reveals 30 more groups at a time.
 - [ ] Tapping a thumbnail opens the viewer with the whole group.
+- [ ] Closing and opening the duplicate sheet a second time does not crash;
+      the previous groups stay visible while the new list loads.
 - [ ] Deleting from that viewer removes the item and updates the library.
 
 ## Vault (`mng-vault/v1`)
