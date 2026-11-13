@@ -553,7 +553,7 @@ struct EditorView: View {
         _ layer: EditorTextLayer,
         fontSize: CGFloat
     ) -> some View {
-        let color = Palette.mngHex(layer.color) ?? .white
+        let color = Color.mngHex(layer.color) ?? .white
         let content = layer.text.isEmpty ? " " : layer.text
         let font = textFont(layer, size: fontSize)
         let alignment: TextAlignment
@@ -1137,7 +1137,8 @@ struct EditorView: View {
                 .monospacedDigit()
                 .foregroundStyle(Aurum.gold)
                 .padding(.horizontal, 9)
-                .frame(minWidth: 48, height: 32)
+                .frame(minWidth: 48)
+                .frame(height: 32)
                 .background(
                     Aurum.gold.opacity(0.14),
                     in: RoundedRectangle(cornerRadius: 11, style: .continuous)
@@ -1619,7 +1620,8 @@ struct EditorView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .padding(.horizontal, 5)
-                .frame(minWidth: 44, height: 28)
+                .frame(minWidth: 44)
+                .frame(height: 28)
                 .background(
                     active ? Aurum.gold.opacity(0.16) : Color.clear,
                     in: RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -1645,7 +1647,7 @@ struct EditorView: View {
         Binding(
             get: {
                 guard let text = editor.selectedText else { return .white }
-                return Palette.mngHex(text.color) ?? .white
+                return Color.mngHex(text.color) ?? .white
             },
             set: { color in
                 let hex = hexString(from: color)
