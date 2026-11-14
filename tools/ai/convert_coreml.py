@@ -308,7 +308,7 @@ def build_model(spec: dict[str, Any], checkpoint: Path) -> "Any":
                 _, _, matte = self.inner(image, True)
                 return matte
 
-        return Matting(inner)
+        return Matting(inner).eval()
 
     hair_class = int(spec.get("hairClass", 17))
 
@@ -327,7 +327,7 @@ def build_model(spec: dict[str, Any], checkpoint: Path) -> "Any":
             )
             return torch.sigmoid(hair - others.max(dim=1, keepdim=True).values)
 
-    return HairAlpha(inner)
+    return HairAlpha(inner).eval()
 
 
 def reference_postprocess(spec: dict[str, Any], raw: "Any") -> "Any":
@@ -528,18 +528,15 @@ def convert_one(
     converted = ct.convert(
         traced,
         inputs=[ct.TensorType(name=spec["inputName"], shape=spec["inputShape"], dtype=np.float32)],
+        # Naming the output here renames the graph output inside the MIL
+        # program. Renaming afterwards would require the weights directory, and
+        # an mlprogram cannot be rebuilt from its spec alone.
+        outputs=[ct.TensorType(name=spec["outputName"], dtype=np.float32)],
         convert_to="mlprogram",
         compute_precision=ct.precision.FLOAT16,
         minimum_deployment_target=ct.target.iOS17,
         skip_model_load=False,
     )
-
-    # Give the single output the name the native catalog expects.
-    model_spec = converted.get_spec()
-    old_output = model_spec.description.output[0].name
-    if old_output != spec["outputName"]:
-        ct.utils.rename_feature(model_spec, old_output, spec["outputName"])
-        converted = ct.models.MLModel(model_spec)
     converted.save(str(package))
     if not package.exists():
         raise SystemExit(f"{model_id}: Core ML package was not written")
