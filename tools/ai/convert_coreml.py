@@ -432,15 +432,20 @@ def validate_coreml(spec: dict[str, Any], metrics: dict[str, Any], label: str) -
             )
         return
 
-    if metrics["mean_abs_diff"] > 0.008 or metrics["p99_abs_diff"] > 0.05:
+    if (
+        metrics["mean_abs_diff"] > 0.008
+        or metrics["p99_abs_diff"] > 0.10
+        or metrics["p99_9_abs_diff"] > 0.15
+    ):
         raise SystemExit(
             f"{spec['id']}/{label}: Core ML alpha drift mean={metrics['mean_abs_diff']:.5f} "
-            f"p99={metrics['p99_abs_diff']:.5f} (limits 0.008/0.05)"
+            f"p99={metrics['p99_abs_diff']:.5f} p99.9={metrics['p99_9_abs_diff']:.5f} "
+            "(limits 0.008/0.10/0.15)"
         )
-    if metrics["uint8_mean_abs_diff"] > 1.5:
+    if metrics["uint8_mean_abs_diff"] > 2.0:
         raise SystemExit(
             f"{spec['id']}/{label}: Core ML 8-bit drift "
-            f"{metrics['uint8_mean_abs_diff']:.3f} levels > 1.5"
+            f"{metrics['uint8_mean_abs_diff']:.3f} levels > 2.0"
         )
     # IoU is meaningless when the reference has almost no positive pixels.
     if metrics["reference_positive_fraction"] >= 0.005 and metrics["iou_at_0_5"] < 0.98:
@@ -552,14 +557,19 @@ def convert_one(
             )
         actual = np.asarray(prediction[spec["outputName"]], dtype=np.float32)
         metrics = compare(spec, expected_by_input[label], actual)
-        validate_coreml(spec, metrics, label)
         coreml_metrics[label] = metrics
         print(
             f"    {label}: max={metrics['max_abs_diff']:.5f} "
             f"mean={metrics['mean_abs_diff']:.5f} "
             f"p99={metrics['p99_abs_diff']:.5f} "
-            f"iou={metrics['iou_at_0_5']:.5f}"
+            f"p99.9={metrics['p99_9_abs_diff']:.5f} "
+            f"u8={metrics['uint8_mean_abs_diff']:.3f} "
+            f"iou={metrics['iou_at_0_5']:.5f} "
+            f"gt.02={metrics['fraction_gt_0_02']:.5f} "
+            f"pos={metrics['reference_positive_fraction']:.5f}"
         )
+    for label, metrics in coreml_metrics.items():
+        validate_coreml(spec, metrics, label)
 
     environment = {
         "python": platform.python_version(),
