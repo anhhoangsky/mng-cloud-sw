@@ -379,17 +379,17 @@ Initial entries:
 
 | id | version | tier | archive | license | parity |
 |---|---|---|---|---|---|
-| `modnet-fp16` | `1.0.0+fa2fa54` | balanced | 12,984,781 B | Apache-2.0 | web Fast |
+| `modnet-fp16` | `1.0.0+28165a4` | balanced | TBD (checkpoint 26,255,603 B) | Apache-2.0 | web Fast |
 | `birefnet-lite-512-fp16` | `1.0.0+962e679` | quality | 98,484,532 B | MIT | web Balanced |
 | `ben2-fp16` | `1.0.0` | maximum | 219,121,675 B | MIT | closest to web Quality |
-| `bisenet-face-parsing` | `1.0.0` | retouch | 53,205,364 B | MIT | web hair |
+| `bisenet-hair` | `1.0.0+4f0632b` | retouch | TBD (checkpoint 55,361,505 B) | MIT | web hair |
 | `isnet-fp16` | `1.0.0` | maximum (gated) | 88,116,798 B | blocked | exact web Quality |
 
-The SHA-256 values are the web pins (`aurum-repo/src/ai-engine/registry.ts`)
-for MODNet/BiRefNet/ISNet and the locally verified bytes for BEN2
-(`dfdc25f4…`) and BiSeNet (`0d9bd318…`). The converted Core ML archives will
-have their own hashes; record them when the conversion job produces the
-artifact.
+The sizes above are the upstream web artifacts until the conversion job runs.
+`models.json` pins the exact source bytes and hashes; the Core ML archives will
+have their own `archiveSha256` and `archiveBytes`, recorded in the conversion
+metadata and then in the app catalog. The native handsets must never use the
+web pins as archive hashes.
 
 ### 6.2 Download, verify, install
 
@@ -505,19 +505,27 @@ Conversion runs on macOS in CI, never on the phone and never on Windows. The
 Windows workstation can audit ONNX graphs and quality, but `coremltools`
 requires macOS.
 
-1. **Job:** GitHub Actions `macos-15`, Python 3.11, `coremltools` 8.x,
-   PyTorch/ONNX as needed. The job downloads the pinned source bytes, converts,
-   validates and uploads the archive as a release asset.
-2. **Format:** `mlprogram`, Float16 weights, fixed input geometry for the
-   first version. MODNet can use `EnumeratedShapes` for common aspect ratios;
-   if that complicates the first ship, convert fixed 512×512 and pad/crop.
-3. **Validation:** run the converted model on a fixed golden image, compare
-   alpha to the ONNX reference (max abs diff ≤ 0.02, mean abs diff ≤ 0.005),
-   and fail the job on drift. Keep a small golden alpha PNG in
-   `Tests/Fixtures/AI` (not the model weights).
+1. **Job:** GitHub Actions `macos-15`, Python 3.11, `coremltools` 9.0 and
+   `torch` 2.7. coremltools 9 removed the ONNX importer, so the job rebuilds
+   each model in PyTorch from its official checkpoint, proves it against the
+   pinned fp32 ONNX reference, and converts the traced graph. The job uploads
+   the archive as a build artifact; publishing it to the release CDN is a
+   separate, manual step until the first benchmark passes.
+2. **Format:** `mlprogram`, Float16 weights, fixed 512×512 input for the first
+   version. The app letterboxes non-square images, runs the model and crops the
+   alpha back. `EnumeratedShapes` can come after the device benchmark if the
+   letterbox costs measurable quality.
+3. **Validation:** two gates. The PyTorch graph must match ONNX almost
+   exactly (max abs diff ≤ 2e-3, mean ≤ 5e-5; BiSeNet hair max 3e-7 on the
+   golden portrait). The converted Core ML model is fp16, so it is checked for
+   structure rather than bit equality: mean alpha drift ≤ 0.008, p99 ≤ 0.05,
+   8-bit mean drift ≤ 1.5 levels and IoU ≥ 0.98 when the reference has at least
+   0.5% foreground. Every run uses a synthetic geometric tensor plus the
+   MediaPipe portrait fixture in `tools/ai/test-assets`.
 4. **Pin:** record the archive SHA-256, uncompressed size, Core ML
    specification version, compute-unit results and conversion notes in the
-   catalog.
+   catalog. The app catalog is only updated after a successful CI run and a
+   physical-device benchmark.
 5. **Compute units:** try `.all` first; measure ANE vs GPU. ISNet is the most
    ANE-friendly graph in the set (425 simple ops), though `Resize`/`Cast` may
    force partitions, so measure rather than assume. BiRefNet's 17,490-node
