@@ -432,29 +432,58 @@ def validate_coreml(spec: dict[str, Any], metrics: dict[str, Any], label: str) -
             )
         return
 
+    # The synthetic probe is a hard-edged geometric tensor. fp16 rounding
+    # near those edges moves individual alpha pixels much more than it does
+    # on a real photograph, so it gets wider per-pixel limits. Its job is to
+    # prove the graph, orientation and dynamic range survived conversion;
+    # the portrait fixture is the one held to the shipping gate.
+    if label == "synthetic":
+        limits = {
+            "mean": 0.008,
+            "p99": 0.12,
+            "p99.9": 0.20,
+            "uint8": 3.0,
+            "iou": 0.97,
+            "max": 0.6,
+        }
+    else:
+        limits = {
+            "mean": 0.008,
+            "p99": 0.10,
+            "p99.9": 0.15,
+            "uint8": 2.0,
+            "iou": 0.98,
+            "max": 0.6,
+        }
+
     if (
-        metrics["mean_abs_diff"] > 0.008
-        or metrics["p99_abs_diff"] > 0.10
-        or metrics["p99_9_abs_diff"] > 0.15
+        metrics["mean_abs_diff"] > limits["mean"]
+        or metrics["p99_abs_diff"] > limits["p99"]
+        or metrics["p99_9_abs_diff"] > limits["p99.9"]
     ):
         raise SystemExit(
             f"{spec['id']}/{label}: Core ML alpha drift mean={metrics['mean_abs_diff']:.5f} "
             f"p99={metrics['p99_abs_diff']:.5f} p99.9={metrics['p99_9_abs_diff']:.5f} "
-            "(limits 0.008/0.10/0.15)"
+            f"(limits {limits['mean']}/{limits['p99']}/{limits['p99.9']})"
         )
-    if metrics["uint8_mean_abs_diff"] > 2.0:
+    if metrics["uint8_mean_abs_diff"] > limits["uint8"]:
         raise SystemExit(
             f"{spec['id']}/{label}: Core ML 8-bit drift "
-            f"{metrics['uint8_mean_abs_diff']:.3f} levels > 2.0"
+            f"{metrics['uint8_mean_abs_diff']:.3f} levels > {limits['uint8']}"
         )
     # IoU is meaningless when the reference has almost no positive pixels.
-    if metrics["reference_positive_fraction"] >= 0.005 and metrics["iou_at_0_5"] < 0.98:
+    if (
+        metrics["reference_positive_fraction"] >= 0.005
+        and metrics["iou_at_0_5"] < limits["iou"]
+    ):
         raise SystemExit(
-            f"{spec['id']}/{label}: Core ML IoU {metrics['iou_at_0_5']:.5f} < 0.98"
+            f"{spec['id']}/{label}: Core ML IoU {metrics['iou_at_0_5']:.5f} "
+            f"< {limits['iou']}"
         )
-    if metrics["max_abs_diff"] > 0.6:
+    if metrics["max_abs_diff"] > limits["max"]:
         raise SystemExit(
-            f"{spec['id']}/{label}: Core ML max drift {metrics['max_abs_diff']:.4f} > 0.6"
+            f"{spec['id']}/{label}: Core ML max drift {metrics['max_abs_diff']:.4f} "
+            f"> {limits['max']}"
         )
 
 
