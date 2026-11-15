@@ -59,7 +59,22 @@ jobs:
         run: python tools/ai/convert_coreml.py --validate-only --model all
 
       - name: Convert and validate
-        run: python tools/ai/convert_coreml.py --model all
+        run: |
+          set -o pipefail
+          mkdir -p tools/ai/artifacts
+          python tools/ai/convert_coreml.py --model all 2>&1 | tee tools/ai/artifacts/convert.log
+
+      - name: Upload conversion log on failure
+        # Anonymous callers cannot download Actions logs, so keep the traceback
+        # with the run itself. The normal artifact below is only uploaded after
+        # every model has converted and passed its gates.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-convert-log-${{ github.run_id }}
+          path: tools/ai/artifacts/convert.log
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Show artifact summary
         run: |
