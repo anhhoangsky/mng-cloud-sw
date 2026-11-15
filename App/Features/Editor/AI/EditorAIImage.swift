@@ -183,4 +183,41 @@ enum EditorAIImage {
             .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
             .cropped(to: extent)
     }
+
+    /// A grayscale bitmap from a float alpha plane. Row 0 stays at the top;
+    /// the Core ML output is already top-down, so no flip is applied.
+    static func alphaImage(
+        _ values: [Float],
+        width: Int,
+        height: Int
+    ) throws -> CIImage {
+        guard width > 0, height > 0,
+              values.count == width * height else {
+            throw EditorAIError.failed
+        }
+        var bytes = [UInt8](repeating: 0, count: values.count)
+        for index in 0..<values.count {
+            let value = min(max(values[index], 0), 1)
+            bytes[index] = UInt8((value * 255).rounded())
+        }
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData),
+              let image = CGImage(
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bitsPerPixel: 8,
+                bytesPerRow: width,
+                space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGBitmapInfo(
+                    rawValue: CGImageAlphaInfo.none.rawValue
+                ),
+                provider: provider,
+                decode: nil,
+                shouldInterpolate: true,
+                intent: .defaultIntent
+              ) else {
+            throw EditorAIError.failed
+        }
+        return CIImage(cgImage: image)
+    }
 }

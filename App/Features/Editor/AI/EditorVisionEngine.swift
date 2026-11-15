@@ -41,7 +41,7 @@ struct EditorVisionEngine: EditorAISegmentationEngine {
             mask: mask,
             engineID: id,
             modelID: nil,
-            inferenceMilliseconds: Self.milliseconds(since: started),
+            inferenceMilliseconds: EditorAIClock.milliseconds(since: started),
             usedFallback: false
         )
     }
@@ -73,11 +73,5 @@ struct EditorVisionEngine: EditorAISegmentationEngine {
             throw EditorAIError.noSubject
         }
         return CIImage(cvPixelBuffer: observation.pixelBuffer)
-    }
-
-    private static func milliseconds(since start: ContinuousClock.Instant) -> Double {
-        let elapsed = ContinuousClock.now - start
-        return Double(elapsed.components.seconds) * 1000
-            + Double(elapsed.components.attoseconds) / 1_000_000_000_000_000
     }
 }

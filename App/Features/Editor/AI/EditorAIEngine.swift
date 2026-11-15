@@ -9,6 +9,9 @@ import MNGEdit
 struct EditorAIContentHints: Equatable, Sendable {
     var hasPerson = false
     var hasFace = false
+    /// Normalised face boxes, top-down, largest first. Passing them to the
+    /// face parser avoids a second Vision pass in the hair retouch.
+    var faces: [EditorAIFaceBox] = []
 }
 
 struct EditorAISegmentationRequest: Sendable {
@@ -58,4 +61,12 @@ enum EditorAIEngineFallback: Error {
     case notInstalled(String)
     case unavailable(String)
     case inferenceFailed(String)
+}
+
+enum EditorAIClock {
+    static func milliseconds(since start: ContinuousClock.Instant) -> Double {
+        let elapsed = ContinuousClock.now - start
+        return Double(elapsed.components.seconds) * 1000
+            + Double(elapsed.components.attoseconds) / 1_000_000_000_000_000
+    }
 }
