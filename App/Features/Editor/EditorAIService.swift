@@ -13,6 +13,9 @@ import Vision
 /// and face landmarks, then Core Image for the compositing. Everything runs on
 /// the device; no pixels leave it before the normal edit upload.
 enum EditorAIModel: String, CaseIterable, Identifiable, Sendable {
+    /// The best engine the device can run. Declared first so `allCases`
+    /// keeps the picker ordered best-to-fastest, like the web.
+    case maximum
     case quality
     case balanced
     case fast
@@ -21,6 +24,7 @@ enum EditorAIModel: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
+        case .maximum: return Strings.editorAIModelMaximum
         case .quality: return Strings.editorAIModelQuality
         case .balanced: return Strings.editorAIModelBalanced
         case .fast: return Strings.editorAIModelFast
@@ -29,6 +33,7 @@ enum EditorAIModel: String, CaseIterable, Identifiable, Sendable {
 
     var detail: String {
         switch self {
+        case .maximum: return "Vision · Chủ thể · Tối đa"
         case .quality: return "Vision · Chủ thể · Viền tóc mịn"
         case .balanced: return "Vision · Chủ thể · Cân bằng"
         case .fast: return "Vision · Người · Nhanh"
@@ -212,22 +217,36 @@ enum EditorAIService {
                 ? Strings.editorAISegmentingPerson
                 : Strings.editorAISegmenting
         )
-        let input = try makeImage(source)
-        let maskImage: CIImage
-        if mode == .person || model == .fast {
-            maskImage = try personMask(image: input, fast: model == .fast)
-        } else {
+        let request = EditorAISegmentationRequest(
+            source: source,
+            mode: mode,
+            hints: EditorAIContentHints(),
+            report: report
+        )
+        let engines = EditorAIEngineSelector.engines(
+            for: model,
+            mode: mode,
+            content: request.hints
+        )
+        var lastError: Error = EditorAIError.failed
+        for engine in engines {
+            try Task.checkCancellation()
             do {
-                maskImage = try foregroundMask(image: input)
+                let result = try await engine.segment(request)
+                try Task.checkCancellation()
+                await report(Strings.editorAICompositing)
+                return result.mask
             } catch EditorAIError.noSubject {
                 // A photo without a liftable object can still contain a
-                // person; MODNet is the sensible fallback on the phone.
-                maskImage = try personMask(image: input, fast: false)
+                // person; the next engine is the person segmentation.
+                lastError = EditorAIError.noSubject
+            } catch let fallback as EditorAIEngineFallback {
+                // A missing or failed model is recoverable: the list always
+                // ends with the bundled Vision engine.
+                lastError = fallback
             }
         }
-        try Task.checkCancellation()
-        await report(Strings.editorAICompositing)
-        return try makeMask(from: maskImage, maxSide: 1024)
+        throw lastError
     }
 
     /// Return the skin (or hair) weight map without baking the retouch. The
@@ -239,12 +258,12 @@ enum EditorAIService {
     ) async throws -> EditorAIMask {
         try Task.checkCancellation()
         await report(Strings.editorAIFace)
-        let input = try makeImage(source)
+        let input = try EditorAIImage.makeImage(source)
         let masks = try faceMasks(image: input, extent: input.extent)
         try Task.checkCancellation()
         await report(Strings.editorAIRetouchRunning)
         let selected = mode == .hair ? masks.hair : masks.skin
-        var mask = try makeMask(from: selected, maxSide: 1024)
+        var mask = try EditorAIImage.makeMask(from: selected, maxSide: 1024)
         if mode == .blemish {
             // The web starts blemish with an empty mask: the user paints the
             // spots to heal with the brush.
@@ -266,10 +285,10 @@ enum EditorAIService {
         blurStrength: Float,
         maxSide: CGFloat
     ) throws -> EditorSourceSnapshot {
-        let input = try scaledImage(source, maxSide: maxSide)
+        let input = try EditorAIImage.scaledImage(source, maxSide: maxSide)
         let output = try composeBackground(
             input: input,
-            mask: try maskImage(mask),
+            mask: try EditorAIImage.maskImage(mask),
             mode: mode,
             transparent: transparent,
             blurStrength: blurStrength
@@ -278,7 +297,7 @@ enum EditorAIService {
             output,
             checkerboard: transparent || mode.keepsTransparency
         )
-        return try snapshot(
+        return try EditorAIImage.snapshot(
             from: preview,
             width: Int(input.extent.width.rounded()),
             height: Int(input.extent.height.rounded())
@@ -292,15 +311,15 @@ enum EditorAIService {
         transparent: Bool,
         blurStrength: Float
     ) throws -> EditorSourceSnapshot {
-        let input = try makeImage(source)
+        let input = try EditorAIImage.makeImage(source)
         let output = try composeBackground(
             input: input,
-            mask: try maskImage(mask),
+            mask: try EditorAIImage.maskImage(mask),
             mode: mode,
             transparent: transparent,
             blurStrength: blurStrength
         )
-        return try snapshot(
+        return try EditorAIImage.snapshot(
             from: output,
             width: Int(source.width),
             height: Int(source.height)
@@ -316,16 +335,16 @@ enum EditorAIService {
         hairColor: EditorAIHairColor,
         maxSide: CGFloat
     ) throws -> EditorSourceSnapshot {
-        let input = try scaledImage(source, maxSide: maxSide)
+        let input = try EditorAIImage.scaledImage(source, maxSide: maxSide)
         let output = composeRetouch(
             input: input,
-            mask: try maskImage(mask),
+            mask: try EditorAIImage.maskImage(mask),
             mode: mode,
             strength: strength,
             tone: tone,
             hairColor: hairColor
         )
-        return try snapshot(
+        return try EditorAIImage.snapshot(
             from: output,
             width: Int(input.extent.width.rounded()),
             height: Int(input.extent.height.rounded())
@@ -340,16 +359,16 @@ enum EditorAIService {
         tone: Float,
         hairColor: EditorAIHairColor
     ) throws -> EditorSourceSnapshot {
-        let input = try makeImage(source)
+        let input = try EditorAIImage.makeImage(source)
         let output = composeRetouch(
             input: input,
-            mask: try maskImage(mask),
+            mask: try EditorAIImage.maskImage(mask),
             mode: mode,
             strength: strength,
             tone: tone,
             hairColor: hairColor
         )
-        return try snapshot(
+        return try EditorAIImage.snapshot(
             from: output,
             width: Int(source.width),
             height: Int(source.height)
@@ -366,7 +385,7 @@ enum EditorAIService {
         blurStrength: Float
     ) throws -> CIImage {
         let extent = input.extent
-        let scaledMask = scaleMask(mask, to: extent)
+        let scaledMask = EditorAIImage.scaleMask(mask, to: extent)
         let effective: EditorAIBackgroundMode = transparent ? .remove : mode
         let background: CIImage
         switch effective {
@@ -412,7 +431,7 @@ enum EditorAIService {
         hairColor: EditorAIHairColor
     ) -> CIImage {
         let extent = input.extent
-        let scaledMask = scaleMask(mask, to: extent)
+        let scaledMask = EditorAIImage.scaleMask(mask, to: extent)
         let amount = CGFloat(min(max(strength, 0), 1))
         let effect: CIImage
         let blendStrength: CGFloat
@@ -493,34 +512,7 @@ enum EditorAIService {
         return (over.outputImage ?? image).cropped(to: extent)
     }
 
-    // MARK: - Vision masks
-
-    private static func foregroundMask(image: CIImage) throws -> CIImage {
-        let handler = VNImageRequestHandler(ciImage: image, options: [:])
-        let request = VNGenerateForegroundInstanceMaskRequest()
-        try handler.perform([request])
-        guard let result = request.results?.first,
-              !result.allInstances.isEmpty else {
-            throw EditorAIError.noSubject
-        }
-        let buffer = try result.generateScaledMaskForImage(
-            forInstances: result.allInstances,
-            from: handler
-        )
-        return CIImage(cvPixelBuffer: buffer)
-    }
-
-    private static func personMask(image: CIImage, fast: Bool) throws -> CIImage {
-        let handler = VNImageRequestHandler(ciImage: image, options: [:])
-        let request = VNGeneratePersonSegmentationRequest()
-        request.qualityLevel = fast ? .fast : .accurate
-        request.outputPixelFormat = kCVPixelFormatType_OneComponent8
-        try handler.perform([request])
-        guard let observation = request.results?.first else {
-            throw EditorAIError.noSubject
-        }
-        return CIImage(cvPixelBuffer: observation.pixelBuffer)
-    }
+    // MARK: - Face masks
 
     private struct FaceMasks {
         var skin: CIImage
@@ -637,178 +629,6 @@ enum EditorAIService {
             .applyingGaussianBlur(sigma: feather)
             .cropped(to: maskExtent)
         return FaceMasks(skin: skin, hair: hair)
-    }
-
-    // MARK: - Core Image helpers
-
-    private static func makeContext() -> CIContext {
-        CIContext(options: [
-            .workingColorSpace: CGColorSpaceCreateDeviceRGB(),
-            .outputColorSpace: CGColorSpaceCreateDeviceRGB(),
-        ])
-    }
-
-    private static func makeImage(
-        _ source: EditorSourceSnapshot
-    ) throws -> CIImage {
-        guard source.width > 0, source.height > 0 else {
-            throw EditorAIError.failed
-        }
-        let expected = Int(source.width) * Int(source.height) * 4
-        guard source.rgba.count == expected,
-              let provider = CGDataProvider(
-                data: Data(source.rgba) as CFData
-              ),
-              let cgImage = CGImage(
-                width: Int(source.width),
-                height: Int(source.height),
-                bitsPerComponent: 8,
-                bitsPerPixel: 32,
-                bytesPerRow: Int(source.width) * 4,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGBitmapInfo(
-                    rawValue: CGImageAlphaInfo.last.rawValue
-                ),
-                provider: provider,
-                decode: nil,
-                shouldInterpolate: false,
-                intent: .defaultIntent
-              ) else {
-            throw EditorAIError.failed
-        }
-        return CIImage(cgImage: cgImage)
-    }
-
-    private static func scaledImage(
-        _ source: EditorSourceSnapshot,
-        maxSide: CGFloat
-    ) throws -> CIImage {
-        let input = try makeImage(source)
-        let extent = input.extent
-        let side = max(extent.width, extent.height)
-        guard maxSide > 0, side > maxSide else { return input }
-        let scale = maxSide / side
-        let width = max(1, (extent.width * scale).rounded())
-        let height = max(1, (extent.height * scale).rounded())
-        let target = CGRect(x: 0, y: 0, width: width, height: height)
-        return input
-            .transformed(
-                by: CGAffineTransform(scaleX: scale, y: scale)
-            )
-            .cropped(to: target)
-    }
-
-    /// The mask as a top-down Core Image bitmap. The brush stores the same
-    /// row order, so the painted edge lands on the pixel under the finger.
-    private static func maskImage(_ mask: EditorAIMask) throws -> CIImage {
-        guard mask.width > 0,
-              mask.height > 0,
-              mask.bytes.count == mask.width * mask.height,
-              let provider = CGDataProvider(
-                data: Data(mask.bytes) as CFData
-              ),
-              let image = CGImage(
-                width: mask.width,
-                height: mask.height,
-                bitsPerComponent: 8,
-                bitsPerPixel: 8,
-                bytesPerRow: mask.width,
-                space: CGColorSpaceCreateDeviceGray(),
-                bitmapInfo: CGBitmapInfo(
-                    rawValue: CGImageAlphaInfo.none.rawValue
-                ),
-                provider: provider,
-                decode: nil,
-                shouldInterpolate: true,
-                intent: .defaultIntent
-              ) else {
-            throw EditorAIError.failed
-        }
-        return CIImage(cgImage: image)
-    }
-
-    private static func makeMask(
-        from image: CIImage,
-        maxSide: Int
-    ) throws -> EditorAIMask {
-        let extent = image.extent
-        guard extent.width >= 1, extent.height >= 1, maxSide > 0 else {
-            throw EditorAIError.failed
-        }
-        let side = max(extent.width, extent.height)
-        let scale = side > CGFloat(maxSide) ? CGFloat(maxSide) / side : 1
-        let width = max(1, Int((extent.width * scale).rounded()))
-        let height = max(1, Int((extent.height * scale).rounded()))
-        let target = CGRect(
-            x: 0,
-            y: 0,
-            width: CGFloat(width),
-            height: CGFloat(height)
-        )
-        let scaled = image
-            .transformed(
-                by: CGAffineTransform(scaleX: scale, y: scale)
-            )
-            .cropped(to: target)
-        let context = makeContext()
-        guard let cgImage = context.createCGImage(
-            scaled,
-            from: target,
-            format: .RGBA8,
-            colorSpace: CGColorSpaceCreateDeviceRGB()
-        ), let converted = EditorBitmap.topDownRGBA(from: cgImage) else {
-            throw EditorAIError.failed
-        }
-        guard converted.width == width, converted.height == height else {
-            throw EditorAIError.failed
-        }
-        var bytes = [UInt8](repeating: 0, count: width * height)
-        let count = min(bytes.count, converted.width * converted.height)
-        var index = 0
-        while index < count {
-            bytes[index] = converted.rgba[index * 4]
-            index += 1
-        }
-        return EditorAIMask(width: width, height: height, bytes: bytes)
-    }
-
-    private static func snapshot(
-        from image: CIImage,
-        width: Int,
-        height: Int
-    ) throws -> EditorSourceSnapshot {
-        guard width > 0, height > 0 else { throw EditorAIError.failed }
-        let extent = CGRect(
-            x: 0,
-            y: 0,
-            width: CGFloat(width),
-            height: CGFloat(height)
-        )
-        let context = makeContext()
-        guard let cgImage = context.createCGImage(
-            image.cropped(to: extent),
-            from: extent,
-            format: .RGBA8,
-            colorSpace: CGColorSpaceCreateDeviceRGB()
-        ), let converted = EditorBitmap.topDownRGBA(from: cgImage) else {
-            throw EditorAIError.failed
-        }
-        return EditorSourceSnapshot(
-            width: UInt32(converted.width),
-            height: UInt32(converted.height),
-            rgba: converted.rgba
-        )
-    }
-
-    private static func scaleMask(
-        _ mask: CIImage,
-        to extent: CGRect
-    ) -> CIImage {
-        let scaleX = extent.width / max(mask.extent.width, 1)
-        let scaleY = extent.height / max(mask.extent.height, 1)
-        return mask
-            .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
-            .cropped(to: extent)
     }
 
     private static func blend(
