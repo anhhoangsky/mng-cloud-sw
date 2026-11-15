@@ -205,15 +205,19 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - The source is decoded locally with ImageIO and the EXIF orientation applied,
   so HEIC works without the server's HEIC-only `edit-source` route.
 - Difference: the web's AI runs downloaded ONNX models (ISNet/BiRefNet/
-  MODNet, Real-ESRGAN, AI Retouch). The native AI tab currently runs Apple
-  Vision on-device: subject and person segmentation, face landmarks, and Core
-  Image compositing for the same background and retouch actions. Like the web,
-  a pass first returns a soft mask to a brush step (add/erase, size, stroke
-  undo, invert, transparent background) and the blur/retouch sliders stay live
-  until "Hoàn tất"; the mask is then baked into the source. Beauty and liquify
-  are not ported. The planned Core ML tiers (on-demand download, BiRefNet/
-  BEN2/BiSeNet, ISNet still license-blocked) are specified in
-  [`AI_NATIVE_ENGINE.md`](AI_NATIVE_ENGINE.md) and are **not implemented yet**.
+  MODNet, Real-ESRGAN, AI Retouch). The native AI tab runs Apple Vision
+  on-device by default: subject and person segmentation, face landmarks, and
+  Core Image compositing for the same background and retouch actions. Two
+  paths can download a pinned Core ML model instead: Balanced offers MODNet 512
+  when the Vision probe finds a person, and the hair retouch offers BiSeNet
+  face parsing for every tier. Vision stays the fallback, so no tier requires
+  a download. Like the web, a pass first returns a soft mask to a brush step
+  (add/erase, size, stroke undo, invert, transparent background) and the
+  blur/retouch sliders stay live until "Hoàn tất"; the mask is then baked into
+  the source. Beauty and liquify are not ported. Quality (BiRefNet) and
+  Maximum (BEN2) still run Vision until their archives are published; ISNet
+  remains license-blocked. Details are in
+  [`AI_NATIVE_ENGINE.md`](AI_NATIVE_ENGINE.md).
 
 ## Round 4 notes
 
