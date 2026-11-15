@@ -63,8 +63,8 @@ struct EditorCoreMLEngine: EditorAISegmentationEngine {
         }
         try Task.checkCancellation()
 
-        // A portrait matte that returns nothing is a no-subject result, not a
-        // valid empty mask: drop to the Vision subject/person engines.
+        // A model that returns nothing is a no-subject result, not a valid
+        // empty mask: drop to the Vision subject/person engines.
         let coverage = alpha.values.reduce(0, +)
             / Float(max(alpha.values.count, 1))
         guard coverage > 0.0005 else {

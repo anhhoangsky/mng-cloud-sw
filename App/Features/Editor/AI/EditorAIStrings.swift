@@ -43,5 +43,6 @@ extension Strings {
         "Đã cài \(name). Lần tách nền sau sẽ dùng mô hình này."
     }
     static let editorAIModelDownloadCancelled = "Đã hủy tải mô hình."
+    static let editorAIModelNeedsWiFi = "Cần Wi-Fi để tải mô hình này."
     static let editorAIDetecting = "Đang nhận diện chủ thể…"
 }

@@ -6,6 +6,7 @@ import ZIPFoundation
 enum EditorAIModelStoreError: LocalizedError {
     case notInstalled
     case downloadFailed
+    case needsWiFi
     case checksumMismatch
     case wrongSize(expected: Int64, actual: Int64)
     case unpackFailed
@@ -18,6 +19,7 @@ enum EditorAIModelStoreError: LocalizedError {
         switch self {
         case .notInstalled: return Strings.editorAIModelNotInstalled
         case .downloadFailed: return Strings.editorAIDownloadFailed
+        case .needsWiFi: return Strings.editorAIModelNeedsWiFi
         case .checksumMismatch: return Strings.editorAIModelChecksum
         case .wrongSize: return Strings.editorAIModelWrongSize
         case .unpackFailed: return Strings.editorAIModelUnpack
@@ -372,6 +374,9 @@ actor EditorAIModelStore {
             )
         } catch let error as URLError where error.code == .cancelled {
             throw CancellationError()
+        } catch let error as URLError where error.code == .dataNotAllowed {
+            // The descriptor requires Wi-Fi and the device is on cellular.
+            throw EditorAIModelStoreError.needsWiFi
         } catch is CancellationError {
             throw CancellationError()
         } catch {

@@ -193,12 +193,19 @@ usable in the simulator.
       downloaded Core ML model needs no network).
 - [ ] Choosing Cân bằng on a fresh install offers the MODNet download; the
       pass still runs on Vision while the sheet is open or after cancelling.
+- [ ] Choosing Chất lượng on a fresh install offers the 82 MB BiRefNet
+      download; the sheet says it needs Wi-Fi, a cellular attempt reports the
+      Wi-Fi message, and cancelling leaves the pass on Vision.
+- [ ] After BiRefNet installs, Quality runs the model on a portrait and on a
+      product/landscape shot; the detail line still offers Vision as fallback
+      and deleting the model returns to Vision without an error.
 - [ ] The first hair pass offers BiSeNet after the Vision ellipse mask
       appears; after install the next pass follows a ponytail.
 
-The Phase 2 model download/fallback/hair-parity matrix is in
-[`AI_BENCHMARK.md`](AI_BENCHMARK.md) §9. Quality and Maximum still name Vision
-in the detail line until BiRefNet and BEN2 have published archives.
+The Phase 2/Phase 4 model download/fallback/quality matrix is in
+[`AI_BENCHMARK.md`](AI_BENCHMARK.md) §9. Quality names BiRefNet with a Vision
+fallback on a fresh install; Maximum still names Vision until BEN2 has a
+published archive.
 
 ## Administration (admin account only)
 

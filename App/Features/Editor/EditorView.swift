@@ -2916,6 +2916,17 @@ struct EditorView: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 12)
 
+                if descriptor.requiresWiFi {
+                    HStack(spacing: 5) {
+                        Image(systemName: "wifi")
+                            .font(Font.mng(10, weight: .semibold))
+                        Text(Strings.editorAIModelNeedsWiFi)
+                            .font(Font.mng(10.5, weight: .medium))
+                    }
+                    .foregroundStyle(Aurum.gold.opacity(0.85))
+                    .padding(.top, 6)
+                }
+
                 if editor.aiModelDownloadBusy {
                     VStack(spacing: 10) {
                         ProgressView(value: editor.aiModelDownloadProgress)

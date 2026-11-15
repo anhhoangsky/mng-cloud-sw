@@ -34,14 +34,14 @@ enum EditorAIModel: String, CaseIterable, Identifiable, Sendable {
     var detail: String {
         switch self {
         case .maximum: return "Vision · Chủ thể · Tối đa"
-        case .quality: return "Vision · Chủ thể · Viền tóc mịn"
+        case .quality: return "BiRefNet / Vision · Viền tóc mịn"
         case .balanced: return "MODNet / Vision · Người · Cân bằng"
         case .fast: return "Vision · Người · Nhanh"
         }
     }
 
-    /// The quality tier's downloadable model. Fast is Vision-only, and the
-    /// tiers without a published archive stay on Vision until they have one.
+    /// The downloadable model tier for each engine. Fast is Vision-only; a
+    /// tier whose model is not installed still falls back to Vision.
     var modelTier: EditorAIModelTier? {
         switch self {
         case .maximum: return .maximum

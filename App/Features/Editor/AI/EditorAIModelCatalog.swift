@@ -68,10 +68,10 @@ struct EditorAIModelDescriptor: Identifiable, Equatable, Sendable {
     }
 }
 
-/// The models that have been converted, published and pinned. Quality and
-/// Maximum stay on Vision until BiRefNet and BEN2 have their own successful
-/// conversion runs; adding an entry here without a real archive would make
-/// the download button fail and the tier label lie.
+/// The models that have been converted, published and pinned. Maximum stays
+/// on Vision until BEN2 has its own successful conversion run; adding an
+/// entry here without a real archive would make the download button fail and
+/// the tier label lie.
 enum EditorAIModelCatalog {
     static let modnet = EditorAIModelDescriptor(
         id: "modnet-fp16",
@@ -98,6 +98,33 @@ enum EditorAIModelCatalog {
         requiresWiFi: false,
         minRAMGB: 4,
         webModelID: "modnet-fp16"
+    )
+
+    static let birefnet = EditorAIModelDescriptor(
+        id: "birefnet-lite-512-fp16",
+        version: "1.0.0+aa62cd87",
+        displayName: "BiRefNet Lite 512",
+        tier: .quality,
+        kind: .segmentation,
+        archiveURL: URL(
+            string: "https://github.com/anhhoangsky/mng-cloud-sw/releases/download/ai-models-v2/birefnet-lite-512-fp16.mlpackage.zip"
+        )!,
+        archiveSHA256: "34383a43ee5dc63f254229e98d0fb442434f63995530f159244779555a1103d0",
+        archiveBytes: 82_130_533,
+        installedBytes: 92_903_810,
+        license: "MIT",
+        licenseURL: URL(string: "https://github.com/ZhengPeng7/BiRefNet")!,
+        inputName: "input_image",
+        outputName: "output_image",
+        inputWidth: 512,
+        inputHeight: 512,
+        preprocess: .imagenet,
+        outputSemantics: .alpha01,
+        estimatedPeakMB: 800,
+        minimumAvailableMB: 1_200,
+        requiresWiFi: true,
+        minRAMGB: 4,
+        webModelID: "birefnet-lite-512-fp16"
     )
 
     static let bisenetHair = EditorAIModelDescriptor(
@@ -129,6 +156,7 @@ enum EditorAIModelCatalog {
 
     static let all: [EditorAIModelDescriptor] = [
         modnet,
+        birefnet,
         bisenetHair,
     ]
 
@@ -136,8 +164,8 @@ enum EditorAIModelCatalog {
         all.first { $0.id == id }
     }
 
-    /// The background model a tier wants, if it has one. `.quality` and
-    /// `.maximum` return nil until their archives are published.
+    /// The background model a tier wants, if it has one. Only `.maximum`
+    /// returns nil today, so that tier keeps the Vision detail label.
     static func segmentationModel(
         for tier: EditorAIModelTier
     ) -> EditorAIModelDescriptor? {

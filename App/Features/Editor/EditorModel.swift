@@ -645,8 +645,8 @@ final class EditorModel {
     }
 
     /// Show the download sheet when the picked tier has a model that is not
-    /// on this device. Tiers without an archive (Quality, Maximum) and Fast
-    /// stay on Vision without a prompt.
+    /// on this device. Maximum (no archive yet) and Fast stay on Vision
+    /// without a prompt.
     private func proposeAIModelDownload(for model: EditorAIModel) {
         guard let descriptor = aiDescriptor(for: model) else { return }
         proposeAIModelDownload(descriptor)

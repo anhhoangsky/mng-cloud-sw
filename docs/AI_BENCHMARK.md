@@ -218,13 +218,18 @@ Additional gates:
 
 ## 9. Device checklist additions
 
-Add these to `DEVICE_CHECKS.md` once the Core ML phase lands:
+These mirror the model checks in `DEVICE_CHECKS.md`; keep both lists in sync.
 
 - [ ] The model picker shows Fast / Balanced / Quality / Maximum, and the
       detail line names the engine that will run.
 - [ ] Choosing Balanced on a fresh install opens a download sheet with size,
       license and progress; cancelling leaves the photo untouched and the pass
       still runs on Vision.
+- [ ] Choosing Quality on a fresh install opens the 82 MB BiRefNet sheet, says
+      Wi-Fi is required, blocks a cellular-only attempt with the Wi-Fi message,
+      and leaves the pass on Vision when cancelled.
+- [ ] After BiRefNet installs, Quality runs it on a portrait and a
+      product/landscape shot, then returns to Vision when the model is removed.
 - [ ] The first hair retouch offers the BiSeNet download after the Vision
       ellipse mask appears; after install the next pass follows a ponytail.
 - [ ] A download interrupted by backgrounding restarts cleanly; a corrupt
