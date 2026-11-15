@@ -1,13 +1,14 @@
 # Native AI engine — architecture and model plan
 
-Status: **phases 1–4 implemented on `feature/native-ai-models`; device
-validation pending.** The store, catalog and three converted models are in the
-branch: Balanced can download MODNet 512, Quality can download BiRefNet Lite
-512 (`ai-models-v2`), and hair retouch can download BiSeNet 512. Maximum still
-says Vision because BEN2 has no published archive. The numbers below are from
-the web's ONNX models on a desktop CPU plus the bundled sample images. iPhone
-numbers still require the protocol in [`AI_BENCHMARK.md`](AI_BENCHMARK.md);
-Vision subject lifting does not run in the Simulator.
+Status: **phases 1–3 implemented and phase 4's model/catalog work landed on
+`feature/native-ai-models`; device validation pending.** The store, catalog and
+three converted models are in the branch: Balanced can download MODNet 512,
+Quality can download BiRefNet Lite 512 (`ai-models-v2`), and hair retouch can
+download BiSeNet 512. Maximum still says Vision because BEN2 has no published
+archive. The numbers below are from the web's ONNX models on a desktop CPU plus
+the bundled sample images. iPhone numbers still require the protocol in
+[`AI_BENCHMARK.md`](AI_BENCHMARK.md); Vision subject lifting does not run in the
+Simulator.
 
 ## 1. Summary
 

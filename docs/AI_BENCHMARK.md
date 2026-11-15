@@ -229,7 +229,8 @@ These mirror the model checks in `DEVICE_CHECKS.md`; keep both lists in sync.
       Wi-Fi is required, blocks a cellular-only attempt with the Wi-Fi message,
       and leaves the pass on Vision when cancelled.
 - [ ] After BiRefNet installs, Quality runs it on a portrait and a
-      product/landscape shot, then returns to Vision when the model is removed.
+      product/landscape shot, then returns to Vision when the `AIModels` cache
+      is removed.
 - [ ] The first hair retouch offers the BiSeNet download after the Vision
       ellipse mask appears; after install the next pass follows a ponytail.
 - [ ] A download interrupted by backgrounding restarts cleanly; a corrupt

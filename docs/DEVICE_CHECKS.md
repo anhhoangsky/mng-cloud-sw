@@ -197,8 +197,8 @@ usable in the simulator.
       download; the sheet says it needs Wi-Fi, a cellular attempt reports the
       Wi-Fi message, and cancelling leaves the pass on Vision.
 - [ ] After BiRefNet installs, Quality runs the model on a portrait and on a
-      product/landscape shot; the detail line still offers Vision as fallback
-      and deleting the model returns to Vision without an error.
+      product/landscape shot; removing the app's `AIModels` cache returns it
+      to Vision without an error.
 - [ ] The first hair pass offers BiSeNet after the Vision ellipse mask
       appears; after install the next pass follows a ponytail.
 
