@@ -23,6 +23,10 @@ struct LibraryView: View {
     /// The offset of the previous scroll callback, for the direction of the
     /// gesture.
     @State private var lastScrollOffset: CGFloat = 0
+    /// The offset of the last prefetch, so the thumbnails of the photos that
+    /// are about to appear are warmed once per screenful and not on every
+    /// frame of the gesture.
+    @State private var lastPrefetchOffset: CGFloat = -1000
     /// Height of the scrollable content, for the iOS 17 fallback metrics.
     @State private var contentHeight: CGFloat = 0
     /// Height of the scroll viewport, for the iOS 17 fallback metrics.
@@ -516,6 +520,10 @@ struct LibraryView: View {
     private func handleScroll(offset: CGFloat) {
         guard !isApplyingScroll else { return }
 
+        // The photos that are about to scroll into view are warmed, so a
+        // screen of tiles is ready before the finger reaches it.
+        prefetchUpcoming()
+
         if initialAnchorPending {
             scrollOffset = offset
             lastScrollOffset = offset
@@ -549,6 +557,19 @@ struct LibraryView: View {
         }
 
         updateChrome(offset: effective)
+    }
+
+    /// Warm the photos that are about to scroll into view.
+    ///
+    /// The window is a screenful of tiles and it follows the scroll: the
+    /// cache answers for the photos it already holds, so only the new ones
+    /// are fetched. The prefetch is throttled by the distance the grid moved,
+    /// because the scroll callback runs on every frame.
+    private func prefetchUpcoming() {
+        let offset = scrollOffset
+        guard abs(offset - lastPrefetchOffset) > 240 else { return }
+        lastPrefetchOffset = offset
+        library.prefetchThumbnails(items: max(timelineColumnsCount, 1) * 8)
     }
 
     /// The dock expands only at the newest/bottom position. Moving toward

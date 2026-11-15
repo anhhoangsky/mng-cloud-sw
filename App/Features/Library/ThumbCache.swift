@@ -28,8 +28,12 @@ final class ThumbCache {
     private let cooldown: TimeInterval = 25
 
     private init() {
-        images.countLimit = 400
-        images.totalCostLimit = 96 * 1024 * 1024
+        // A photo of the grid is a small bitmap, but there are hundreds of
+        // them: a scroll back and forth used to download the same tile
+        // again, because the cache held only a hundred of them.
+        images.name = "mng.thumbnails"
+        images.countLimit = 1200
+        images.totalCostLimit = 192 * 1024 * 1024
     }
 
     /// Synchronous probe for a bitmap that is already decoded. The viewer
@@ -103,10 +107,20 @@ final class ThumbCache {
     /// connection while the user is still scrolling. A prefetch failure does
     /// not start the cooldown: the visible tile may still find the photo
     /// through a larger fallback path.
+    ///
+    /// A connection the system marked as constrained is left alone: the
+    /// photos the person asked for come first.
     func prefetch(_ requests: [Request], client: MNGAPIClient) {
         guard !requests.isEmpty else { return }
-        Task { [weak self] in
-            for request in requests {
+        guard !NetworkMonitor.shared.isConstrained else { return }
+        // Only the paths that are not in the cache and not on their way
+        // there are worth a request.
+        let missing = requests.filter {
+            images.object(forKey: $0.path as NSString) == nil && inflight[$0.path] == nil
+        }
+        guard !missing.isEmpty else { return }
+        Task(priority: .utility) { [weak self] in
+            for request in missing {
                 guard let self, !Task.isCancelled else { return }
                 _ = await self.image(
                     for: request.path,
