@@ -35,8 +35,19 @@ enum EditorAIModel: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .maximum: return "Vision · Chủ thể · Tối đa"
         case .quality: return "Vision · Chủ thể · Viền tóc mịn"
-        case .balanced: return "Vision · Chủ thể · Cân bằng"
+        case .balanced: return "MODNet / Vision · Người · Cân bằng"
         case .fast: return "Vision · Người · Nhanh"
+        }
+    }
+
+    /// The quality tier's downloadable model. Fast is Vision-only, and the
+    /// tiers without a published archive stay on Vision until they have one.
+    var modelTier: EditorAIModelTier? {
+        switch self {
+        case .maximum: return .maximum
+        case .quality: return .quality
+        case .balanced: return .balanced
+        case .fast: return nil
         }
     }
 }
@@ -220,7 +231,7 @@ enum EditorAIService {
         let request = EditorAISegmentationRequest(
             source: source,
             mode: mode,
-            hints: EditorAIContentHints(),
+            hints: await contentHints(for: source, model: model, report: report),
             report: report
         )
         let engines = EditorAIEngineSelector.engines(
@@ -249,6 +260,25 @@ enum EditorAIService {
         throw lastError
     }
 
+    /// The probe only runs when a tier actually has an installed model to
+    /// choose between. Without one the selector is Vision-only, so the extra
+    /// Vision pass would just cost time.
+    private static func contentHints(
+        for source: EditorSourceSnapshot,
+        model: EditorAIModel,
+        report: @escaping @Sendable (String) async -> Void
+    ) async -> EditorAIContentHints {
+        guard model == .balanced,
+              let descriptor = EditorAIModelCatalog.segmentationModel(
+                  for: .balanced
+              ),
+              await EditorAIModelStore.shared.isInstalled(descriptor) else {
+            return EditorAIContentHints()
+        }
+        await report(Strings.editorAIDetecting)
+        return await EditorAIContentProbe.hints(for: source)
+    }
+
     /// Return the skin (or hair) weight map without baking the retouch. The
     /// five sliders and the brush stay live until "Hoàn tất".
     static func retouchMask(
@@ -261,6 +291,28 @@ enum EditorAIService {
         let input = try EditorAIImage.makeImage(source)
         let masks = try faceMasks(image: input, extent: input.extent)
         try Task.checkCancellation()
+
+        if mode == .hair,
+           await EditorAIModelStore.shared.isInstalled(
+               EditorAIModelCatalog.bisenetHair
+           ) {
+            await report(Strings.editorAIRetouchRunning)
+            do {
+                let parser = EditorFaceParsingEngine(
+                    descriptor: EditorAIModelCatalog.bisenetHair
+                )
+                return try await parser.hairMask(
+                    source: source,
+                    faces: masks.faces
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // A model that cannot produce hair falls back to the Vision
+                // ellipse below; the retouch itself still succeeds.
+            }
+        }
+
         await report(Strings.editorAIRetouchRunning)
         let selected = mode == .hair ? masks.hair : masks.skin
         var mask = try EditorAIImage.makeMask(from: selected, maxSide: 1024)
@@ -517,6 +569,9 @@ enum EditorAIService {
     private struct FaceMasks {
         var skin: CIImage
         var hair: CIImage
+        /// Top-down normalised boxes, largest first, shared with the face
+        /// parser so hair retouch does not run Vision twice.
+        var faces: [EditorAIFaceBox]
     }
 
     private static func faceMasks(
@@ -628,7 +683,13 @@ enum EditorAIService {
         let hair = CIImage(cgImage: hairImage)
             .applyingGaussianBlur(sigma: feather)
             .cropped(to: maskExtent)
-        return FaceMasks(skin: skin, hair: hair)
+        return FaceMasks(
+            skin: skin,
+            hair: hair,
+            faces: faces
+                .map(EditorAIFaceBox.vision)
+                .sorted { $0.area > $1.area }
+        )
     }
 
     private static func blend(

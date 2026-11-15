@@ -11,21 +11,39 @@ enum EditorAIEngineSelector {
         mode: EditorAIBackgroundMode,
         content: EditorAIContentHints
     ) -> [any EditorAISegmentationEngine] {
-        // Phase one keeps the shipped Vision behaviour exact: Fast always
-        // uses the fast person request, and the other tiers try the subject
-        // model before the accurate person model. The Core ML engines are
-        // inserted here once their catalog entries are enabled.
-        switch model {
-        case .fast:
+        // Fast is the shipped Vision path and never downloads anything.
+        if model == .fast {
             return [EditorVisionEngine(kind: .personFast)]
-        case .balanced, .quality, .maximum:
-            if mode == .person {
-                return [EditorVisionEngine(kind: .personAccurate)]
-            }
-            return [
-                EditorVisionEngine(kind: .subject),
-                EditorVisionEngine(kind: .personAccurate),
-            ]
         }
+
+        let person = EditorVisionEngine(kind: .personAccurate)
+        let subject = EditorVisionEngine(kind: .subject)
+        let coreML = model.modelTier
+            .flatMap(EditorAIModelCatalog.segmentationModel(for:))
+            .map(EditorCoreMLEngine.init(descriptor:))
+
+        // Balanced runs MODNet, a portrait matte. It only runs when the probe
+        // actually saw a person; on a landscape the Vision subject lift is
+        // better. Quality and Maximum are general mattes, so they are not
+        // gated on a face or a body.
+        let requiresPerson = model == .balanced
+        let useModel = coreML != nil && (!requiresPerson || content.hasPerson)
+
+        if mode == .person {
+            var engines: [any EditorAISegmentationEngine] = []
+            if useModel, let coreML {
+                engines.append(coreML)
+            }
+            engines.append(person)
+            return engines
+        }
+
+        var engines: [any EditorAISegmentationEngine] = []
+        if useModel, let coreML {
+            engines.append(coreML)
+        }
+        engines.append(subject)
+        engines.append(person)
+        return engines
     }
 }
