@@ -374,8 +374,12 @@ actor EditorAIModelStore {
             )
         } catch let error as URLError where error.code == .cancelled {
             throw CancellationError()
-        } catch let error as URLError where error.code == .dataNotAllowed {
-            // The descriptor requires Wi-Fi and the device is on cellular.
+        } catch let error as URLError where error.code == .dataNotAllowed
+            || (error.code == .notConnectedToInternet
+                && descriptor.requiresWiFi) {
+            // The descriptor requires Wi-Fi and the device has no usable
+            // connection: URLSession reports either code depending on whether
+            // it sees a cellular link it is not allowed to use.
             throw EditorAIModelStoreError.needsWiFi
         } catch is CancellationError {
             throw CancellationError()
