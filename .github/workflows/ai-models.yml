@@ -6,9 +6,16 @@ on:
     paths:
       - "tools/ai/**"
       - ".github/workflows/ai-models.yml"
+    tags:
+      # A tag run publishes the archives to an immutable GitHub release, so
+      # the app catalog can pin SHA-256 values that never change. Branch runs
+      # only validate and upload the 30-day Actions artifact.
+      - "ai-models-v*"
 
 permissions:
-  contents: read
+  # Publishing the tagged archives needs write access; everything else in
+  # this workflow only reads the repository.
+  contents: write
 
 concurrency:
   group: ai-models-${{ github.ref }}
@@ -78,3 +85,22 @@ jobs:
           path: tools/ai/artifacts/**
           if-no-files-found: error
           retention-days: 30
+
+      # The app pins `archiveSha256` and `archiveBytes` from this release.
+      # Never reuse a tag: zip metadata and Core ML manifests are not
+      # byte-reproducible, so a rebuilt archive would invalidate the pins.
+      - name: Publish pinned model archives
+        if: startsWith(github.ref, 'refs/tags/ai-models-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --title "Native AI models $tag" \
+              --notes "Core ML artifacts for the native AI engine. Immutable: the app pins each archive SHA-256 from summary.json. Licenses and attribution are in each archive's LICENSE.txt."
+          fi
+          gh release upload "$tag" \
+            tools/ai/artifacts/*/*.mlpackage.zip \
+            tools/ai/artifacts/summary.json
