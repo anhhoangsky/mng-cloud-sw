@@ -1,3 +1,4 @@
+import Combine
 import MNGEdit
 import MNGKit
 import SwiftUI
@@ -165,6 +166,11 @@ struct EditorView: View {
                     .zIndex(30)
             }
 
+            if let download = editor.aiModelDownload {
+                aiModelDownloadSheet(download)
+                    .zIndex(25)
+            }
+
             if exportOpen {
                 exportSheet
                     .zIndex(20)
@@ -180,6 +186,14 @@ struct EditorView: View {
             default:
                 phase = .loading
             }
+            await editor.refreshAIModels()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: UIApplication.didReceiveMemoryWarningNotification
+            )
+        ) { _ in
+            editor.handleMemoryWarning()
         }
         .onDisappear {
             ratioResetTask?.cancel()
@@ -2148,9 +2162,9 @@ struct EditorView: View {
     }
 
     /// The AI tab of the web editor: the collapsible model picker, the four
-    /// background actions and the five retouch actions on one rail. The
-    /// native engine uses Vision on the device, so the pane works offline and
-    /// no model is downloaded.
+    /// background actions and the five retouch actions on one rail. Fast and
+    /// the not-yet-published tiers stay on Vision; a downloaded model is an
+    /// upgrade with Vision as the fallback, never a requirement.
     private var aiActionPane: some View {
         VStack(spacing: 7) {
             aiModelPicker
@@ -2830,6 +2844,189 @@ struct EditorView: View {
             }
         }
         .transition(.opacity)
+    }
+
+    /// The one-time download prompt for a tier's Core ML model. The archive is
+    /// pinned by SHA-256 in the catalog; this sheet shows the size, the
+    /// license and the live progress, and it never downloads on its own.
+    private func aiModelDownloadSheet(
+        _ download: EditorAIModelDownload
+    ) -> some View {
+        let descriptor = download.descriptor
+        return ZStack(alignment: .bottom) {
+            Color.black.opacity(0.55)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    guard !editor.aiModelDownloadBusy else { return }
+                    withAnimation(Tokens.Motion.spring) {
+                        editor.dismissAIModelDownload()
+                    }
+                }
+
+            VStack(spacing: 0) {
+                Capsule()
+                    .fill(Aurum.muted.opacity(0.45))
+                    .frame(width: 38, height: 4)
+                    .padding(.top, 8)
+
+                HStack(spacing: 11) {
+                    Image(systemName: "cpu")
+                        .font(Font.mng(17, weight: .semibold))
+                        .foregroundStyle(Aurum.gold)
+                        .frame(width: 36, height: 36)
+                        .background(
+                            Aurum.goldSoft,
+                            in: RoundedRectangle(
+                                cornerRadius: 9,
+                                style: .continuous
+                            )
+                        )
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(descriptor.displayName)
+                            .font(Font.mng(14, weight: .semibold))
+                            .foregroundStyle(Aurum.text)
+                        Text(
+                            Strings.editorAIModelDownloadLicense(
+                                descriptor.license
+                            )
+                        )
+                        .font(Font.mng(10.5))
+                        .foregroundStyle(Aurum.muted)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    Text("\(descriptor.archiveMB) MB")
+                        .font(Font.mng(11, weight: .semibold))
+                        .foregroundStyle(Aurum.muted)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+
+                Text(
+                    Strings.editorAIModelDownloadBody(
+                        name: descriptor.displayName,
+                        megabytes: descriptor.archiveMB
+                    )
+                )
+                .font(Font.mng(12))
+                .foregroundStyle(Aurum.muted)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+
+                if editor.aiModelDownloadBusy {
+                    VStack(spacing: 10) {
+                        ProgressView(value: editor.aiModelDownloadProgress)
+                            .progressViewStyle(.linear)
+                            .tint(Aurum.gold)
+                            .frame(maxWidth: 240)
+
+                        Text(aiModelDownloadStatus)
+                            .font(Font.mng(11.5, weight: .medium))
+                            .foregroundStyle(Aurum.muted)
+
+                        Button {
+                            editor.cancelAIModelDownload()
+                        } label: {
+                            Text(Strings.editorAICancel)
+                                .font(Font.mng(13, weight: .semibold))
+                                .foregroundStyle(Aurum.text)
+                                .padding(.horizontal, 18)
+                                .frame(height: 36)
+                                .background(Aurum.glass, in: Capsule())
+                                .overlay {
+                                    Capsule().stroke(
+                                        Aurum.glassLine,
+                                        lineWidth: 0.5
+                                    )
+                                }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.top, 18)
+                    .padding(.bottom, 4)
+                } else {
+                    if let error = editor.aiModelDownloadError {
+                        Text(error)
+                            .font(Font.mng(11.5, weight: .medium))
+                            .foregroundStyle(
+                                Color(red: 0.94, green: 0.64, blue: 0.56)
+                            )
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+                            .padding(.top, 14)
+                    }
+
+                    Button {
+                        editor.downloadAIModel()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.down.circle")
+                                .font(Font.mng(13, weight: .semibold))
+                            Text(Strings.editorAIModelDownloadAction)
+                                .font(Font.mng(14, weight: .semibold))
+                        }
+                        .foregroundStyle(
+                            Color(red: 0.10, green: 0.08, blue: 0.03)
+                        )
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(
+                            Aurum.gold,
+                            in: RoundedRectangle(
+                                cornerRadius: 13,
+                                style: .continuous
+                            )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 18)
+                }
+
+                Button(Strings.editorAIModelDownloadLater) {
+                    withAnimation(Tokens.Motion.spring) {
+                        editor.dismissAIModelDownload()
+                    }
+                }
+                .font(Font.mng(13, weight: .semibold))
+                .foregroundStyle(Aurum.muted)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .disabled(editor.aiModelDownloadBusy)
+                .opacity(editor.aiModelDownloadBusy ? 0.4 : 1)
+            }
+            .padding(.bottom, 6)
+            .background(
+                Aurum.bg2,
+                in: UnevenRoundedRectangle(
+                    topLeadingRadius: 20,
+                    topTrailingRadius: 20,
+                    style: .continuous
+                )
+            )
+            .overlay(alignment: .top) {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 20,
+                    topTrailingRadius: 20,
+                    style: .continuous
+                )
+                .stroke(Aurum.glassLine, lineWidth: 0.5)
+            }
+            .transition(.move(edge: .bottom))
+        }
+        .transition(.opacity)
+    }
+
+    private var aiModelDownloadStatus: String {
+        let progress = editor.aiModelDownloadProgress
+        let percent = Int((progress * 100).rounded())
+        let label = progress >= 1
+            ? Strings.editorAIModelInstalling
+            : Strings.editorAIModelDownloading
+        return "\(percent)% · \(label)"
     }
 
     /// The crop pane: the ratio, rotation and two perspective modes with
