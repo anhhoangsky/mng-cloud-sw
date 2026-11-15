@@ -1,0 +1,106 @@
+name: ai-models-convert
+
+# Shared by the branch validation workflow and the tag release workflow.
+# The caller decides whether the token may publish; this file contains no
+# tag/path filters of its own.
+on:
+  workflow_call:
+    inputs:
+      publish:
+        description: Upload the archives to the ai-models-v* release
+        required: true
+        type: boolean
+
+jobs:
+  convert:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pinned model sources
+        uses: actions/cache@v4
+        with:
+          path: tools/ai/.cache
+          key: ai-models-${{ hashFiles('tools/ai/models.json') }}
+
+      - name: Install conversion tools
+        run: |
+          python -m pip install --upgrade pip
+          # coremltools 9 supports PyTorch 2.7 and removed the ONNX importer;
+          # the pipeline rebuilds each model in PyTorch from its official
+          # checkpoint, proves it against the fp32 ONNX reference, then converts.
+          # BiRefNet Lite adds its model code's dependencies: torchvision (the
+          # deform_conv2d op and the backbone builders), timm (Swin layers),
+          # transformers (PreTrainedModel/PretrainedConfig), einops and kornia.
+          # torchvision must match torch exactly (2.7.0 <-> 0.22.0).
+          python -m pip install \
+            "torch==2.7.0" \
+            "torchvision==0.22.0" \
+            "coremltools==9.0" \
+            "onnxruntime" \
+            "numpy" \
+            "pillow" \
+            "safetensors==0.8.0" \
+            "timm==1.0.31" \
+            "transformers==4.57.6" \
+            "einops==0.8.2" \
+            "kornia==0.9.1"
+
+      - name: Validate the manifest
+        run: python tools/ai/convert_coreml.py --check-manifest
+
+      - name: Prove PyTorch matches the web ONNX models
+        run: python tools/ai/convert_coreml.py --validate-only --model all
+
+      - name: Convert and validate
+        run: python tools/ai/convert_coreml.py --model all
+
+      - name: Show artifact summary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          summary = json.loads(Path("tools/ai/artifacts/summary.json").read_text())
+          for model in summary["models"]:
+              coreml = model["validation"]["coremlVsReference"]
+              worst = max(coreml.values(), key=lambda m: m["mean_abs_diff"])
+              print(
+                  f"{model['id']}: {model['archiveBytes']:,} B "
+                  f"sha256={model['archiveSha256']} "
+                  f"worst_mean_diff={worst['mean_abs_diff']:.5f} "
+                  f"worst_p99={worst['p99_abs_diff']:.5f}"
+              )
+          PY
+
+      - name: Upload Core ML artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-coreml-${{ github.run_id }}
+          path: tools/ai/artifacts/**
+          if-no-files-found: error
+          retention-days: 30
+
+      # The app pins `archiveSha256` and `archiveBytes` from this release.
+      # Never reuse a tag: zip metadata and Core ML manifests are not
+      # byte-reproducible, so a rebuilt archive would invalidate the pins.
+      - name: Publish pinned model archives
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --title "Native AI models $tag" \
+              --notes "Core ML artifacts for the native AI engine. Immutable: the app pins each archive SHA-256 from summary.json. Licenses and attribution are in each archive's LICENSE.txt."
+          fi
+          gh release upload "$tag" \
+            tools/ai/artifacts/*/*.mlpackage.zip \
+            tools/ai/artifacts/summary.json
