@@ -111,7 +111,7 @@ def load_manifest(path: Path = MANIFEST) -> dict[str, Any]:
             raise SystemExit(f"{model_id}: unknown sourceFormat {model['sourceFormat']!r}")
 
         if model["sourceFormat"] == "pytorch":
-            if model.get("architecture") not in ("modnet", "bisenet"):
+            if model.get("architecture") not in ("modnet", "bisenet", "birefnet"):
                 raise SystemExit(f"{model_id}: unsupported architecture {model.get('architecture')!r}")
             if model["architecture"] == "bisenet":
                 if int(model.get("numClasses", 0)) != 19:
@@ -119,6 +119,15 @@ def load_manifest(path: Path = MANIFEST) -> dict[str, Any]:
                 hair_class = int(model.get("hairClass", -1))
                 if not 0 <= hair_class < 19:
                     raise SystemExit(f"{model_id}: hairClass must be in 0..18")
+            postprocess = model.get("referencePostprocess")
+            if postprocess not in (None, "sigmoid"):
+                raise SystemExit(
+                    f"{model_id}: unknown referencePostprocess {postprocess!r}"
+                )
+            if model["architecture"] == "birefnet" and postprocess != "sigmoid":
+                raise SystemExit(
+                    f"{model_id}: BiRefNet exports logits; referencePostprocess must be sigmoid"
+                )
             reference = model.get("reference")
             if not isinstance(reference, dict):
                 raise SystemExit(f"{model_id}: PyTorch sources need an ONNX reference")
@@ -149,10 +158,24 @@ def selected_models(
     return chosen
 
 
+def cache_path(cache_dir: Path, model_id: str, url: str) -> Path:
+    """Keep each model's files in its own directory.
+
+    URLs are not unique by basename: MODNet and BiRefNet both publish
+    ``model.onnx``. Keying the cache by URL name would hand MODNet's weights to
+    BiRefNet (and silently fail the hash check, or worse, overwrite a cache
+    entry the other model still needs).
+    """
+    return cache_dir / model_id / Path(url).name
+
+
 def download(url: str, destination: Path, expected_sha: str, expected_bytes: int | None) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists() and sha256_file(destination) == expected_sha:
-        print(f"  cache hit: {destination.name} ({destination.stat().st_size:,} B)")
+        print(
+            f"  cache hit: {destination.parent.name}/{destination.name} "
+            f"({destination.stat().st_size:,} B)"
+        )
         return destination
 
     partial = destination.with_suffix(destination.suffix + ".part")
@@ -259,7 +282,12 @@ def validation_inputs(spec: dict[str, Any]) -> list[tuple[str, "Any"]]:
 def load_state_dict(path: Path, prefix: str) -> dict[str, "Any"]:
     import torch
 
-    state = torch.load(path, map_location="cpu", weights_only=True)
+    if path.suffix == ".safetensors":
+        from safetensors.torch import load_file
+
+        state = load_file(str(path), device="cpu")
+    else:
+        state = torch.load(path, map_location="cpu", weights_only=True)
     if isinstance(state, dict) and "state_dict" in state:
         state = state["state_dict"]
     if not isinstance(state, dict):
@@ -285,6 +313,13 @@ def build_model(spec: dict[str, Any], checkpoint: Path) -> "Any":
         from vendor.face_parsing import BiSeNet
 
         inner = BiSeNet(int(spec["numClasses"]), backbone_name="resnet18")
+    elif architecture == "birefnet":
+        from vendor.birefnet import BiRefNet
+        from vendor.birefnet.BiRefNet_config import BiRefNetConfig
+
+        # bb_pretrained=False: the checkpoint has the fine-tuned Swin weights,
+        # so the backbone must not try to fetch ImageNet weights.
+        inner = BiRefNet(config=BiRefNetConfig(bb_pretrained=False))
     else:
         raise SystemExit(f"{spec['id']}: unsupported architecture {architecture}")
 
@@ -309,6 +344,20 @@ def build_model(spec: dict[str, Any], checkpoint: Path) -> "Any":
                 return matte
 
         return Matting(inner).eval()
+
+    if architecture == "birefnet":
+
+        class Alpha(nn.Module):
+            """The exported graph returns logits; ship the sigmoid alpha."""
+
+            def __init__(self, inner: nn.Module) -> None:
+                super().__init__()
+                self.inner = inner
+
+            def forward(self, image):
+                return torch.sigmoid(self.inner(image)[-1])
+
+        return Alpha(inner).eval()
 
     hair_class = int(spec.get("hairClass", 17))
 
@@ -336,6 +385,8 @@ def reference_postprocess(spec: dict[str, Any], raw: "Any") -> "Any":
 
     raw = np.asarray(raw, dtype=np.float32)
     semantics = spec["outputSemantics"]
+    if spec.get("referencePostprocess") == "sigmoid":
+        return 1.0 / (1.0 + np.exp(-raw))
     if spec["kind"] == "faceParsing" and semantics == "alpha01":
         hair_class = int(spec.get("hairClass", 17))
         hair = raw[:, hair_class:hair_class + 1]
@@ -493,7 +544,7 @@ def load_reference(spec: dict[str, Any], cache_dir: Path) -> tuple["Any", str, s
     import onnxruntime as ort
 
     reference = spec["reference"]
-    path = cache_dir / Path(reference["url"]).name
+    path = cache_path(cache_dir, spec["id"], reference["url"])
     download(reference["url"], path, reference["sha256"], reference["bytes"])
     session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
     input_names = [item.name for item in session.get_inputs()]
@@ -557,6 +608,11 @@ def convert_one(
     example = torch.from_numpy(inputs[0][1])
     with torch.no_grad():
         traced = torch.jit.trace(model, example, strict=False)
+
+    if spec.get("architecture") == "birefnet":
+        # coremltools 9.0 has no torchvision::deform_conv2d lowering; the
+        # vendored copy of Apple's unreleased PR #2752 registers it.
+        import vendor.coremltools.deform_conv  # noqa: F401
 
     print("  converting to mlprogram (iOS 17, Float16)")
     converted = ct.convert(
@@ -781,7 +837,7 @@ def main() -> None:
     summaries = []
     for spec in chosen:
         print(f"\n[{spec['id']}]")
-        source = args.cache / Path(spec["source"]).name
+        source = cache_path(args.cache, spec["id"], spec["source"])
         download(
             spec["source"],
             source,
