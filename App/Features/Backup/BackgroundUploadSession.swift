@@ -33,6 +33,11 @@ final class BackgroundUploadSession: NSObject, @unchecked Sendable {
         // does not depend on a cookie jar that is not there yet.
         configuration.httpShouldSetCookies = false
         configuration.httpCookieStorage = nil
+        // A whole transfer may take hours on a slow line, but a single
+        // request may not wait for an hour in the queue of the server: the
+        // default of 60 seconds cut the uploads off while they were still
+        // queued behind the other photos of the same owner.
+        configuration.timeoutIntervalForRequest = 30 * 60
         configuration.timeoutIntervalForResource = 7 * 24 * 60 * 60
         return URLSession(
             configuration: configuration,
@@ -113,7 +118,8 @@ extension BackgroundUploadSession: URLSessionDataDelegate, URLSessionTaskDelegat
             PhotoBackupEngine.shared.handleCompletion(
                 jobID: jobID,
                 taskID: task.taskIdentifier,
-                succeeded: succeeded
+                succeeded: succeeded,
+                statusCode: status
             )
         }
     }

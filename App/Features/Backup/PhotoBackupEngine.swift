@@ -69,6 +69,12 @@ final class PhotoBackupEngine {
     private(set) var uploaded = 0
     private(set) var skipped = 0
     private(set) var failed = 0
+    /// The reason of the last failed upload.
+    ///
+    /// The status is back to idle after the next run, so the message is
+    /// kept here as well: the photos that did not make it must stay
+    /// visible until they are uploaded or given up on.
+    private(set) var lastError: String?
     private(set) var lastRun: Date?
     /// The assets that still have to reach the library.
     private(set) var queue: [Job] = []
@@ -484,9 +490,12 @@ final class PhotoBackupEngine {
 
     /// Stage one job and hand it to the background session.
     private func upload(job: Job, client: MNGAPIClient) async {
+        // A previous attempt left its scratch files behind. The job has no
+        // running task here, so nothing reads them any more.
+        removeStagedFiles(job.id)
         let staged = await stage(job)
         guard !staged.isEmpty else {
-            recordFailure(job)
+            recordFailure(job, reason: Strings.backupFailedUnreadable)
             return
         }
 
@@ -539,8 +548,11 @@ final class PhotoBackupEngine {
                 ) { [weak self] taskID in
                     self?.addTaskID(taskID, for: job.id)
                 }            } catch {
-                recordFailure(job)
-                removeStagedFiles(job.id)
+                // The part that was already handed to the session is still
+                // being read, so its file must not be removed here. The
+                // files of the job are removed when the job leaves the
+                // queue, and the next attempt replaces them.
+                recordFailure(job, reason: Strings.backupFailedPrepare)
                 return
             }
         }
@@ -556,7 +568,7 @@ final class PhotoBackupEngine {
         handled[job.localIdentifier] = job.creationDate
     }
 
-    private func recordFailure(_ job: Job) {
+    private func recordFailure(_ job: Job, reason: String) {
         guard let index = queue.firstIndex(where: { $0.id == job.id }) else { return }
         queue[index].attempts += 1
         if queue[index].attempts >= Self.maximumAttempts {
@@ -564,6 +576,8 @@ final class PhotoBackupEngine {
             // instead of retrying forever.
             failed += 1
             removeFromQueue(job.id)
+            lastError = Strings.backupFailed(Strings.backupFailedGivingUp)
+            status = .failed(lastError ?? reason)
             return
         }
         // A transient failure waits a little longer every time.
@@ -572,6 +586,10 @@ final class PhotoBackupEngine {
             60 * pow(2.0, Double(min(queue[index].attempts, 6)))
         )
         queue[index].nextAttempt = Date().addingTimeInterval(delay)
+        // The failure is visible: a photo that waits in the queue without a
+        // reason looks like it is still being uploaded.
+        lastError = Strings.backupFailed(reason)
+        status = .failed(lastError ?? reason)
         saveState()
     }
 
@@ -589,7 +607,10 @@ final class PhotoBackupEngine {
     // MARK: - Completion
 
     /// The background session finished one upload.
-    func handleCompletion(jobID: UUID, taskID: Int, succeeded: Bool) {
+    ///
+    /// `statusCode` is the answer of the server, so a refused session can be
+    /// told apart from a refused file.
+    func handleCompletion(jobID: UUID, taskID: Int, succeeded: Bool, statusCode: Int = 0) {
         guard let index = queue.firstIndex(where: { $0.id == jobID }) else { return }
         // A completion of a task this job does not know any more is stale.
         guard queue[index].taskIDs.remove(taskID) != nil else { return }
@@ -600,23 +621,37 @@ final class PhotoBackupEngine {
                 uploaded += 1
                 markHandled(queue[index])
                 removeFromQueue(jobID)
+                lastError = nil
             }
+            if status != .off {
+                status = .idle
+            }
+            saveState()
+            return
+        }
+        queue[index].attempts += 1
+        // A session that ended is not a file that is refused: the user has
+        // to sign in again, so the message has to say so.
+        let reason = statusCode == 401 || statusCode == 403
+            ? Strings.backupFailedUnauthorized
+            : Strings.backupFailedRetry
+        if queue[index].attempts >= Self.maximumAttempts {
+            failed += 1
+            removeFromQueue(jobID)
+            // The photo is given up on, so the reason belongs in the status.
+            lastError = Strings.backupFailed(Strings.backupFailedGivingUp)
         } else {
-            queue[index].attempts += 1
-            if queue[index].attempts >= Self.maximumAttempts {
-                failed += 1
-                removeFromQueue(jobID)
-            } else {
-                let delay = min(
-                    6 * 60 * 60,
-                    60 * pow(2.0, Double(min(queue[index].attempts, 6)))
-                )
-                queue[index].nextAttempt = Date().addingTimeInterval(delay)
-            }
+            let delay = min(
+                6 * 60 * 60,
+                60 * pow(2.0, Double(min(queue[index].attempts, 6)))
+            )
+            queue[index].nextAttempt = Date().addingTimeInterval(delay)
+            // The backup runs in the background, so a failure has to be
+            // visible. Without it the photos look like they are still
+            // waiting and nobody knows that the server refused them.
+            lastError = Strings.backupFailed(reason)
         }
-        if status != .off {
-            status = .idle
-        }
+        status = .failed(lastError ?? Strings.backupFailed(reason))
         saveState()
     }
 

@@ -274,6 +274,12 @@ struct BackupSettingsSection: View {
         if engine.pendingCount > 0 {
             parts.append(Strings.backupPending(engine.pendingCount))
         }
+        // The reason of the last failure stays visible while the backup is
+        // idle: the photos that did not make it must not look like they are
+        // still waiting.
+        if let error = engine.lastError {
+            parts.append(error)
+        }
         if let last = engine.lastRun {
             parts.append(Strings.backupLastRun(last))
         }

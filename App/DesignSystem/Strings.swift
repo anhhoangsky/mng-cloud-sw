@@ -144,6 +144,21 @@ enum Strings {
         "\(count) mục đang chờ"
     }
 
+    /// The message of a failed upload.
+    ///
+    /// The backup runs in the background, so a failure has to be visible:
+    /// without it the photos look like they are still waiting and nobody
+    /// knows that the server refused them.
+    static func backupFailed(_ message: String) -> String {
+        "Sao lưu lỗi: \(message)"
+    }
+
+    static let backupFailedRetry = "máy chủ không nhận tệp. Sẽ thử lại sau."
+    static let backupFailedGivingUp = "máy chủ không nhận tệp sau nhiều lần thử."
+    static let backupFailedUnauthorized = "phiên đăng nhập đã hết hạn."
+    static let backupFailedUnreadable = "không đọc được ảnh trên máy."
+    static let backupFailedPrepare = "không tạo được yêu cầu tải lên."
+
     static func backupLastRun(_ date: Date) -> String {
         let parts = Calendar.current.dateComponents([.day, .month, .year], from: date)
         let day = MNGFormat.itemDate(
