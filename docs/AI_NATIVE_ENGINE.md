@@ -41,9 +41,9 @@ Audit conclusions:
 5. **MODNet (Apache-2.0)** is small and fast but portrait-only, with a visible
    halo and lost strands. Use it only for the Balanced person path.
 6. The **hair retouch gap is separate** from background removal. The web uses
-   BiSeNet hair class 17 on a 1.9× face-width crop; the native code uses a face
-   ellipse. BiSeNet is MIT and conversion-friendly, so it is the first model to
-   port.
+   BiSeNet hair class 17 on a 1.9× face-width crop; the native fallback is a
+   face ellipse, and the downloaded BiSeNet parser replaces it when installed.
+   BiSeNet is MIT and conversion-friendly, so it was the first model to port.
 
 Decision: four native tiers.
 
