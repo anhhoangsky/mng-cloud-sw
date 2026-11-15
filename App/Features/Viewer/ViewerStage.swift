@@ -317,8 +317,9 @@ struct ViewerStage: View {
             } else if abs(dx) > abs(dy) * 1.15 {
                 dragMode = .horizontal
                 // Give the neighbouring preview as much of the drag as
-                // possible to download and decode before the release.
-                prefetchNeighbors()
+                // possible to download and decode before the release. The
+                // page the swipe goes to is warmed first.
+                prefetchNeighbors(direction: dx < 0 ? 1 : -1)
             } else if dy > 0, abs(dy) > abs(dx) * 1.15 {
                 dragMode = .vertical
             } else {
@@ -551,10 +552,15 @@ struct ViewerStage: View {
     /// Warm the pages on either side of the current one. Called when a page
     /// opens and as soon as a horizontal swipe is recognised, so a release has
     /// a decoded bitmap waiting.
-    private func prefetchNeighbors() {
+    ///
+    /// The page in the direction of the swipe comes first: that is the one
+    /// the person is about to see, and the one that has to be there before
+    /// the finger leaves the screen.
+    private func prefetchNeighbors(direction: Int = 0) {
         var paths: [String] = []
-        for direction in [-1, 1] {
-            guard let item = neighbor(direction), !item.isVideo else { continue }
+        let directions = direction == 0 ? [-1, 1] : [direction, -direction]
+        for step in directions {
+            guard let item = neighbor(step), !item.isVideo else { continue }
             paths.append(item.previewPath)
         }
         PreviewCache.shared.prefetch(paths, client: client)

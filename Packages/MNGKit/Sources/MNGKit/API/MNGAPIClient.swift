@@ -278,6 +278,11 @@ public actor MNGAPIClient {
             "multipart/form-data; boundary=\(boundary)",
             forHTTPHeaderField: "Content-Type"
         )
+        // The size of the file lets the server stream it straight into the
+        // cloud instead of writing it to the disk of the server first.
+        if let size = Self.fileSize(of: fileURL) {
+            request.setValue(String(size), forHTTPHeaderField: "x-file-size")
+        }
         let (payload, response) = try await upload(request, fromFile: body)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.invalid(status: 0)
@@ -320,6 +325,11 @@ public actor MNGAPIClient {
             "multipart/form-data; boundary=\(boundary)",
             forHTTPHeaderField: "Content-Type"
         )
+        // The size of the file lets the server stream it straight into the
+        // cloud instead of writing it to the disk of the server first.
+        if let size = Self.fileSize(of: fileURL) {
+            request.setValue(String(size), forHTTPHeaderField: "x-file-size")
+        }
         if let cookie = sessionCookie() {
             let fields = HTTPCookie.requestHeaderFields(with: [cookie])
             if let header = fields["Cookie"] {
@@ -327,6 +337,17 @@ public actor MNGAPIClient {
             }
         }
         return MediaUploadRequest(request: request, bodyFile: body)
+    }
+
+    /// The size of a file on disk, in bytes.
+    ///
+    /// The server needs it to stream the file into the cloud: the cloud
+    /// refuses a body without a length, and the server has to know whether
+    /// the name of the file is free before it writes anything.
+    private static func fileSize(of url: URL) -> Int64? {
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+        guard let size = values?.fileSize, size > 0 else { return nil }
+        return Int64(size)
     }
 
     /// The session cookie of the signed-in user.

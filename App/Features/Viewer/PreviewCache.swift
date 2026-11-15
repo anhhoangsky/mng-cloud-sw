@@ -20,8 +20,12 @@ final class PreviewCache {
     private var inflight: [String: Task<UIImage?, Never>] = [:]
 
     private init() {
-        cache.countLimit = 12
-        cache.totalCostLimit = 128 * 1024 * 1024
+        // A preview of a photo is a big bitmap, so the cache holds a few of
+        // them. The name lets the system drop them when the memory runs
+        // short, before it drops the app.
+        cache.name = "mng.previews"
+        cache.countLimit = 24
+        cache.totalCostLimit = 192 * 1024 * 1024
     }
 
     /// Synchronous cache probe used while building the page. A neighbour that
@@ -54,16 +58,23 @@ final class PreviewCache {
         return image
     }
 
-    /// Warm the neighbours of the current page. The requests run one after
-    /// another so a swipe never floods the connection, and an already cached
-    /// path returns immediately.
+    /// Warm the neighbours of the current page.
+    ///
+    /// The neighbour in the direction of the swipe comes first: that is the
+    /// page the person is about to see. The one behind it is warmed after
+    /// it, so a swipe back does not have to wait either.
+    ///
+    /// The requests run one after another so a swipe never floods the
+    /// connection, and an already cached path returns immediately. A
+    /// connection the system marked as constrained is left alone.
     func prefetch(_ paths: [String], client: MNGAPIClient) {
+        guard !NetworkMonitor.shared.isConstrained else { return }
         let missing = paths.filter {
             !$0.isEmpty && cache.object(forKey: $0 as NSString) == nil
                 && inflight[$0] == nil
         }
         guard !missing.isEmpty else { return }
-        Task { [weak self, client] in
+        Task(priority: .utility) { [weak self, client] in
             for path in missing {
                 guard let self, !Task.isCancelled else { return }
                 _ = await self.image(for: path, client: client)

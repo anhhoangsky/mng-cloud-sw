@@ -170,9 +170,17 @@ final class LibraryModel {
         await reload()
     }
 
-    /// Warm the thumbnails of the rows that are about to scroll into view.
-    private func prefetchThumbnails() {
-        let upcoming = page.items.suffix(8).map { item in
+    /// Warm the thumbnails of the photos that are about to scroll into view.
+    ///
+    /// The grid scrolls towards older photos, so the photos that come next are
+    /// the oldest ones that are loaded. The window covers the photos of a
+    /// screenful, so a screen of tiles is ready before the finger reaches it
+    /// instead of eight tiles at a time.
+    ///
+    /// The grid tells the model how many photos a screen holds.
+    func prefetchThumbnails(items: Int = 24) {
+        let count = max(items, 8)
+        let upcoming = page.items.suffix(count).map { item in
             ThumbCache.Request(
                 path: item.thumbnailPath(size: 360),
                 fallbacks: item.thumbnailFallbackPaths
