@@ -65,7 +65,7 @@ actor EditorAIModelRuntime {
         let start = ContinuousClock.now
         let prediction: MLFeatureProvider
         do {
-            prediction = try model.prediction(from: provider)
+            prediction = try Self.predict(model, provider)
         } catch {
             throw EditorAIEngineFallback.inferenceFailed("prediction")
         }
@@ -90,6 +90,15 @@ actor EditorAIModelRuntime {
     }
 
     // MARK: - Model lifecycle
+
+    /// Keep prediction synchronous on the actor: the async overload would
+    /// suspend and let a second pass interleave with the model it shares.
+    private static func predict(
+        _ model: MLModel,
+        _ provider: MLFeatureProvider
+    ) throws -> MLFeatureProvider {
+        try model.prediction(from: provider)
+    }
 
     private func model(
         for descriptor: EditorAIModelDescriptor

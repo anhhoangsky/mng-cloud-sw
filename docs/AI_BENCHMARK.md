@@ -185,7 +185,7 @@ Additional gates:
   `.serious`, the app must downgrade the next run and show why.
 - Battery: report the measured delta; set the budget after the first run (a
   reasonable starting point is < 2 % per 30 Quality passes).
-- Download: SHA mismatch is rejected; cancel/resume works; low disk fails
+- Download: SHA mismatch is rejected; cancel and retry work; low disk fails
   before writing; airplane mode after install runs every installed tier.
 - Parity: Maximum vs web ISNet within the tolerances in §4.3, or the report
   states the measured gap and why.
@@ -222,18 +222,20 @@ Add these to `DEVICE_CHECKS.md` once the Core ML phase lands:
 
 - [ ] The model picker shows Fast / Balanced / Quality / Maximum, and the
       detail line names the engine that will run.
-- [ ] Choosing Quality or Maximum on a fresh install opens a download sheet
-      with size, license and Wi-Fi policy; cancelling leaves the photo
-      untouched.
-- [ ] A download interrupted by backgrounding resumes or restarts cleanly; a
-      corrupt archive is rejected and the previous version still runs.
+- [ ] Choosing Balanced on a fresh install opens a download sheet with size,
+      license and progress; cancelling leaves the photo untouched and the pass
+      still runs on Vision.
+- [ ] The first hair retouch offers the BiSeNet download after the Vision
+      ellipse mask appears; after install the next pass follows a ponytail.
+- [ ] A download interrupted by backgrounding restarts cleanly; a corrupt
+      archive is rejected and the previous version still runs.
 - [ ] Airplane mode after install runs every installed tier.
 - [ ] A no-subject landscape reports "Không tìm thấy chủ thể" instead of
       cutting out the scenery.
-- [ ] Maximum on a long-hair portrait keeps the ponytail and flyaways; compare
-      with the web ISNet output.
-- [ ] Low Power Mode and a hot device downgrade the engine and say so; the
-      photo still bakes.
+- [ ] A long-hair portrait keeps the ponytail and flyaways with BiSeNet hair
+      and with MODNet on the Balanced tier.
+- [ ] Low Power Mode and a hot device fall back to Vision; the photo still
+      bakes.
 - [ ] Hair retouch follows a ponytail and does not tint the face; the no-face
       fallback still reports the existing message.
 - [ ] The brush, invert, transparent background, live blur and retouch sliders

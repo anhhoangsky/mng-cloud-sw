@@ -52,7 +52,22 @@ actor EditorAIModelStore {
     }
 
     func isInstalled(_ descriptor: EditorAIModelDescriptor) -> Bool {
-        (try? installedVersionDirectory(descriptor)) != nil
+        guard let directory = try? installedVersionDirectory(descriptor) else {
+            return false
+        }
+        // The marker alone is not enough: a cleanup or a failed move can
+        // leave it without weights, and the engine must fall back to Vision
+        // instead of treating the tier as installed.
+        let compiled = directory.appendingPathComponent(
+            descriptor.compiledDirectoryName,
+            isDirectory: true
+        )
+        let package = directory.appendingPathComponent(
+            descriptor.packageDirectoryName,
+            isDirectory: true
+        )
+        return fileManager.fileExists(atPath: compiled.path)
+            || fileManager.fileExists(atPath: package.path)
     }
 
     /// The `.mlmodelc` the runtime loads. Compiles on first use if the
@@ -77,7 +92,7 @@ actor EditorAIModelStore {
         }
         let temporary: URL
         do {
-            temporary = try MLModel.compileModel(at: package)
+            temporary = try Self.compile(package)
         } catch {
             throw EditorAIModelStoreError.compileFailed
         }
@@ -86,11 +101,18 @@ actor EditorAIModelStore {
         return compiled
     }
 
+    /// Keep compilation synchronous on the actor. The async overload suspends
+    /// at the call, which would let a second install touch the same staging
+    /// directory while this one is still committing.
+    private static func compile(_ package: URL) throws -> URL {
+        try MLModel.compileModel(at: package)
+    }
+
     func install(
         _ descriptor: EditorAIModelDescriptor,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws {
-        if (try? installedVersionDirectory(descriptor)) != nil { return }
+        if isInstalled(descriptor) { return }
         try ensureRoot()
         try checkDisk(for: descriptor)
 
@@ -172,7 +194,7 @@ actor EditorAIModelStore {
 
         let compiled: URL
         do {
-            compiled = try MLModel.compileModel(at: package)
+            compiled = try Self.compile(package)
         } catch {
             throw EditorAIModelStoreError.compileFailed
         }
@@ -306,7 +328,7 @@ actor EditorAIModelStore {
         var target = url
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
-        try? target.setResourceValues(&values)
+        try? target.setResourceValues(values)
     }
 
     private func checkDisk(

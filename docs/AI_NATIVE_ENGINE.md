@@ -1,22 +1,25 @@
 # Native AI engine — architecture and model plan
 
-Status: **audit complete, design proposed, no native model code yet.** The
-numbers below are from the web's ONNX models on a desktop CPU plus the bundled
-sample images. iPhone numbers still require the protocol in
-[`AI_BENCHMARK.md`](AI_BENCHMARK.md); Vision subject lifting does not run in
-the Simulator.
+Status: **phases 1–2 implemented on `feature/native-ai-models`; device
+validation pending.** The store, catalog and both converted models are in the
+branch: Balanced can download MODNet 512, and hair retouch can download BiSeNet
+512. Quality and Maximum still say Vision because BiRefNet and BEN2 have no
+published archives. The numbers below are from the web's ONNX models on a
+desktop CPU plus the bundled sample images. iPhone numbers still require the
+protocol in [`AI_BENCHMARK.md`](AI_BENCHMARK.md); Vision subject lifting does
+not run in the Simulator.
 
 ## 1. Summary
 
-The native AI tab runs Apple Vision for every model tier. The web runs
-different models per tier, and its Quality tier is ISNet 1024, not Vision and
-not BiRefNet. That is the structural reason the phone's cut-outs look less
-detailed than the web's.
+The native AI tab still uses Apple Vision by default; no tier requires a
+download. The web runs different models per tier, and its Quality tier is
+ISNet 1024, not Vision and not BiRefNet. That is the structural reason the
+phone's cut-outs look less detailed than the web's.
 
 The fix is not "replace Vision". Vision stays the zero-download fast engine.
-A Core ML runtime is added beside it, with the same on-demand model lifecycle
-as the web: pinned download, SHA-256, on-device compile/cache, explicit
-fallback, and no model bytes in the IPA.
+A Core ML runtime sits beside it, with the same on-demand model lifecycle as
+the web: pinned download, SHA-256, on-device compile/cache, explicit fallback,
+and no model bytes in the IPA.
 
 Audit conclusions:
 
@@ -69,8 +72,9 @@ both; the background model table alone is not enough.
 | Person mode | forces `modnet-fp16` | as above | 12,984,781 B | Apache-2.0 | Balanced person path |
 
 Pinned metadata lives in `aurum-repo/src/ai-engine/registry.ts`. The web
-default is ISNet; the phone's current model picker never downloads a model and
-maps every tier to Vision.
+default is ISNet. On the phone, Fast, Quality and Maximum still map to Vision;
+Balanced offers the MODNet download and falls back to Vision for photos
+without a person or when the model is absent.
 
 ### 2.2 Retouch (`src/ai-retouch`)
 
@@ -80,9 +84,12 @@ maps every tier to Vision.
 | Hair mask | BiSeNet face parsing | 512×512 face crop | 53,205,364 B | MIT | Port to Core ML, all tiers |
 | Skin / whiten / smooth / tone | BlazeFace + CPU YCbCr/ellipse heuristics | — | — | — | Keep native heuristic; web is heuristic too |
 
-The native hair mask is a face-box ellipse with feature punch-outs
-(`EditorAIService.faceMasks`). The web's BiSeNet mask follows the real hair,
-including ponytails and flyaways. This is the largest retouch parity gap.
+The native hair mask starts as a face-box ellipse with feature punch-outs
+(`EditorAIService.faceMasks`). When the BiSeNet archive is installed, each of
+the largest four faces is parsed with the web's 1.9×/2.5× crop and merged with
+`max`; the ellipse remains the fallback. The web's BiSeNet mask follows the
+real hair, including ponytails and flyaways, and this was the largest retouch
+parity gap.
 
 ## 3. Measured audit
 
@@ -351,11 +358,11 @@ This makes the SHA-256 pins trustworthy even if the CDN is compromised and
 avoids a remote-code path. Each descriptor carries:
 
 ```swift
-struct EditorAIModelDescriptor: Codable, Sendable {
-    let id: String                 // "ben2-fp16"
+struct EditorAIModelDescriptor: Identifiable, Equatable, Sendable {
+    let id: String                 // "modnet-fp16"
     let version: String            // "1.0.0+<upstream-rev>"
     let displayName: String
-    let tier: EditorAIModelTier
+    let tier: EditorAIModelTier    // balanced | quality | maximum | retouch
     let kind: EditorAIModelKind    // segmentation | faceParsing
     let archiveURL: URL            // HTTPS, pinned
     let archiveSHA256: String
@@ -363,70 +370,77 @@ struct EditorAIModelDescriptor: Codable, Sendable {
     let installedBytes: Int64      // uncompressed budget
     let license: String
     let licenseURL: URL
+    let inputName: String
+    let outputName: String
     let inputWidth: Int
     let inputHeight: Int
-    let outputSemantics: String    // "alpha01" | "logitsSigmoid" | "bisenet19"
+    let preprocess: EditorAIPreprocess
+    let outputSemantics: EditorAIAlphaSemantics
     let estimatedPeakMB: Int
     let minimumAvailableMB: Int
     let requiresWiFi: Bool
-    let minOS: String
     let minRAMGB: Int
     let webModelID: String?        // exact parity mapping when it exists
 }
 ```
 
-Initial entries:
+Published entries (`ai-models-v1`, immutable release):
 
 | id | version | tier | archive | license | parity |
 |---|---|---|---|---|---|
-| `modnet-fp16` | `1.0.0+28165a4` | balanced | TBD (checkpoint 26,255,603 B) | Apache-2.0 | web Fast |
-| `birefnet-lite-512-fp16` | `1.0.0+962e679` | quality | 98,484,532 B | MIT | web Balanced |
-| `ben2-fp16` | `1.0.0` | maximum | 219,121,675 B | MIT | closest to web Quality |
-| `bisenet-hair` | `1.0.0+4f0632b` | retouch | TBD (checkpoint 55,361,505 B) | MIT | web hair |
-| `isnet-fp16` | `1.0.0` | maximum (gated) | 88,116,798 B | blocked | exact web Quality |
+| `modnet-fp16` | `1.0.0+28165a4` | balanced | 11,912,923 B (13,108,826 B installed) | Apache-2.0 | web Fast |
+| `bisenet-hair` | `1.0.0+4f0632b` | retouch | 24,368,691 B (26,350,885 B installed) | MIT | web hair |
 
-The sizes above are the upstream web artifacts until the conversion job runs.
-`models.json` pins the exact source bytes and hashes; the Core ML archives will
-have their own `archiveSha256` and `archiveBytes`, recorded in the conversion
-metadata and then in the app catalog. The native handsets must never use the
-web pins as archive hashes.
+Archive pins:
+
+- `modnet-fp16`:
+  `d256da371068e6b57d2b7f6a8cd24b828b85fbf80a2e7f5a8edd6832d8401adb`
+- `bisenet-hair`:
+  `c72fec2b926e8913e027476734c4f6911d276201ff75b538116baefb3fe1b0f1`
+
+`birefnet-lite-512-fp16` (Quality), `ben2-fp16` (Maximum) and `isnet-fp16`
+(blocked) are not in the catalog yet. Adding an entry without a published
+archive would make the download button fail, so Quality and Maximum keep the
+Vision detail label until a tagged conversion produces their artifacts.
 
 ### 6.2 Download, verify, install
 
 1. Check free disk: `archiveBytes * 2.5 + 200 MB`.
 2. Download to
-   `Application Support/AIModels/<id>/<version>.staging/` with a background
-   `URLSession`, progress callbacks and resume data.
-3. Stream the bytes through `CryptoKit.SHA256`; compare to the embedded hash
-   before accepting anything. A mismatch deletes the staging directory and
-   surfaces `checksumMismatch`.
-4. Unpack the `.mlpackage` archive (zip + ZIPFoundation, or AppleArchive if we
-   want no dependency; decide in the conversion spike) and validate the file
-   list against the descriptor.
-5. Move into `Application Support/AIModels/<id>/<version>/` with
-   `FileManager.replaceItemAt` (atomic on the same volume), then write
-   `installed.json` as the commit marker.
-6. Set `isExcludedFromBackup = true` on the model directory; a 219 MB model
-   must not be uploaded to iCloud.
-7. Compile on first use with `MLModel.compileModel(at:)`, move the resulting
-   `.mlmodelc` next to the package, and load it. If compile or load fails,
-   mark the version corrupt, delete it, and offer a re-download.
+   `Application Support/AIModels/<id>/<version>.staging-<uuid>/` with the
+   async `URLSession` API, a `URLSessionDownloadDelegate` for progress and a
+   120 s request timeout. Cancellation deletes the staging directory.
+3. Compare the file size to the descriptor, then stream the bytes through
+   `CryptoKit.SHA256`; compare to the embedded hash before accepting anything.
+   A mismatch deletes the staging directory and surfaces `checksumMismatch`.
+4. Unpack with ZIPFoundation, require `<id>.mlpackage/Manifest.json`, and check
+   `metadata.json` `id` and `version` against the descriptor.
+5. Compile with `MLModel.compileModel(at:)` before committing; a failed compile
+   leaves the installed version untouched. The `.mlpackage` is kept beside the
+   `.mlmodelc` so the model can be recompiled after an OS update.
+6. Move the staging directory into
+   `Application Support/AIModels/<id>/<version>/`, write `installed.json` as
+   the commit marker, set `isExcludedFromBackup = true`, and prune other
+   versions of the same id.
+7. The download sheet loads the model once after install, so a broken archive
+   cannot silently replace Vision. Any failure falls back to Vision for that
+   pass.
 
-Wi-Fi policy: models over 50 MB require Wi-Fi unless the user explicitly
-confirms cellular. Downloading is always user-initiated, shows the size and
-license, and is cancellable. No pixels leave the device.
+Wi-Fi policy: models over 50 MB should require Wi-Fi unless the user confirms
+cellular; neither shipped archive is that large. Downloading is always
+user-initiated, shows the size and license, and is cancellable. No pixels leave
+the device.
 
 ### 6.3 Cache, versioning, eviction
 
-- Directory per model id, subdirectory per version. A `current.json` pointer
-  selects the installed version; a failed new install never deletes the
-  working one.
-- `lastUsedAt` is updated on load. Eviction is LRU by tier budget: keep the
-  Fast/Balanced models (zero or small), evict old Quality/Maximum versions when
-  total model storage exceeds 600 MB or free disk is low.
-- Never evict the model currently loaded or the version selected by the user.
-- A catalog version bump prompts an update in the AI pane; the old version is
-  removed only after the new one verifies and loads.
+- Directory per model id, subdirectory per version, with `installed.json` as
+  the commit marker. Only the catalog version is installed; older sibling
+  directories are pruned after a successful commit.
+- A catalog version bump simply points at a new directory; if its download,
+  hash or compile fails, the old version is left alone.
+- The store is excluded from iCloud backup and the app has no LRU eviction yet:
+  the two shipped models total ~40 MB. A size budget becomes necessary when
+  BiRefNet and BEN2 ship.
 - Recompile is automatic if the `.mlmodelc` is missing (for example after an
   OS update), with a progress state.
 
@@ -567,6 +581,11 @@ Conversion feasibility from the graph audit:
 Phase 2 is the highest-value first ship: BiSeNet closes the visible hair-retouch
 gap, and MODNet is small enough to validate the whole download/compile/cache
 path without a 200 MB artifact. Do not start with BEN2.
+
+Phases 1 and 2 are implemented on `feature/native-ai-models`. Phase 2 still
+needs a signed device run for download/verify/cancel, top-down masks and a
+ponytail photo; CI only compiles the app and cannot run Vision or Core ML
+features.
 
 ## 11. Risks and open questions
 
