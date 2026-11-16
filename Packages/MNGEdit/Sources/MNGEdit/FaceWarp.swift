@@ -127,10 +127,11 @@ public struct FaceWarpParameters: Codable, Equatable, Sendable {
 /// `warp(_:)` answers one question: *which source pixel does this output pixel
 /// sample?* The preview and the full-resolution export evaluate the same
 /// function, so a reshape looks identical at every zoom, and the identity case
-/// returns the input bit-for-bit (no reampling, no drift on a neutral slider).
+/// returns the input bit-for-bit (no resampling, no drift on a neutral slider).
 ///
-/// The Metal kernel of the next step will compute the same displacement on the
-/// GPU; this CPU implementation is the reference used by the XCTest fixtures.
+/// `makeSampler()` freezes the clamped sliders and the resolved anchors once,
+/// which is what the pixel loop uses: a render asks for one sampler and reuses
+/// it for every pixel instead of clamping six floats a million times.
 public struct FaceWarp: Equatable, Sendable {
     public var parameters: FaceWarpParameters
     /// At most four faces, strongest first — the limit of the web shader.
@@ -138,12 +139,17 @@ public struct FaceWarp: Equatable, Sendable {
 
     public init(parameters: FaceWarpParameters = .zero, anchors: [EditorFaceAnchor] = []) {
         self.parameters = parameters
-        self.anchors = FaceWarp.normalise(anchors)
+        self.anchors = FaceWarp.normalize(anchors)
     }
 
     /// True when the warp must be skipped entirely.
     public var isIdentity: Bool {
         parameters.isIdentity || anchors.isEmpty
+    }
+
+    /// Freeze the parameters once for a whole preview/export pass.
+    public func makeSampler() -> FaceWarpSampler {
+        FaceWarpSampler(parameters: parameters, anchors: anchors)
     }
 
     /// Port of `warpFace(vec2 uv)`.
@@ -153,17 +159,63 @@ public struct FaceWarp: Equatable, Sendable {
     /// are the ones of the web shader; changing one here means changing it
     /// there too, or the two clients stop matching.
     public func warp(_ uv: SIMD2<Float>) -> SIMD2<Float> {
-        guard !isIdentity else { return uv }
-        let values = parameters.clamped()
-        let slim = values.faceSlim / 100
-        let jaw = values.jawline / 100
-        let chin = values.chin / 100
-        let eyes = values.eyeSize / 100
-        let nose = values.noseSize / 100
-        let mouth = values.mouthSize / 100
+        makeSampler().warp(uv)
+    }
 
-        var point = uv
-        for anchor in anchors.prefix(4) {
+    /// Sort and clamp like `packFaceAnchors`: valid boxes only, strongest
+    /// first, at most four — the shader loop bound.
+    public static func normalize(_ input: [EditorFaceAnchor]) -> [EditorFaceAnchor] {
+        input
+            .filter { $0.box.width.isFinite && $0.box.height.isFinite && $0.box.width > 0 && $0.box.height > 0 }
+            .sorted {
+                let areaA = $0.box.width * $0.box.height
+                let areaB = $1.box.width * $1.box.height
+                return ($0.box.confidence ?? areaA) > ($1.box.confidence ?? areaB)
+            }
+            .prefix(4)
+            .map { anchor in
+                var copy = anchor
+                copy.box.x = min(max(anchor.box.x.isFinite ? anchor.box.x : 0, 0), 1)
+                copy.box.y = min(max(anchor.box.y.isFinite ? anchor.box.y : 0, 0), 1)
+                copy.box.width = min(max(anchor.box.width, 0), 1)
+                copy.box.height = min(max(anchor.box.height, 0), 1)
+                return copy
+            }
+    }
+}
+
+/// A `FaceWarp` prepared for a pixel loop.
+///
+/// Every derived value — clamped sliders, packed ellipse sizes, resolved
+/// landmark defaults — is computed once here. `warp(_:)` then only does the
+/// arithmetic the fragment shader does, so a 1200 px preview and a 20 MP
+/// export run the identical formula.
+public struct FaceWarpSampler: Sendable {
+    private struct Anchor: Sendable {
+        var center: SIMD2<Float>
+        var half: SIMD2<Float>
+        var features: FaceWarpResolvedFeatures
+    }
+
+    private let slim: Float
+    private let jaw: Float
+    private let chin: Float
+    private let eyes: Float
+    private let nose: Float
+    private let mouth: Float
+    private let anchors: [Anchor]
+    /// True when a render can skip the warp and keep the source pixels exact.
+    public let isIdentity: Bool
+
+    init(parameters: FaceWarpParameters, anchors: [EditorFaceAnchor]) {
+        let values = parameters.clamped()
+        slim = values.faceSlim / 100
+        jaw = values.jawline / 100
+        chin = values.chin / 100
+        eyes = values.eyeSize / 100
+        nose = values.noseSize / 100
+        mouth = values.mouthSize / 100
+        self.anchors = anchors.prefix(4).map { anchor in
             let box = anchor.box
             let center = SIMD2<Float>(
                 min(max(box.x + box.width / 2, 0), 1),
@@ -175,22 +227,37 @@ public struct FaceWarp: Equatable, Sendable {
                 min(max(min(max(box.width, 0), 1) * 0.62, 0.01), 1),
                 min(max(min(max(box.height, 0), 1) * 0.72, 0.01), 1)
             )
-            let half = SIMD2<Float>(packed.x / 1.24, packed.y / 1.44)
+            return Anchor(
+                center: center,
+                half: SIMD2<Float>(packed.x / 1.24, packed.y / 1.44),
+                features: anchor.resolved
+            )
+        }
+        isIdentity = values.isIdentity || self.anchors.isEmpty
+    }
+
+    public func warp(_ uv: SIMD2<Float>) -> SIMD2<Float> {
+        guard !isIdentity else { return uv }
+        var point = uv
+        for anchor in anchors {
+            let center = anchor.center
+            let half = anchor.half
             let local = (point - center) / half
             let ellipse = min(max(1 - (local.x * local.x + local.y * local.y), 0), 1)
             if ellipse <= 0.0001 { continue }
             let soft = ellipse * ellipse
 
-            let features = anchor.resolved
+            let features = anchor.features
             // Horizontal squeeze: zero at the centre and at the face edge,
             // strongest across the cheeks. Jawline weights the lower half more.
             let squeeze = slim * 0.16
-                + jaw * 0.14 * smoothstep(-0.05, 0.75, local.y)
+                + jaw * 0.14 * FaceWarpSampler.smoothstep(-0.05, 0.75, local.y)
             point.x += squeeze * local.x * soft * half.x
 
             // Chin: the lower centre samples slightly above, so the chin
             // visually extends downwards without pulling the background in.
-            let chinBand = smoothstep(0, 0.65, local.y) * exp(-local.x * local.x * 3)
+            let chinBand = FaceWarpSampler.smoothstep(0, 0.65, local.y)
+                * exp(-local.x * local.x * 3)
             point.y -= chin * 0.14 * chinBand * ellipse * half.y
 
             if abs(eyes) > 0.001 {
@@ -222,8 +289,6 @@ public struct FaceWarp: Equatable, Sendable {
         )
     }
 
-    // MARK: - Internals
-
     private func scaledAround(
         _ local: SIMD2<Float>,
         _ feature: SIMD2<Float>,
@@ -239,31 +304,10 @@ public struct FaceWarp: Equatable, Sendable {
         return (point - origin) * (strength * weight)
     }
 
-    private func smoothstep(_ edge0: Float, _ edge1: Float, _ value: Float) -> Float {
+    private static func smoothstep(_ edge0: Float, _ edge1: Float, _ value: Float) -> Float {
         guard edge1 > edge0 else { return value < edge0 ? 0 : 1 }
         let t = min(max((value - edge0) / (edge1 - edge0), 0), 1)
         return t * t * (3 - 2 * t)
-    }
-
-    /// Sort and clamp like `packFaceAnchors`: valid boxes only, strongest
-    /// first, at most four — the shader loop bound.
-    private static func normalise(_ input: [EditorFaceAnchor]) -> [EditorFaceAnchor] {
-        input
-            .filter { $0.box.width.isFinite && $0.box.height.isFinite && $0.box.width > 0 && $0.box.height > 0 }
-            .sorted {
-                let areaA = $0.box.width * $0.box.height
-                let areaB = $1.box.width * $1.box.height
-                return ($0.box.confidence ?? areaA) > ($1.box.confidence ?? areaB)
-            }
-            .prefix(4)
-            .map { anchor in
-                var copy = anchor
-                copy.box.x = min(max(anchor.box.x.isFinite ? anchor.box.x : 0, 0), 1)
-                copy.box.y = min(max(anchor.box.y.isFinite ? anchor.box.y : 0, 0), 1)
-                copy.box.width = min(max(anchor.box.width, 0), 1)
-                copy.box.height = min(max(anchor.box.height, 0), 1)
-                return copy
-            }
     }
 }
 
@@ -284,7 +328,9 @@ private extension EditorFaceAnchor {
 
     func clampedPoint(_ value: SIMD2<Float>?, fallback: SIMD2<Float>) -> SIMD2<Float> {
         guard let value, value.x.isFinite, value.y.isFinite else { return fallback }
-        return SIMD2(min(max(value.x, -1), 1), min(max(value.y, -1), 1))
+        // The web packer clamps measured positions to ±0.92 so an outlier
+        // landmark cannot pull the falloff outside the face ellipse.
+        return SIMD2(min(max(value.x, -0.92), 0.92), min(max(value.y, -0.92), 0.92))
     }
 
     func clampedRadius(_ value: SIMD2<Float>?, fallback: SIMD2<Float>) -> SIMD2<Float> {
@@ -295,8 +341,8 @@ private extension EditorFaceAnchor {
     }
 }
 
-/// Shared by `FaceWarp` and the extension above.
-struct FaceWarpResolvedFeatures {
+/// Shared by `FaceWarpSampler` and the anchor extension above.
+struct FaceWarpResolvedFeatures: Sendable {
     var eyeLeft: SIMD2<Float>
     var eyeRight: SIMD2<Float>
     var nose: SIMD2<Float>

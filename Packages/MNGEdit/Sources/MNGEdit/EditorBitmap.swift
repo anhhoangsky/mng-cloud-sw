@@ -4,6 +4,36 @@ import Foundation
 /// Conversions between Core Graphics bitmaps and the top-down straight RGBA
 /// buffers of the editor.
 public enum EditorBitmap {
+    /// Wrap a top-down straight-RGBA buffer as a `CGImage`.
+    ///
+    /// Vision and the face-landmark detector take a `CGImage`; the editor
+    /// already holds the pixels, so this avoids re-decoding the source file.
+    /// The alpha is straight (`last`), matching `topDownRGBA`.
+    public static func cgImage(
+        width: Int,
+        height: Int,
+        rgba: [UInt8]
+    ) -> CGImage? {
+        guard width > 0, height > 0, rgba.count == width * height * 4 else {
+            return nil
+        }
+        let data = Data(rgba) as CFData
+        guard let provider = CGDataProvider(data: data) else { return nil }
+        return CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )
+    }
+
     /// Draw a `CGImage` into a top-down straight-alpha RGBA buffer.
     ///
     /// A bitmap context keeps its rows in the order of the image, so no

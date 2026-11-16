@@ -505,6 +505,7 @@ final class EditorModel {
             filterThumbnails = [:]
             state = .ready
             renderPreview()
+            detectFaceAnchors(for: editor, seq: seq)
         } catch let error as APIError {
             guard seq == loadSeq else { return }
             if error.status == 401 {
@@ -2159,6 +2160,26 @@ final class EditorModel {
     }
 
     // MARK: - Preview
+
+    /// Detect the face anchors once per source and attach them to the editor.
+    ///
+    /// Vision runs off the main actor; the preview is re-rendered when the
+    /// anchors arrive. Until then the shape sliders simply have no face to
+    /// warp, which is the same honest degradation as the web editor before
+    /// its landmark pass has run.
+    private func detectFaceAnchors(for editor: Editor, seq: Int) {
+        guard let image = editor.sourceCGImage() else { return }
+        Task.detached(priority: .utility) { [weak self] in
+            let anchors = (try? FaceAnchorDetector.anchors(in: image)) ?? []
+            await MainActor.run {
+                guard let self, self.loadSeq == seq, self.editor != nil else {
+                    return
+                }
+                self.editor?.setFaceAnchors(anchors)
+                self.renderPreview()
+            }
+        }
+    }
 
     /// Re-render the preview off the main actor.
     private func renderPreview() {

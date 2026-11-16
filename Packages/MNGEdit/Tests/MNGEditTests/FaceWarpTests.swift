@@ -10,8 +10,8 @@ final class FaceWarpTests: XCTestCase {
         box: EditorFaceBox(x: 0.35, y: 0.25, width: 0.3, height: 0.4, confidence: 0.9)
     )
 
-    /// Centre 0.5/0.5, half-size (0.15, 0.2) for the box above.
-    private let centre = SIMD2<Float>(0.5, 0.5)
+    /// Centre 0.5/0.45, half-size (0.15, 0.2) for the box above.
+    private let centre = SIMD2<Float>(0.5, 0.45)
 
     func testZeroParametersAreBitwiseIdentity() {
         let warp = FaceWarp(parameters: .zero, anchors: [face])
@@ -67,8 +67,10 @@ final class FaceWarpTests: XCTestCase {
 
     func testEyeSizeOnlyAffectsTheEyeEllipse() {
         let warp = FaceWarp(parameters: FaceWarpParameters(eyeSize: 50), anchors: [face])
-        // A point just outside the default left eye (local -0.30, -0.18).
-        let nearEye = SIMD2<Float>(centre.x - 0.30 * 0.15, centre.y - 0.18 * 0.2)
+        // Offset from the default left eye centre (local -0.34, -0.18) but
+        // still inside its radius: a sample exactly at the centre cannot move,
+        // because the displacement is proportional to the distance.
+        let nearEye = SIMD2<Float>(centre.x - 0.24 * 0.15, centre.y - 0.18 * 0.2)
         let warped = warp.warp(nearEye)
         XCTAssertNotEqual(warped, nearEye)
         // Positive eye size samples closer to the eye centre, enlarging it.
