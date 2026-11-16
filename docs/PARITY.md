@@ -21,7 +21,7 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 | Settings | Kết nối / iCloud / Thư viện / Tài khoản / Giới thiệu; test, rescan, retry thumbs, clear temp | 🟡 ported: cloud probe rows, iCloud status, scan/thumbs/tmp actions, storage, duplicates entry, account/about; device check pending |
 | Duplicates | legacy summary, 30 groups per page, open group in viewer | 🟡 ported: summary + pending-thumbnail note, 30 groups per page, 128 pt grid, group-seeded viewer; device check pending |
 | Vault | native list/unlock/browse/upload/folder/delete/auto-lock (the Seafile E2EE reader was removed from the web app) | 🟡 ported: vault list, unlock, browser with folders/search, 4 MiB chunked upload, encrypted preview, rename, delete, library → vault move, 15-minute auto-lock; device check pending |
-| Editor | rotate → flip → crop, adjustments, filters, text, AI, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, five native tabs (Tinh chỉnh / Bộ lọc / Chữ / AI / Cắt), thirteen sliders, twenty-nine Aurum presets with six categories and the seven-slider tone tune, saved personal presets, text layers with CoreText export burn and an on-photo frame, continuous ±180° crop rotation with cover fill, ratio + screen presets, crop scrim/grid/bevel handles, perspective correction, an on-device Vision AI tab (background remove/person/blur/white, five retouch passes, model picker, mask brush with live blur/retouch preview, progress/cancel and AI-only undo), hold-to-compare, export sheet with quality and the two save modes, multipart upload; the six portrait reshape sliders are wired through the shared warp engine (Vision landmarks, preview/export identical), the four beauty sliders run through a line-by-line port of the web's R/G/B mask builder and `main.glsl` portrait pass (mask build is opt-in until the native pane and `EditorModel` wiring land), the free-liquify field plus its 640-dab history are ported (`LiquifyField`, RG = drag in source UV, preview/export identical) but have no native brush yet, and clarity/sharpen/denoise run through `DetailKernel` (sections 1–3 of `main.glsl`); device check pending |
+| Editor | rotate → flip → crop, adjustments, filters, text, AI, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, six native tabs (Tinh chỉnh / Chân dung / Bộ lọc / Chữ / AI / Cắt), twenty-six sliders across the two parameter decks, twenty-nine Aurum presets with six categories and the seven-slider tone tune, saved personal presets, text layers with CoreText export burn and an on-photo frame, continuous ±180° crop rotation with cover fill, ratio + screen presets, crop scrim/grid/bevel handles, perspective correction, an on-device Vision AI tab (background remove/person/blur/white, five retouch passes, model picker, mask brush with live blur/retouch preview, progress/cancel and AI-only undo), hold-to-compare, export sheet with quality and the two save modes, multipart upload; the six portrait reshape sliders are wired through the shared warp engine (Vision landmarks, preview/export identical), the four beauty sliders run through a line-by-line port of the web's R/G/B mask builder and `main.glsl` portrait pass (the mask builds in the same Vision task as the anchors), the Chân dung tab applies the three chain presets decoded from the shared `presets.json` spec, the free-liquify field plus its 640-dab history are ported (`LiquifyField`, RG = drag in source UV, preview/export identical) with a native source-space brush (1–20 % size, gold ring, one undo step per stroke, clear), and clarity/sharpen/denoise run through `DetailKernel` (sections 1–3 of `main.glsl`); device check pending |
 | Admin | lazy mount, users, password, activate, admin, delete, scan | 🟡 ported: Settings row for admins only, lazy list, create/reset/reprovision/update/delete/scan; device check pending |
 | iCloud | honest status, 2.2 s job poll, login/2FA/start/save/pause/cancel/logout | 🟡 ported: full importer sheet with the 2.2 s poll that stops with the sheet; device check pending |
 | PWA-only surfaces | service worker, Trusted Types, extension | ➖ |
@@ -474,6 +474,47 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   ramp never inverting at maximum values, preview/export PSNR > 45 dB and the
   JSON round-trip/clamp. CI run `43816541257` is green at `4c4a675`, including
   the simulator build, device build, simulator test and both upload steps.
+
+## Round 11 notes
+
+- The editor now has six tabs. "Chân dung" sits right after "Tinh chỉnh" and
+  uses the same `paramDeck` builder as the adjust tab: the three chain chips
+  first, then the "Chân dung" group (smooth skin, skin texture, blemish, skin
+  tone) and the "Dáng mặt" group (face slim, jawline, chin, eye size, nose
+  size, mouth size). Every slider starts at zero except `skinTexture` at 55,
+  matching `EditorModel.defaultAdjustments` on the web, and the value chip
+  resets one slider back to zero.
+- The chain names and values come from `App/Resources/presets.json`, a
+  byte-for-byte copy of the web's `specs/presets.json` (same hash). The
+  XcodeGen resource phase bundles it, `ChainPreset` decodes it, and
+  `applyChainPreset` only writes the keys the spec names, clamps each value
+  and records one undo step; the toast says "Đã áp dụng làm đẹp: <tên>".
+  Unknown keys are ignored instead of failing the whole chain.
+- The beauty mask now builds in the same task as the Vision anchors:
+  `detectFaceAnchors` runs Vision and `buildBeautyMask` together and publishes
+  the anchors and the mask in one update, so the first portrait render already
+  has skin protection. The R/G/B layout, the double-protect and the procedural
+  `skinWeight` fallback when no face is found are the web's, unchanged.
+- The free-liquify field has a native brush. Dabs store source UV and the
+  displacement between two source points, so preview and export bend the same
+  pixels; the pointer maps to the source through the display geometry only
+  (crop, quarter turn, flip, fine rotation, perspective), never through the
+  current warp, so a stroke cannot chase itself. Brush size is 1–20 % of the
+  source width, dabs are spaced 0.35 × the ring radius with at most 48 per
+  event, and each stroke is one `beginEdit`/`endEdit` undo step with a clear
+  action. While the brush is on, the stage pan, pinch and double tap are
+  disabled and the value ruler is replaced by the brush-size rail, so entering
+  the mode cannot move the photo.
+- The gold ring samples `sourceUV` at the centre of the output and 0.01 away,
+  then converts the source radius to a fraction of the fitted preview, so a
+  cropped or turned photo shows the true brush footprint instead of a fixed
+  screen circle.
+- `MNGEdit` runs 65 test methods on macOS, four of them new: identity mapping
+  with edge clamping and no warp feedback, both quarter turns, an offset crop
+  and a horizontal flip. CI run `43819610301` is green at `9d7a6b5`, including
+  the simulator build, the unsigned device build, the simulator test and both
+  upload steps. The device check still has to measure the export-quality
+  `DetailKernel` taps and the beauty mask build on a real phone.
 
 ## Visual checks per UI phase
 
