@@ -6,11 +6,11 @@ and uploads the resulting `.mlpackage.zip` artifacts.
 
 Why PyTorch sources?
 
-coremltools 9 removed the ONNX importer. The two shipping models have official
-PyTorch checkpoints, and the app must match the web ONNX models. The pipeline
+coremltools 9 removed the ONNX importer. Every shipping model has an official
+PyTorch checkpoint, and the app must match the web ONNX models. The pipeline
 therefore:
 
-1. downloads the pinned PyTorch checkpoint and the pinned fp32 ONNX reference;
+1. downloads the pinned PyTorch checkpoint and the pinned ONNX parity reference;
 2. builds the vendored official architecture, loads the checkpoint and compares
    the PyTorch output against ONNX Runtime on deterministic inputs;
 3. traces the PyTorch graph and converts it to an iOS 17 `mlprogram` with

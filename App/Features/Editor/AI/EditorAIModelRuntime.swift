@@ -180,6 +180,16 @@ actor EditorAIModelRuntime {
                     ) / std[channel]
                 }
             }
+        case .isnet:
+            // The web feeds (byte - 128) / 256, not a 0…1 rescale.
+            for index in 0..<plane {
+                let pixel = index * 4
+                for channel in 0..<3 {
+                    pointer[channel * plane + index] = (
+                        Float(rgba[pixel + channel]) - 128
+                    ) / 256
+                }
+            }
         }
         return array
     }

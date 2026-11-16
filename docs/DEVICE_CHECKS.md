@@ -199,13 +199,20 @@ usable in the simulator.
 - [ ] After BiRefNet installs, Quality runs the model on a portrait and on a
       product/landscape shot; removing the app's `AIModels` cache returns it
       to Vision without an error.
+- [ ] Choosing Tối đa on a fresh install offers the ISNet 1024 download with
+      the Apache-2.0 DIS attribution and the Wi-Fi requirement; cancelling
+      leaves the pass on BiRefNet (when installed) or Vision.
+- [ ] After ISNet installs, Maximum runs it on a portrait, a product shot and
+      a landscape; a no-subject landscape returns the existing "Không tìm thấy
+      chủ thể" path instead of cutting out scenery.
+- [ ] Removing only the ISNet version makes Maximum fall back to BiRefNet,
+      then Vision; no sheet reappears mid-pass and the result still bakes.
 - [ ] The first hair pass offers BiSeNet after the Vision ellipse mask
       appears; after install the next pass follows a ponytail.
 
-The Phase 2/Phase 4 model download/fallback/quality matrix is in
-[`AI_BENCHMARK.md`](AI_BENCHMARK.md) §9. Quality names BiRefNet with a Vision
-fallback on a fresh install; Maximum still names Vision until BEN2 has a
-published archive.
+The Phase 2/Phase 4/Phase 5 model download/fallback/quality matrix is in
+[`AI_BENCHMARK.md`](AI_BENCHMARK.md) §9. Maximum names ISNet 1024, falls back
+to BiRefNet Lite 512, and always ends at Vision.
 
 ## Administration (admin account only)
 

@@ -1,9 +1,9 @@
 # Native AI benchmark protocol
 
-Status: **plan.** No device numbers exist yet. This document defines how the
-iPhone 12 Pro Max run is executed, what is measured, and what pass/fail means.
-The architecture and model decisions are in
-[`AI_NATIVE_ENGINE.md`](AI_NATIVE_ENGINE.md).
+Status: **conversion landed; device run pending.** The native models convert
+and pass their CI gates. This document defines how the iPhone 12 Pro Max run is
+executed, what is measured, and what pass/fail means. The architecture and
+model decisions are in [`AI_NATIVE_ENGINE.md`](AI_NATIVE_ENGINE.md).
 
 ## 1. Goal
 
@@ -112,9 +112,9 @@ For no-subject images:
 ### 4.3 Parity
 
 - **Maximum vs web ISNet**: run the same DIS-TE1 samples through web ISNet and
-  native Maximum; compare IoU (target within 0.05), Boundary F (within 0.10),
-  and MAE (within 0.01). If ISNet is licensed and becomes the Maximum engine,
-  tighten to IoU within 0.01 and Boundary F within 0.03.
+  native Maximum; compare IoU (target within 0.01), Boundary F (within 0.03),
+  and MAE (within 0.01). Maximum ships the same ISNet checkpoint, so a larger
+  gap means the conversion, preprocessing or letterboxing is wrong.
 - **Quality vs web BiRefNet**: the native Quality engine should be the same
   model family and preprocessing; target IoU within 0.01 after conversion.
 - **Hair A/B**: web ISNet vs native Maximum on the five hair/fur crops; two
@@ -176,7 +176,7 @@ Do not ship a tier that misses both its quality and its performance target.
 | Fast (Vision) | < 300 ms | < 300 MB | current native baseline; no regression |
 | Balanced (MODNet) | < 700 ms | < 500 MB | hair/fur visual ≥ Vision; no-subject gate passes |
 | Quality (BiRefNet) | < 2.5 s | < 1.2 GB | halo ≤ Vision; hair visual ≥ Vision; DIS MAE ≤ Vision |
-| Maximum (BEN2) | < 5.0 s | < 2.2 GB | hair/strand ≥ BiRefNet; halo ≤ Vision; no-subject gate passes |
+| Maximum (ISNet) | < 5.0 s | < 1.8 GB | hair/strand ≥ BiRefNet; halo ≤ Vision; web ISNet parity; no-subject gate passes |
 
 Additional gates:
 
@@ -231,6 +231,12 @@ These mirror the model checks in `DEVICE_CHECKS.md`; keep both lists in sync.
 - [ ] After BiRefNet installs, Quality runs it on a portrait and a
       product/landscape shot, then returns to Vision when the `AIModels` cache
       is removed.
+- [ ] Choosing Maximum on a fresh install offers the ISNet 1024 sheet, says
+      Wi-Fi is required and shows the Apache-2.0 DIS attribution. Cancelling
+      leaves the pass on BiRefNet (if installed) or Vision.
+- [ ] After ISNet installs, Maximum runs it on the DIS-TE1 sample and the hair
+      crops; removing only the ISNet version falls back to BiRefNet, then
+      Vision, without an error.
 - [ ] The first hair retouch offers the BiSeNet download after the Vision
       ellipse mask appears; after install the next pass follows a ponytail.
 - [ ] A download interrupted by backgrounding restarts cleanly; a corrupt

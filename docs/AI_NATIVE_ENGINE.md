@@ -1,12 +1,13 @@
 # Native AI engine — architecture and model plan
 
-Status: **phases 1–3 implemented and phase 4's model/catalog work landed on
+Status: **phases 1–5 implemented and the model/catalog work landed on
 `feature/native-ai-models`; device validation pending.** The store, catalog and
-three converted models are in the branch: Balanced can download MODNet 512,
-Quality can download BiRefNet Lite 512 (`ai-models-v2`), and hair retouch can
-download BiSeNet 512. Maximum still says Vision because BEN2 has no published
-archive. The numbers below are from the web's ONNX models on a desktop CPU plus
-the bundled sample images. iPhone numbers still require the protocol in
+four converted models are in the branch: Balanced can download MODNet 512,
+Quality can download BiRefNet Lite 512 (`ai-models-v2`), Maximum can download
+ISNet 1024 (`ai-models-v3`, the exact web Quality model), and hair retouch can
+download BiSeNet 512. Maximum falls back to BiRefNet, then Vision. The numbers
+below are from the web's ONNX models on a desktop CPU plus the bundled sample
+images. iPhone numbers still require the protocol in
 [`AI_BENCHMARK.md`](AI_BENCHMARK.md); Vision subject lifting does not run in the
 Simulator.
 
@@ -25,17 +26,17 @@ and no model bytes in the IPA.
 Audit conclusions:
 
 1. **ISNet remains the best all-round model** on real photos and is the exact
-   web Quality target, but its weights are **not license-clean** (the HF card
-   says AGPL-3.0; the DIS repo's Apache-2.0 covers code and the evaluation
-   metric, not the distributed weights). Do not ship it without written
-   permission.
+   web Quality target. The native Maximum engine is rebuilt from the official
+   DIS general-use checkpoint (Apache-2.0 code and mirror); the
+   `onnx-community` fp16 ONNX card says AGPL-3.0, so that file is used only as
+   the parity reference and is never shipped to the app.
 2. **BiRefNet Lite (MIT)** has the cleanest halo and contour of the
    license-clean models. Hair is slightly softer than ISNet, but it is a safe
    default for the Quality tier and is already the web's Balanced model.
 3. **BEN2 (MIT)** is the closest license-clean hair quality to ISNet. It is
    also 219 MB, 14–19 s per image on desktop CPU, and it cuts scenery on
-   no-subject photos. It belongs only in Maximum, behind a Vision no-subject
-   gate.
+   no-subject photos. It remains unconverted; ISNet is the Maximum engine and
+   BEN2 is only a future alternative if the device run disproves it.
 4. **InSPyReNet Swin-B (Apache-2.0)** is rejected: worst halo by 2–6×, softest
    edge, selects scenery on landscapes, 15–18 s on desktop CPU, and its
    `GatherND`/`ScatterND` graph is conversion-hostile.
@@ -53,10 +54,11 @@ Decision: four native tiers.
 | Fast | Vision person/subject | — | 0 |
 | Balanced | MODNet 512 for people, Vision subject otherwise | Vision | 13 MB optional |
 | Quality | BiRefNet Lite 512 | Vision subject, then person | 82 MB on demand (Wi-Fi) |
-| Maximum | BEN2 1024 (ISNet 1024 only after license clearance) | BiRefNet, then Vision | 219 MB on demand |
+| Maximum | ISNet 1024 (exact web Quality model) | BiRefNet Lite 512, then Vision | 82 MB on demand (Wi-Fi) |
 
-BiSeNet hair parsing upgrades retouch in every tier. ISNet stays an optional,
-hidden "Web parity" model until the license question is resolved.
+BiSeNet hair parsing upgrades retouch in every tier. ISNet is the Maximum
+engine and the native/web parity target; it is no longer an optional hidden
+model.
 
 ## 2. What the web actually runs
 
@@ -67,15 +69,16 @@ both; the background model table alone is not enough.
 
 | Web UI | Model id | Input | Download | License | Native plan |
 |---|---|---|---|---|---|
-| Quality (default) | `isnet-fp16` | 1024×1024 | 88,116,798 B | AGPL-3.0 per HF card; DIS code Apache-2.0, weights unclear | **Blocked.** Optional Web-parity model after clearance |
+| Quality (default) | `isnet-fp16` | 1024×1024 | 88,116,798 B | DIS checkpoint Apache-2.0; ONNX card AGPL-3.0 (reference only) | **Maximum**, exact web parity |
 | Balanced | `birefnet-lite-512-fp16` | 512×512 | 98,484,532 B | MIT | Quality tier |
 | Fast | `modnet-fp16` | shortest edge 512, H/W multiple of 32 | 12,984,781 B | Apache-2.0 (verify artifact) | Balanced person path |
 | Person mode | forces `modnet-fp16` | as above | 12,984,781 B | Apache-2.0 | Balanced person path |
 
 Pinned metadata lives in `aurum-repo/src/ai-engine/registry.ts`. The web
-default is ISNet. On the phone, Fast and Maximum still map to Vision; Balanced
-offers the MODNet download for photos with a person, and Quality offers the
-BiRefNet download. Both fall back to Vision when the model is absent or fails.
+default is ISNet. On the phone, Fast is Vision; Balanced offers MODNet for
+photos with a person, Quality offers BiRefNet, and Maximum offers ISNet with a
+BiRefNet fallback. Every tier still ends at Vision when the model is absent or
+fails.
 
 ### 2.2 Retouch (`src/ai-retouch`)
 
@@ -161,18 +164,18 @@ useful semantic test. `photo-river.jpg` is a landscape photo.
 | sample-portrait coverage | 0.035 (clouds) | **0.000** | 0.200 | 0.172 | 0.381 |
 
 ISNet and BiRefNet correctly return an empty mask; BEN2 and InSPyReNet cut
-scenery, and MODNet false-positives. The native engine therefore needs a
-Vision no-subject gate before any general model, not just a coverage
-threshold.
+scenery, and MODNet false-positives. The native engine therefore treats an
+empty alpha as `empty-mask` and falls through to Vision; it does not need a
+second Vision pre-pass on every product shot.
 
 ### 3.4 License matrix
 
 | Model | Upstream license | Artifact license | Ship? |
 |---|---|---|---|
-| ISNet general use | DIS code Apache-2.0; weights no explicit license | HF card AGPL-3.0 | **No, until written permission** |
+| ISNet general use | DIS code Apache-2.0; checkpoint mirror Apache-2.0 | HF ONNX card AGPL-3.0, used only as a parity reference | **Yes**, from the DIS checkpoint |
 | BiRefNet Lite 512 | MIT | MIT (studioludens mirror) | Yes |
 | MODNet | Apache-2.0 | Apache-2.0 (Xenova mirror; verify file) | Yes |
-| BEN2 | MIT | MIT (PramaLLC / onnx-community) | Yes |
+| BEN2 | MIT | MIT (PramaLLC / onnx-community) | Not converted |
 | InSPyReNet | MIT | Apache-2.0 (PinkPixel mirror) | Rejected on quality |
 | BiSeNet face parsing | MIT | MIT (jbrownkramer mirror) | Yes |
 | BlazeFace mirror | MediaPipe Apache-2.0 | **unknown** on pinned mirror | Do not ship; use Vision |
@@ -186,24 +189,24 @@ threshold.
 | Fast | Nhanh | Vision person (fast) → Vision subject | Instant, zero download, person path is the common case |
 | Balanced | Cân bằng | MODNet 512 (person) → Vision subject | 13 MB, fast neural matting; no model needed for non-people |
 | Quality | Chất lượng | BiRefNet Lite 512 → Vision subject → Vision person | Best license-clean halo/contour; general subjects |
-| Maximum | Tối đa | ISNet 1024 (licensed only) → BEN2 1024 → BiRefNet → Vision | Best hair the device can run; explicit memory/thermal gate |
+| Maximum | Tối đa | ISNet 1024 → BiRefNet Lite 512 → Vision subject → Vision person | Exact web Quality model; BiRefNet and Vision cover devices or memory states that cannot run ISNet |
 
 Quality is not expected to be pixel-identical to web Quality, because web
 Quality is ISNet. Quality targets the best license-clean general cut-out.
-Maximum is the native/web parity tier: if ISNet is licensed it becomes the
-first entry and gives exact web-quality output; until then BEN2 is the closest
-license-clean model and the benchmark records the gap.
+Maximum is the native/web parity tier: it runs ISNet first and therefore
+matches the web model, checkpoint and preprocessing exactly. If ISNet is
+missing or denied by the memory/thermal guard, Maximum falls back to BiRefNet
+and then Vision.
 
 The picker gains a fourth case, `maximum`, with a detail string naming the
-actual engine (for example `BEN2 1024 · Tối đa`). The existing
+actual engine (`ISNet / BiRefNet / Vision · Tối đa`). The existing
 `quality / balanced / fast` raw values stay unchanged for state restoration.
 Picker order stays best-to-fastest: Tối đa, Chất lượng, Cân bằng, Nhanh; the
 default stays `.quality`. When the selected tier has a model that is not
-installed, Quality/Balanced show a download sheet with size, license and
-Wi-Fi requirement; Maximum has no archive yet and keeps the Vision detail
-line. A sheet never silently runs Vision without telling the user. If the
-user declines or is offline, the pass runs on Vision and the result metadata
-records the fallback.
+installed, Quality/Balanced/Maximum show a download sheet with size, license
+and Wi-Fi requirement. A sheet never silently runs Vision without telling the
+user. If the user declines or is offline, the pass uses the next installed
+engine and the result metadata records the fallback.
 
 ### 4.2 Engine resolution
 
@@ -212,33 +215,30 @@ resolve(mode, content, device):
   fast      -> [vision]
   balanced  -> content.hasPerson ? [modnet, vision] : [vision]
   quality   -> [birefnet, vision]
-  maximum   -> [isnetIfLicensed, ben2, birefnet, vision]
+  maximum   -> [isnet, birefnet, vision]
                 .filter(installed && fitsMemory && thermalAllows)
 ```
 
-Until BEN2 is published, `maximum` resolves to `[vision]`: the catalog has no
-Maximum descriptor, so the picker keeps the Vision detail line.
+`maximum` always starts at ISNet. A missing download or a memory/thermal
+denial is a normal engine fallback, not a tier failure: BiRefNet runs next,
+then Vision.
 
 `content.hasPerson` comes from `VNDetectHumanRectanglesRequest` (fast) plus
-the existing face detector when it already ran. For Quality/Maximum on a
-non-person image, run the Vision foreground request first as a **no-subject
-gate**:
-
-- no instances → throw `noSubject` before loading a 98–219 MB model;
-- instances → run the specialist model, with the Vision mask kept as the
-  fallback if the model fails.
-
-This gate costs one Vision pass on landscapes and product shots, but it stops
-BEN2/InSPyReNet-style scenery cut-outs and avoids the download/inference cost
-on photos with nothing to lift. On person photos the gate is skipped.
+the existing face detector when it already ran. The general models are not
+pre-gated on a person, because products and animals are valid subjects. A model
+that returns an empty alpha (coverage ≤ 0.05 %) throws `empty-mask`, and the
+selector moves to the next engine. This stops a busy landscape from becoming a
+scenery cut-out without spending a second Vision pass on every product photo.
+The remaining risk is a model that confidently segments scenery instead of
+returning empty; the device matrix in `AI_BENCHMARK.md` tests that case.
 
 ### 4.3 Why not the other models
 
 - **InSPyReNet**: rejected on measured halo, softness, scenery selection, CPU
   time and conversion risk. Apache-2.0 is not a reason to ship a worse matte.
-- **ISNet as default**: license blocked. Keep the exact web bytes and hash in
-  the catalog behind a `licenseCleared` flag so enabling it later is a
-  one-line change, not a rewrite.
+- **ISNet**: now the Maximum engine, rebuilt from the official DIS checkpoint.
+  The exact web fp16 ONNX is the parity reference, not a distributed artifact;
+  its model card is AGPL-3.0 while the DIS checkpoint is Apache-2.0.
 - **Full BiRefNet / BiRefNet HR / BEN2 4K**: too large for the download and
   memory budget on an A14 device. Revisit only after the benchmark shows
   headroom.
@@ -389,13 +389,15 @@ struct EditorAIModelDescriptor: Identifiable, Equatable, Sendable {
 }
 ```
 
-Published entries (`ai-models-v1` and `ai-models-v2`, immutable releases):
+Published entries (`ai-models-v1`, `ai-models-v2` and `ai-models-v3`, immutable
+releases):
 
 | id | release | version | tier | archive | license | parity |
 |---|---|---|---|---|---|---|
 | `modnet-fp16` | v1 | `1.0.0+28165a4` | balanced | 11,912,923 B (13,108,826 B installed) | Apache-2.0 | web Fast |
 | `bisenet-hair` | v1 | `1.0.0+4f0632b` | retouch | 24,368,691 B (26,350,885 B installed) | MIT | web hair |
 | `birefnet-lite-512-fp16` | v2 | `1.0.0+aa62cd87` | quality | 82,130,533 B (92,903,810 B installed) | MIT | web Balanced |
+| `isnet-fp16` | v3 | `1.0.0+b6764e20` | maximum | 81,796,242 B (88,257,802 B installed) | Apache-2.0 | web Quality (exact) |
 
 Archive pins:
 
@@ -405,15 +407,17 @@ Archive pins:
   `c72fec2b926e8913e027476734c4f6911d276201ff75b538116baefb3fe1b0f1`
 - `birefnet-lite-512-fp16`:
   `34383a43ee5dc63f254229e98d0fb442434f63995530f159244779555a1103d0`
+- `isnet-fp16`:
+  `7523bfe2d761a9742ac2115994611951261c2173624696d1cd00f7e21d1f0027`
 
-`ai-models-v2` rebuilt all three models, so its MODNet and BiSeNet archives
-differ in bytes from `ai-models-v1`. Those two catalog entries stay on v1:
-repinning them to v2 would give fresh installs different weights under the
-same declared version as devices that already have v1 installed, and the store
-treats a matching version as installed. BiRefNet is pinned to v2 because that
-is its first publication. `ben2-fp16` (Maximum) and `isnet-fp16` (blocked) are
-not in the catalog; the download button only appears for a published archive,
-so Maximum keeps the Vision detail label.
+`ai-models-v2` and `ai-models-v3` rebuilt every model, so their MODNet,
+BiSeNet and BiRefNet archives differ in bytes from the earlier releases. The
+catalog keeps each existing id on its first publication: MODNet and BiSeNet on
+v1, BiRefNet on v2, ISNet on v3. Repinning an existing id would give fresh
+installs different weights under the same declared version as devices that
+already have it installed, and the store treats a matching version as
+installed. `ben2-fp16` stays disabled and is not in the catalog; the download
+button only appears for a published archive.
 
 ### 6.2 Download, verify, install
 
@@ -438,10 +442,10 @@ so Maximum keeps the Vision detail label.
    cannot silently replace Vision. Any failure falls back to Vision for that
    pass.
 
-Wi-Fi policy: models over 50 MB require Wi-Fi. BiRefNet is 82 MB, so its
-descriptor sets `requiresWiFi` and the download sheet says so; a blocked
-cellular attempt reports a Wi-Fi-specific error instead of a generic network
-one. MODNet and BiSeNet stay under the threshold. Downloading is always
+Wi-Fi policy: models over 50 MB require Wi-Fi. BiRefNet is 82 MB and ISNet is
+82 MB, so both descriptors set `requiresWiFi` and their sheets say so; a
+blocked cellular attempt reports a Wi-Fi-specific error instead of a generic
+network one. MODNet and BiSeNet stay under the threshold. Downloading is always
 user-initiated, shows the size and license, and is cancellable. No pixels
 leave the device.
 
@@ -453,8 +457,8 @@ leave the device.
 - A catalog version bump simply points at a new directory; if its download,
   hash or compile fails, the old version is left alone.
 - The store is excluded from iCloud backup and the app has no LRU eviction yet:
-  the three shipped models total ~146 MB installed (13 + 26 + 93 MB). A size
-  budget becomes necessary before BEN2 ships.
+  the four shipped models total ~220 MB installed (13 + 26 + 93 + 88 MB). A
+  size budget becomes necessary before a larger model ships.
 - Recompile is automatic if the `.mlmodelc` is missing (for example after an
   OS update), with a progress state.
 
@@ -475,10 +479,11 @@ leave the device.
 ## 7. Memory, thermal and battery
 
 - **Memory gate.** Before loading a model, read `os_proc_available_memory()`.
-  Require `available >= estimatedPeakMB * 1.5`; otherwise downgrade one tier
-  and tell the user which engine ran. Initial budgets (to be replaced by device
-  measurements): MODNet 250 MB (400 MB minimum), BiSeNet 450 MB (700 MB),
-  BiRefNet 800 MB (1,200 MB), BEN2 2,000 MB, ISNet 900 MB.
+  Require `available >= estimatedPeakMB * 1.5`; otherwise fall through to the
+  next engine and tell the user which engine ran. Initial budgets (to be
+  replaced by device measurements): MODNet 250 MB (400 MB minimum), BiSeNet
+  450 MB (700 MB), BiRefNet 800 MB (1,200 MB), ISNet 900 MB (1,350 MB). BEN2
+  stays at 2,000 MB if it is ever converted.
 - **Thermal gate.** `ProcessInfo.processInfo.thermalState`:
   - `.nominal` → allow the selected tier;
   - `.fair` → allow Quality, skip Maximum;
@@ -493,10 +498,11 @@ leave the device.
 - **Battery.** No background inference. A single editor pass is short; the
   benchmark records battery delta and Instruments energy for 30 consecutive
   Quality/Maximum runs. Do not promise a battery number before measuring.
-- **Device tiers.** iPhone 12 Pro Max (6 GB) is the reference. When BEN2 ships
-  it will require `minRAMGB: 6`; on 4 GB devices Maximum will resolve to
-  BiRefNet. The UI states the resolved engine, so "Tối đa" never silently
-  becomes Vision on a device that cannot run it.
+- **Device tiers.** iPhone 12 Pro Max (6 GB) is the reference. ISNet needs
+  about 1.35 GB available; when that is denied, Maximum resolves to BiRefNet,
+  then Vision. BEN2 would require 6 GB if it is ever converted. The UI states
+  the resolved engine, so "Tối đa" never silently becomes Vision on a device
+  that cannot run it.
 
 ## 8. Hair retouch parity (BiSeNet)
 
@@ -536,15 +542,15 @@ requires macOS.
 1. **Job:** GitHub Actions `macos-15`, Python 3.11, `coremltools` 9.0 and
    `torch` 2.7. coremltools 9 removed the ONNX importer, so the job rebuilds
    each model in PyTorch from its official checkpoint, proves it against the
-   pinned fp32 ONNX reference, and converts the traced graph. Branch runs
+   pinned ONNX parity reference, and converts the traced graph. Branch runs
    upload 30-day Actions artifacts only; pushing an `ai-models-v*` tag runs the
    release workflow, which publishes the archives and `summary.json` as
    immutable release assets. Never reuse a release tag: archive bytes are not
    reproducible.
-2. **Format:** `mlprogram`, Float16 weights, fixed 512×512 input for the first
-   version. The app letterboxes non-square images, runs the model and crops the
-   alpha back. `EnumeratedShapes` can come after the device benchmark if the
-   letterbox costs measurable quality.
+2. **Format:** `mlprogram`, Float16 weights, fixed 512×512 for MODNet, BiRefNet
+   and BiSeNet, and fixed 1024×1024 for ISNet. The app letterboxes non-square
+   images, runs the model and crops the alpha back. `EnumeratedShapes` can come
+   after the device benchmark if the letterbox costs measurable quality.
 3. **Validation:** two gates. The PyTorch graph must match ONNX almost
    exactly (max abs diff ≤ 2e-3, mean ≤ 5e-5; BiSeNet hair max 3e-7 on the
    golden portrait). The converted Core ML model is fp16, so it is checked for
@@ -560,16 +566,18 @@ requires macOS.
    device benchmark can still veto the tier or its budgets.
 5. **Compute units:** try `.all` first; measure ANE vs GPU. ISNet is the most
    ANE-friendly graph in the set (425 simple ops), though `Resize`/`Cast` may
-   force partitions, so measure rather than assume. BiRefNet's 17,490-node
-   graph with `GatherND`/`ScatterND` needed two vendored coremltools changes:
-   the unreleased deform-conv2d lowering (PR #2752) and the NumPy 2.4 constant
-   cast fix (PR #2632). It converts and passes the fp16 gates, but CI validates
-   on CPU only; the device benchmark must record which partitions run on ANE,
-   GPU and CPU. BEN2's transformer ops (`MultiHeadAttention`,
-   `LayerNormalization`, `Erf`) need `mlprogram`; validate memory before
-   shipping. Core ML uses Metal for its GPU partitions; do not write custom
-   Metal kernels in v1. Add a custom Metal path only if the benchmark shows a
-   model stuck on CPU and missing its budget.
+   force partitions, so measure rather than assume. Its fp16 conversion passes
+   with portrait mean alpha drift 3.84e-5, p99 4.66e-4 and IoU 0.99998 against
+   the web fp16 ONNX. BiRefNet's 17,490-node graph with
+   `GatherND`/`ScatterND` needed two vendored coremltools changes: the
+   unreleased deform-conv2d lowering (PR #2752) and the NumPy 2.4 constant cast
+   fix (PR #2632). It converts and passes the fp16 gates, but CI validates on
+   CPU only; the device benchmark must record which partitions run on ANE, GPU
+   and CPU. BEN2's transformer ops (`MultiHeadAttention`,
+   `LayerNormalization`, `Erf`) need `mlprogram`; it remains unconverted. Core
+   ML uses Metal for its GPU partitions; do not write custom Metal kernels in
+   v1. Add a custom Metal path only if the benchmark shows a model stuck on CPU
+   and missing its budget.
 6. **Fallbacks:** ONNX Runtime Mobile with the Core ML execution provider is a
    contingency only for a model that Core ML cannot convert. It adds app size
    and a second runtime; do not ship it for models that convert cleanly.
@@ -578,11 +586,11 @@ Conversion feasibility from the graph audit:
 
 | Model | Nodes | Op types | Risk | Notes |
 |---|---|---|---|---|
-| ISNet | 425 | 8 | Low | Conv/Relu/MaxPool/Resize/Concat/Cast; fixed 1024 |
+| ISNet | 425 | 8 | Resolved | 81.8 MB archive; 1024; fp16 gates pass with IoU 0.99998; ANE partition pending |
 | MODNet | 525 | 20 | Low–medium | Dynamic H/W; InstanceNorm; use fixed/enumerated shapes |
 | BiSeNet | — | — | Low | Fixed 512; standard conv net |
 | BiRefNet Lite | 17,490 | 38 | Resolved | Converted to 92.9 MB with vendored deform-conv and cast fixes; CPU-only CI validation |
-| BEN2 | 2,651 | 28 | Medium–high | Transformer ops; 1024; memory |
+| BEN2 | 2,651 | 28 | Not converted | Transformer ops; 1024; disabled until a checkpoint and device need exist |
 | InSPyReNet | 2,267 | 31 | High | `GatherND`/`ScatterND`; rejected on quality anyway |
 
 ## 10. Phases and acceptance
@@ -594,33 +602,37 @@ Conversion feasibility from the graph audit:
 | 2 | Model store + catalog + download sheet + SHA/compile/cache; MODNet; BiSeNet hair | SHA mismatch rejected; offline fallback works; hair mask follows a ponytail on device; no-face fallback unchanged |
 | 3 | Balanced person path + Vision gates | Person mode uses MODNet when installed; no-subject returns `noSubject`; warm time < 700 ms |
 | 4 | Quality BiRefNet | Halo not worse than Vision; hair not worse than Vision; < 2.5 s and < 1.2 GB on iPhone 12 Pro Max; fallback works |
-| 5 | Maximum BEN2 | Hair at least BiRefNet quality; < 5 s and < 2.2 GB; 20 consecutive runs without jetsam; thermal downgrade works |
+| 5 | Maximum ISNet (web Quality parity) | Hair at least BiRefNet quality; exact web ISNet checkpoint and preprocessing; < 5 s and < 1.8 GB; 20 consecutive runs without jetsam; thermal downgrade works |
 | 6 | Device benchmark and parity report | `AI_BENCHMARK.md` protocol run; results appended; PARITY/DEVICE_CHECKS updated |
-| 7 | Optional ISNet Web-parity model | Only after written license clearance; exact web bytes and hash; benchmark shows parity |
+| 7 | Optional BEN2 alternative | Only if ISNet misses a device budget or a future need appears; no catalog entry until converted and validated |
 
-Phase 2 is the highest-value first ship: BiSeNet closes the visible hair-retouch
-gap, and MODNet is small enough to validate the whole download/compile/cache
-path without a 200 MB artifact. Do not start with BEN2.
+Phase 2 was the highest-value first ship: BiSeNet closes the visible
+hair-retouch gap, and MODNet is small enough to validate the whole
+download/compile/cache path without a 200 MB artifact.
 
-Phases 1, 2 and the Phase 4 model/catalog work are implemented on
-`feature/native-ai-models`. Phase 2 still needs a signed device run for
-download/verify/cancel, top-down masks and a ponytail photo; Phase 4 needs the
-BiRefNet timing, memory, thermal and quality gate on an iPhone 12 Pro Max. CI
-only compiles the app and cannot run Vision or Core ML features.
+Phases 1, 2, 4 and 5 are implemented on `feature/native-ai-models`. Device
+runs are still pending for download/verify/cancel, top-down masks, ponytail
+hair, and the BiRefNet/ISNet timing, memory, thermal and quality gates on an
+iPhone 12 Pro Max. CI only compiles the app and cannot run Vision or Core ML
+features.
 
 ## 11. Risks and open questions
 
-1. **ISNet license.** The only exact web-parity path. Request written
-   permission or a commercial license; do not ship the weights on the HF card's
-   AGPL-3.0 terms without review.
+1. **ISNet checkpoint provenance.** The shipping weights are rebuilt from the
+   official DIS general-use checkpoint (Apache-2.0 repository and mirror). The
+   web's fp16 ONNX is the parity reference; its model card declares AGPL-3.0,
+   but that file is never distributed. Keep the DIS `LICENSE` and the
+   attribution in every archive and review this mapping before any commercial
+   distribution.
 2. **BiRefNet on device.** Conversion passes the fp16 gates, but CI runs on CPU
    with a fixed 512×512 input. The 17,490-node graph may partition onto GPU/CPU
    and miss the 2.5 s / 1.2 GB gate on A14; if it does, Quality falls back to
    Vision and the benchmark decides whether to retune compute units or demote
    the tier.
-3. **BEN2 on A14.** 219 MB and a 1024 transformer may exceed the 6 GB device's
-   comfortable memory or the 5 s budget. The benchmark decides; the fallback
-   chain is ready.
+3. **ISNet on A14.** A 1024 graph with 44 M parameters has a 900 MB budget and
+   a 5 s target. If it misses either on the reference device, Maximum falls to
+   BiRefNet and the benchmark records the gap. BEN2 (219 MB, transformer) is
+   not converted and would face a stricter memory gate.
 4. **Core ML packaging.** `.mlpackage` is a directory, shipped as a zip and
    unpacked with ZIPFoundation. Compile failures leave the previous version
    untouched.
@@ -628,9 +640,9 @@ only compiles the app and cannot run Vision or Core ML features.
    CI and document that no executable code is downloaded. Do not fetch scripts
    or manifests that can change behavior.
 6. **Label semantics.** Native Quality = BiRefNet (web Balanced) and native
-   Maximum = BEN2/ISNet (web Quality). Detail strings must name the engine so
-   users do not compare labels across platforms. Consider aligning the web
-   labels in a later round.
+   Maximum = ISNet (web Quality). Detail strings name the engine so users do
+   not compare labels across platforms. Consider aligning the web labels in a
+   later round.
 7. **BlazeFace license.** Avoid the unknown mirror; Vision face detection is
    the native face source. If Vision's box differs from BlazeFace enough to
    change the hair crop, tune the crop ratios against the web output on device.

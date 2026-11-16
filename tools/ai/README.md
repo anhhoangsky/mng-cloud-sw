@@ -6,10 +6,10 @@ pinned model sources into iOS 17 `mlprogram` packages.
 
 ## Why PyTorch, not ONNX
 
-`coremltools 9` removed the ONNX importer. Both shipping models have official
-PyTorch checkpoints, so the pipeline:
+`coremltools 9` removed the ONNX importer. Every shipping model has an official
+PyTorch checkpoint, so the pipeline:
 
-1. downloads the pinned PyTorch checkpoint and the pinned fp32 ONNX reference;
+1. downloads the pinned PyTorch checkpoint and the pinned ONNX parity reference;
 2. rebuilds the exact web architecture from the vendored upstream code, loads
    the checkpoint and compares its output to ONNX Runtime;
 3. traces the PyTorch graph and converts it to Core ML with Float16 weights;
@@ -22,7 +22,7 @@ allows fp16 drift but catches structural errors (mean alpha 0.008, p99 0.05,
 
 ## Files
 
-- `models.json` — pinned checkpoint URLs, SHA-256 values, the fp32 ONNX
+- `models.json` — pinned checkpoint URLs, SHA-256 values, the ONNX parity
   reference for each model, input geometry, preprocessing, output semantics,
   license and tier. Only models with `enabled: true` are converted by default.
 - `convert_coreml.py` — the pipeline described above.
@@ -30,6 +30,8 @@ allows fp16 drift but catches structural errors (mean alpha 0.008, p99 0.05,
   (Apache-2.0), used to rebuild the checkpoint.
 - `vendor/face_parsing` — the BiSeNet face parsing code at commit `4f0632b`
   (MIT), with the torchvision download removed and relative imports.
+- `vendor/isnet` — the official DIS/IS-Net model code at commit `b6764e20`
+  (Apache-2.0), unchanged, used to rebuild `isnet-general-use.pth`.
 - `test-assets/portrait.jpg` — the MediaPipe sample portrait used as a
   non-empty validation input.
 - `.github/workflows/ai-models.yml` — macOS conversion job.
@@ -74,8 +76,9 @@ a build artifact. Publish the exact zip on the model CDN and pin its
 - Never relax the PyTorch-vs-ONNX gate. If it fails, the checkpoint or the
   architecture does not match the web model.
 - Do not edit the vendored code beyond the changes listed in each `NOTICE.md`.
-- Keep `enabled: false` for models that are blocked (ISNet license) or do not
-  have a PyTorch checkpoint yet (BiRefNet, BEN2). Flip the flag only when the
-  conversion and the device benchmark both pass.
+- Keep `enabled: false` only for a model that has no conversion-safe checkpoint
+  yet (BEN2). Flip the flag only after the conversion and the device benchmark
+  both pass. ISNet is enabled from the Apache-2.0 DIS checkpoint; its ONNX
+  parity reference is only validation input and is never shipped.
 - The app catalog and this manifest must agree on id, version, input geometry,
   preprocessing, output semantics, output name and license.

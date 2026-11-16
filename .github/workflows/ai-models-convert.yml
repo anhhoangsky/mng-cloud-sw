@@ -34,7 +34,7 @@ jobs:
           python -m pip install --upgrade pip
           # coremltools 9 supports PyTorch 2.7 and removed the ONNX importer;
           # the pipeline rebuilds each model in PyTorch from its official
-          # checkpoint, proves it against the fp32 ONNX reference, then converts.
+          # checkpoint, proves it against the pinned ONNX parity reference, then converts.
           # BiRefNet Lite adds its model code's dependencies: torchvision (the
           # deform_conv2d op and the backbone builders), timm (Swin layers),
           # transformers (PreTrainedModel/PretrainedConfig), einops and kornia.

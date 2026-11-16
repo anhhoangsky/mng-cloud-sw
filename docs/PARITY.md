@@ -207,16 +207,16 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - Difference: the web's AI runs downloaded ONNX models (ISNet/BiRefNet/
   MODNet, Real-ESRGAN, AI Retouch). The native AI tab runs Apple Vision
   on-device by default: subject and person segmentation, face landmarks, and
-  Core Image compositing for the same background and retouch actions. Three
+  Core Image compositing for the same background and retouch actions. Four
   paths can download a pinned Core ML model instead: Balanced offers MODNet 512
   when the Vision probe finds a person, Quality offers BiRefNet Lite 512 for
-  general subjects, and the hair retouch offers BiSeNet face parsing for every
-  tier. Vision stays the fallback, so no tier requires a download. Like the
-  web, a pass first returns a soft mask to a brush step (add/erase, size,
-  stroke undo, invert, transparent background) and the blur/retouch sliders
-  stay live until "Hoàn tất"; the mask is then baked into the source. Beauty
-  and liquify are not ported. Maximum (BEN2) still runs Vision until its
-  archive is published; ISNet remains license-blocked. Details are in
+  general subjects, Maximum offers ISNet 1024 (the exact web Quality model)
+  and falls back to BiRefNet, and the hair retouch offers BiSeNet face parsing
+  for every tier. Vision stays the fallback, so no tier requires a download.
+  Like the web, a pass first returns a soft mask to a brush step (add/erase,
+  size, stroke undo, invert, transparent background) and the blur/retouch
+  sliders stay live until "Hoàn tất"; the mask is then baked into the source.
+  Beauty and liquify are not ported. Details are in
   [`AI_NATIVE_ENGINE.md`](AI_NATIVE_ENGINE.md).
 
 ## Round 4 notes

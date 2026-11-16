@@ -644,9 +644,9 @@ final class EditorModel {
         model.modelTier.flatMap(EditorAIModelCatalog.segmentationModel(for:))
     }
 
-    /// Show the download sheet when the picked tier has a model that is not
-    /// on this device. Maximum (no archive yet) and Fast stay on Vision
-    /// without a prompt.
+    /// Show the download sheet when the picked tier's best model is not on
+    /// this device. Fast stays on Vision without a prompt, and cancelling a
+    /// Maximum prompt still leaves BiRefNet (when installed) as the engine.
     private func proposeAIModelDownload(for model: EditorAIModel) {
         guard let descriptor = aiDescriptor(for: model) else { return }
         proposeAIModelDownload(descriptor)

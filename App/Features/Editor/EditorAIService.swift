@@ -33,7 +33,7 @@ enum EditorAIModel: String, CaseIterable, Identifiable, Sendable {
 
     var detail: String {
         switch self {
-        case .maximum: return "Vision · Chủ thể · Tối đa"
+        case .maximum: return "ISNet / BiRefNet / Vision · Tối đa"
         case .quality: return "BiRefNet / Vision · Viền tóc mịn"
         case .balanced: return "MODNet / Vision · Người · Cân bằng"
         case .fast: return "Vision · Người · Nhanh"

@@ -18,8 +18,8 @@ enum EditorAIEngineSelector {
 
         let person = EditorVisionEngine(kind: .personAccurate)
         let subject = EditorVisionEngine(kind: .subject)
-        let coreML = model.modelTier
-            .flatMap(EditorAIModelCatalog.segmentationModel(for:))
+        let coreML = (model.modelTier
+            .map(EditorAIModelCatalog.segmentationModels(for:)) ?? [])
             .map(EditorCoreMLEngine.init(descriptor:))
 
         // Balanced runs MODNet, a portrait matte. It only runs when the probe
@@ -27,20 +27,28 @@ enum EditorAIEngineSelector {
         // better. Quality and Maximum are general mattes, so they are not
         // gated on a face or a body.
         let requiresPerson = model == .balanced
-        let useModel = coreML != nil && (!requiresPerson || content.hasPerson)
+        let useModel = !coreML.isEmpty && (!requiresPerson || content.hasPerson)
 
         if mode == .person {
             var engines: [any EditorAISegmentationEngine] = []
-            if useModel, let coreML {
-                engines.append(coreML)
+            if useModel {
+                engines.append(
+                    contentsOf: coreML.map {
+                        $0 as any EditorAISegmentationEngine
+                    }
+                )
             }
             engines.append(person)
             return engines
         }
 
         var engines: [any EditorAISegmentationEngine] = []
-        if useModel, let coreML {
-            engines.append(coreML)
+        if useModel {
+            engines.append(
+                contentsOf: coreML.map {
+                    $0 as any EditorAISegmentationEngine
+                }
+            )
         }
         engines.append(subject)
         engines.append(person)

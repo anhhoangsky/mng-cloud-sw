@@ -16,8 +16,10 @@ enum EditorAIModelKind: String, Codable, Sendable {
 enum EditorAIPreprocess: String, Codable, Sendable {
     /// `(x / 255 - 0.5) / 0.5`, MODNet's portrait matting input.
     case modnet
-    /// ImageNet mean/std, used by BiRefNet, BEN2 and BiSeNet.
+    /// ImageNet mean/std, used by BiRefNet and BiSeNet.
     case imagenet
+    /// `(x - 128) / 256` with x in 0…255, ISNet's input.
+    case isnet
 }
 
 enum EditorAIAlphaSemantics: String, Codable, Sendable {
@@ -68,10 +70,10 @@ struct EditorAIModelDescriptor: Identifiable, Equatable, Sendable {
     }
 }
 
-/// The models that have been converted, published and pinned. Maximum stays
-/// on Vision until BEN2 has its own successful conversion run; adding an
-/// entry here without a real archive would make the download button fail and
-/// the tier label lie.
+/// The models that have been converted, published and pinned. Every tier with
+/// an archive can download it; Maximum additionally falls back to the Quality
+/// model before Vision. Adding an entry here without a real archive would make
+/// the download button fail and the tier label lie.
 enum EditorAIModelCatalog {
     static let modnet = EditorAIModelDescriptor(
         id: "modnet-fp16",
@@ -127,6 +129,33 @@ enum EditorAIModelCatalog {
         webModelID: "birefnet-lite-512-fp16"
     )
 
+    static let isnet = EditorAIModelDescriptor(
+        id: "isnet-fp16",
+        version: "1.0.0+b6764e20",
+        displayName: "ISNet 1024",
+        tier: .maximum,
+        kind: .segmentation,
+        archiveURL: URL(
+            string: "https://github.com/anhhoangsky/mng-cloud-sw/releases/download/ai-models-v3/isnet-fp16.mlpackage.zip"
+        )!,
+        archiveSHA256: "7523bfe2d761a9742ac2115994611951261c2173624696d1cd00f7e21d1f0027",
+        archiveBytes: 81_796_242,
+        installedBytes: 88_257_802,
+        license: "Apache-2.0",
+        licenseURL: URL(string: "https://github.com/xuebinqin/DIS")!,
+        inputName: "input",
+        outputName: "output",
+        inputWidth: 1024,
+        inputHeight: 1024,
+        preprocess: .isnet,
+        outputSemantics: .alpha01,
+        estimatedPeakMB: 900,
+        minimumAvailableMB: 1_350,
+        requiresWiFi: true,
+        minRAMGB: 4,
+        webModelID: "isnet-fp16"
+    )
+
     static let bisenetHair = EditorAIModelDescriptor(
         id: "bisenet-hair",
         version: "1.0.0+4f0632b",
@@ -157,6 +186,7 @@ enum EditorAIModelCatalog {
     static let all: [EditorAIModelDescriptor] = [
         modnet,
         birefnet,
+        isnet,
         bisenetHair,
     ]
 
@@ -164,13 +194,27 @@ enum EditorAIModelCatalog {
         all.first { $0.id == id }
     }
 
-    /// The background model a tier wants, if it has one. Only `.maximum`
-    /// returns nil today, so that tier keeps the Vision detail label.
+    /// The background models a tier may try, best first. Maximum falls back
+    /// to the Quality model when its own model is absent or denied by the
+    /// memory/thermal guard; every list still ends at Vision in the selector.
+    static func segmentationModels(
+        for tier: EditorAIModelTier
+    ) -> [EditorAIModelDescriptor] {
+        let primary = all.filter {
+            $0.tier == tier && $0.kind == .segmentation
+        }
+        guard tier == .maximum else { return primary }
+        let fallback = all.filter {
+            $0.tier == .quality && $0.kind == .segmentation
+        }
+        return primary + fallback
+    }
+
+    /// The model a tier offers to download. A tier may have more than one
+    /// installed fallback, but only the best one is proposed.
     static func segmentationModel(
         for tier: EditorAIModelTier
     ) -> EditorAIModelDescriptor? {
-        all.first {
-            $0.tier == tier && $0.kind == .segmentation
-        }
+        segmentationModels(for: tier).first
     }
 }
