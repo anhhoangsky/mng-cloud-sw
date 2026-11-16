@@ -48,6 +48,7 @@ final class EditorModel {
     /// The tabs of the editor, in the order of the Aurum release.
     enum Tab: String, CaseIterable, Identifiable {
         case adjust
+        case portrait
         case filter
         case text
         case ai
@@ -77,9 +78,19 @@ final class EditorModel {
         case color
         case detail
         case effect
+        case portrait
+        case shape
 
         var id: String { rawValue }
     }
+
+    /// The groups of the Tinh chỉnh tab, left to right.
+    static let adjustGroups: [AdjustmentGroup] = [
+        .light, .color, .detail, .effect,
+    ]
+
+    /// The groups of the Chân dung tab: everyday skin first, then face shape.
+    static let portraitGroups: [AdjustmentGroup] = [.portrait, .shape]
 
     /// The sliders of the editor.
     enum Adjustment: String, CaseIterable, Identifiable {
@@ -98,6 +109,16 @@ final class EditorModel {
         case clarity
         case sharpen
         case denoise
+        case smoothSkin
+        case skinTexture
+        case blemish
+        case skinTone
+        case faceSlim
+        case jawline
+        case chin
+        case eyeSize
+        case noseSize
+        case mouthSize
         case vignette
 
         var id: String { rawValue }
@@ -110,6 +131,10 @@ final class EditorModel {
                 return .color
             case .clarity, .sharpen, .denoise:
                 return .detail
+            case .smoothSkin, .skinTexture, .blemish, .skinTone:
+                return .portrait
+            case .faceSlim, .jawline, .chin, .eyeSize, .noseSize, .mouthSize:
+                return .shape
             case .vignette:
                 return .effect
             }
@@ -132,6 +157,16 @@ final class EditorModel {
             case .clarity: return Strings.editorClarity
             case .sharpen: return Strings.editorSharpen
             case .denoise: return Strings.editorDenoise
+            case .smoothSkin: return Strings.editorSmoothSkin
+            case .skinTexture: return Strings.editorSkinTexture
+            case .blemish: return Strings.editorBlemish
+            case .skinTone: return Strings.editorSkinTone
+            case .faceSlim: return Strings.editorFaceSlim
+            case .jawline: return Strings.editorJawline
+            case .chin: return Strings.editorChin
+            case .eyeSize: return Strings.editorEyeSize
+            case .noseSize: return Strings.editorNoseSize
+            case .mouthSize: return Strings.editorMouthSize
             case .vignette: return Strings.editorVignette
             }
         }
@@ -154,6 +189,16 @@ final class EditorModel {
             case .clarity: return Strings.editorClarityShort
             case .sharpen: return Strings.editorSharpenShort
             case .denoise: return Strings.editorDenoiseShort
+            case .smoothSkin: return Strings.editorSmoothSkinShort
+            case .skinTexture: return Strings.editorSkinTextureShort
+            case .blemish: return Strings.editorBlemishShort
+            case .skinTone: return Strings.editorSkinToneShort
+            case .faceSlim: return Strings.editorFaceSlimShort
+            case .jawline: return Strings.editorJawlineShort
+            case .chin: return Strings.editorChinShort
+            case .eyeSize: return Strings.editorEyeSizeShort
+            case .noseSize: return Strings.editorNoseSizeShort
+            case .mouthSize: return Strings.editorMouthSizeShort
             case .vignette: return Strings.editorVignetteShort
             }
         }
@@ -175,6 +220,16 @@ final class EditorModel {
             case .clarity: return adjustments.clarity
             case .sharpen: return adjustments.sharpen
             case .denoise: return adjustments.denoise
+            case .smoothSkin: return adjustments.smoothSkin
+            case .skinTexture: return adjustments.skinTexture
+            case .blemish: return adjustments.blemish
+            case .skinTone: return adjustments.skinTone
+            case .faceSlim: return adjustments.faceSlim
+            case .jawline: return adjustments.jawline
+            case .chin: return adjustments.chin
+            case .eyeSize: return adjustments.eyeSize
+            case .noseSize: return adjustments.noseSize
+            case .mouthSize: return adjustments.mouthSize
             case .vignette: return adjustments.vignette
             }
         }
@@ -196,15 +251,27 @@ final class EditorModel {
             case .clarity: adjustments.clarity = value
             case .sharpen: adjustments.sharpen = value
             case .denoise: adjustments.denoise = value
+            case .smoothSkin: adjustments.smoothSkin = value
+            case .skinTexture: adjustments.skinTexture = value
+            case .blemish: adjustments.blemish = value
+            case .skinTone: adjustments.skinTone = value
+            case .faceSlim: adjustments.faceSlim = value
+            case .jawline: adjustments.jawline = value
+            case .chin: adjustments.chin = value
+            case .eyeSize: adjustments.eyeSize = value
+            case .noseSize: adjustments.noseSize = value
+            case .mouthSize: adjustments.mouthSize = value
             case .vignette: adjustments.vignette = value
             }
         }
 
-        /// The bottom of the slider. Most adjustments are bipolar; vignette
-        /// and the two amount-only detail sliders start at zero.
+        /// The bottom of the slider. Most adjustments are bipolar; vignette,
+        /// the two amount-only detail sliders and the three skin amounts start
+        /// at zero.
         var minimum: Float {
             switch self {
-            case .vignette, .sharpen, .denoise:
+            case .vignette, .sharpen, .denoise,
+                 .smoothSkin, .skinTexture, .blemish:
                 return 0
             default:
                 return -100
@@ -350,6 +417,16 @@ final class EditorModel {
     }
 
     let client: MNGAPIClient
+
+    /// The web editor's initial slider state: every value at zero except
+    /// `skinTexture`, which starts at 55 so a fresh smoothing keeps pores.
+    /// The value chip still resets a single slider to zero, like the web.
+    static let defaultAdjustments = EditorAdjustments(skinTexture: 55)
+
+    /// The one-tap chains of the Chân dung tab.
+    static let portraitPresets = ChainPresetCatalog.all.filter {
+        $0.when == nil || $0.when == "portrait"
+    }
 
     private(set) var state: State = .idle
     private(set) var item: Item?
@@ -516,7 +593,7 @@ final class EditorModel {
             flipH = false
             flipV = false
             crop = .full
-            adjustments = .zero
+            adjustments = Self.defaultAdjustments
             filter = .original
             mode = .overwrite
             saveQuality = 92
@@ -596,6 +673,14 @@ final class EditorModel {
             renderPreview()
         }
         self.tab = tab
+        if tab == .portrait,
+           !Self.portraitGroups.contains(activeAdjustment.group) {
+            activeAdjustment = .smoothSkin
+        }
+        if tab == .adjust,
+           Self.portraitGroups.contains(activeAdjustment.group) {
+            activeAdjustment = .brightness
+        }
         if tab == .filter, filterThumbnails.isEmpty {
             renderFilterThumbnails()
         }
@@ -1775,7 +1860,7 @@ final class EditorModel {
 
     func resetAdjustments() {
         pushHistory()
-        adjustments = .zero
+        adjustments = Self.defaultAdjustments
         applyAdjustments()
     }
 
@@ -1982,6 +2067,40 @@ final class EditorModel {
         editor.setFilter(filter)
         self.editor = editor
         renderPreview()
+    }
+
+    /// Apply a one-tap chain from `specs/presets.json`.
+    ///
+    /// Only the keys a preset names are written; every other slider keeps its
+    /// value, exactly like the web's `applyChainPreset`. The chain is one undo
+    /// step, and the open ruler moves to the first slider the preset changed.
+    func applyChainPreset(_ preset: ChainPreset) {
+        guard editor != nil else { return }
+        let keys = preset.chain.adjust ?? [:]
+        guard !keys.isEmpty else { return }
+        var values = adjustments
+        for (name, input) in keys {
+            guard input.isFinite, let key = Adjustment(rawValue: name) else {
+                continue
+            }
+            key.set(min(max(input, key.minimum), 100), in: &values)
+        }
+        values = values.clamped()
+        let presetFilter = preset.chain.filter.flatMap(EditorFilter.init(rawValue:))
+        guard values != adjustments || presetFilter != filter else {
+            return
+        }
+        pushHistory()
+        adjustments = values
+        if let presetFilter {
+            filter = presetFilter
+        }
+        activeSavedPresetId = nil
+        activeAdjustment = Adjustment.allCases.first {
+            keys[$0.rawValue] != nil
+        } ?? activeAdjustment
+        applyAdjustments()
+        onToast?("\(Strings.editorBeautyApplied): \(preset.title)")
     }
 
     // MARK: - History
@@ -2201,11 +2320,19 @@ final class EditorModel {
         guard let image = editor.sourceCGImage() else { return }
         Task.detached(priority: .utility) { [weak self] in
             let anchors = (try? FaceAnchorDetector.anchors(in: image)) ?? []
+            // The R/G/B mask needs the source bytes and the face ellipses, so
+            // it is built on the same background task as the landmarks. A
+            // missing face leaves the mask nil and the kernel falls back to
+            // the procedural skin weight, like the web before its mask pass.
+            var source = editor
+            source.setFaceAnchors(anchors)
+            let mask = anchors.isEmpty ? nil : source.buildBeautyMask()
             await MainActor.run {
                 guard let self, self.loadSeq == seq, self.editor != nil else {
                     return
                 }
                 self.editor?.setFaceAnchors(anchors)
+                self.editor?.setBeautyMask(mask)
                 self.renderPreview()
             }
         }
@@ -2234,7 +2361,7 @@ final class EditorModel {
             // everywhere else the preview is the cropped output, so the text
             // coordinates line up with what will be exported.
             let crop = tab == .crop ? EditorCrop.full : self.crop
-            let pristine = editor.currentAdjustments.isIdentity
+            let pristine = editor.currentAdjustments == Self.defaultAdjustments
                 && editor.currentFilter == .original
                 && rotation == 0
                 && abs(fineRotation) < 0.01

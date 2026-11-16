@@ -1237,6 +1237,8 @@ struct EditorView: View {
             switch editor.tab {
             case .adjust:
                 adjustPane
+            case .portrait:
+                portraitPane
             case .filter:
                 filterPane
             case .text:
@@ -1256,16 +1258,45 @@ struct EditorView: View {
     /// captions, the gold value chip and the ruler, exactly the layout of the
     /// web's `.au-deck__row--adjust`.
     private var adjustPane: some View {
+        paramDeck(groups: EditorModel.adjustGroups, showsAuto: true)
+    }
+
+    /// The Chân dung deck: the one-tap chains first, then the four skin
+    /// sliders, then the six reshape sliders, like `PORTRAIT_GROUPS`.
+    private var portraitPane: some View {
+        paramDeck(
+            groups: EditorModel.portraitGroups,
+            lead: EditorModel.portraitPresets
+        )
+    }
+
+    /// One chip rail, one value chip and one ruler. The Tinh chỉnh tab adds
+    /// the fixed Auto action; the Chân dung tab leads with the chain chips.
+    private func paramDeck(
+        groups: [EditorModel.AdjustmentGroup],
+        lead: [ChainPreset] = [],
+        showsAuto: Bool = false
+    ) -> some View {
         VStack(spacing: 8) {
             HStack(spacing: 5) {
-                autoButton
+                if showsAuto {
+                    autoButton
+                }
 
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 5) {
-                            ForEach(
-                                EditorModel.AdjustmentGroup.allCases
-                            ) { group in
+                            ForEach(lead) { preset in
+                                selectChip(
+                                    preset.title,
+                                    active: false,
+                                    height: 30,
+                                    fontSize: 11
+                                ) {
+                                    editor.applyChainPreset(preset)
+                                }
+                            }
+                            ForEach(groups) { group in
                                 groupSeparator(group)
                                 ForEach(
                                     EditorModel.Adjustment.allCases.filter {
@@ -1401,6 +1432,8 @@ struct EditorView: View {
         case .color: return Strings.editorGroupColor
         case .detail: return Strings.editorGroupDetail
         case .effect: return Strings.editorGroupEffect
+        case .portrait: return Strings.editorGroupPortrait
+        case .shape: return Strings.editorGroupShape
         }
     }
 
@@ -3371,6 +3404,7 @@ struct EditorView: View {
     private var dock: some View {
         HStack(spacing: 0) {
             dockTab(.adjust, "slider.horizontal.3", Strings.editorTuneTab)
+            dockTab(.portrait, "face.smiling", Strings.editorPortraitTab)
             dockTab(.filter, "camera.filters", Strings.editorFilterTab)
             dockTab(.text, "textformat", Strings.editorTextTab)
             dockTab(.ai, "wand.and.stars", Strings.editorAITab)

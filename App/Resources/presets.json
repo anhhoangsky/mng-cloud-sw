@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "beauty-auto",
+      "name": "Một chạm làm đẹp",
+      "nameEn": "One-tap beauty",
+      "group": "portrait",
+      "icon": "beauty",
+      "when": "portrait",
+      "chain": {
+        "filter": "original",
+        "adjust": {
+          "smoothSkin": 32,
+          "skinTexture": 30,
+          "blemish": 18,
+          "skinTone": 10,
+          "faceSlim": 8,
+          "jawline": 5,
+          "eyeSize": 6,
+          "exposure": 4,
+          "contrast": 5,
+          "vibrance": 8
+        }
+      }
+    },
+    {
+      "id": "beauty-natural",
+      "name": "Tự nhiên",
+      "nameEn": "Natural",
+      "group": "portrait",
+      "icon": "beauty",
+      "when": "portrait",
+      "chain": {
+        "filter": "original",
+        "adjust": {
+          "smoothSkin": 20,
+          "skinTexture": 45,
+          "blemish": 10,
+          "skinTone": 4,
+          "contrast": 3,
+          "vibrance": 4
+        }
+      }
+    },
+    {
+      "id": "beauty-glow",
+      "name": "Rạng rỡ",
+      "nameEn": "Glow",
+      "group": "portrait",
+      "icon": "beauty",
+      "when": "portrait",
+      "chain": {
+        "filter": "warm",
+        "adjust": {
+          "smoothSkin": 40,
+          "skinTexture": 22,
+          "blemish": 24,
+          "skinTone": 16,
+          "highlights": 10,
+          "vibrance": 12,
+          "warmth": 8
+        }
+      }
+    }
+  ]
+}
