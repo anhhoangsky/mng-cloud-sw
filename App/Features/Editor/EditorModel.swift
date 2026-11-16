@@ -397,6 +397,9 @@ final class EditorModel {
         var flipH: Bool
         var flipV: Bool
         var texts: [EditorTextLayer]
+        /// The free-liquify dabs live in source UV, so the history step of a
+        /// stroke restores the field exactly.
+        var liquifyDabs: [EditorLiquifyDab]
     }
 
     /// A filter/tune combination the person saved from the filter pane.
@@ -447,6 +450,13 @@ final class EditorModel {
     private(set) var crop: EditorCrop = .full
     private(set) var adjustments: EditorAdjustments = .zero
     private(set) var filter: EditorFilter = .original
+    /// The free-liquify brush mode and its size in percent of the source
+    /// width, the web's 1…20 `liquifySize` range.
+    private(set) var liquifyOn = false
+    private(set) var liquifySize = 5
+    /// Mirror of the editor's dab list. The editor itself is not observable,
+    /// so the pane and the clear action read this copy.
+    private(set) var liquifyDabs: [EditorLiquifyDab] = []
     private(set) var mode: SaveMode = .overwrite
     /// The quality of a JPEG or WebP export, 10…100.
     private(set) var saveQuality = 92
@@ -595,6 +605,9 @@ final class EditorModel {
             crop = .full
             adjustments = Self.defaultAdjustments
             filter = .original
+            liquifyOn = false
+            liquifySize = 5
+            liquifyDabs = []
             mode = .overwrite
             saveQuality = 92
             aspect = .free
@@ -673,6 +686,9 @@ final class EditorModel {
             renderPreview()
         }
         self.tab = tab
+        if tab != .portrait {
+            liquifyOn = false
+        }
         if tab == .portrait,
            !Self.portraitGroups.contains(activeAdjustment.group) {
             activeAdjustment = .smoothSkin
@@ -1494,6 +1510,9 @@ final class EditorModel {
     }
 
     func selectAdjustment(_ adjustment: Adjustment) {
+        if liquifyOn {
+            liquifyOn = false
+        }
         activeAdjustment = adjustment
     }
 
@@ -1892,6 +1911,69 @@ final class EditorModel {
         applyAdjustments()
     }
 
+    // MARK: - Liquify
+
+    /// Enter or leave the free-liquify brush. The brush only exists in the
+    /// Chân dung tab, like the web's `setLiquify` guard.
+    func toggleLiquify() {
+        guard editor != nil, tab == .portrait else { return }
+        liquifyOn.toggle()
+    }
+
+    /// Brush size in percent of the source width, the web's 1…20 range.
+    func setLiquifySize(_ value: Float) {
+        guard value.isFinite else { return }
+        liquifySize = min(max(Int(value.rounded()), 1), 20)
+    }
+
+    /// The ring radius as a fraction of the fitted preview width.
+    ///
+    /// The web asks `screenPointAt` for the display distance of a source-space
+    /// radius. Here the inverse map is sampled at the centre of the output, so
+    /// a cropped or turned photo still shows the brush at its true source
+    /// size.
+    var liquifyRingFraction: CGFloat {
+        guard let editor else {
+            return CGFloat(liquifySize) / 100
+        }
+        let radius = Float(liquifySize) / 100
+        let center = editor.sourceUV(forOutputPoint: SIMD2<Float>(0.5, 0.5))
+        let edge = editor.sourceUV(forOutputPoint: SIMD2<Float>(0.51, 0.5))
+        let perOutput = abs(edge.x - center.x)
+        guard perOutput > 0.0001 else {
+            return CGFloat(radius)
+        }
+        return CGFloat(radius * 0.01 / perOutput)
+    }
+
+    /// Append the dab of one brush step. Both points are stored-source UV;
+    /// the displacement is their difference, so the field samples the same
+    /// warp at preview and export resolution.
+    func drawLiquify(from: SIMD2<Float>, to: SIMD2<Float>) {
+        guard var editor, liquifyOn else { return }
+        let dab = EditorLiquifyDab(
+            x: from.x,
+            y: from.y,
+            dx: to.x - from.x,
+            dy: to.y - from.y,
+            radius: Float(liquifySize) / 100
+        )
+        editor.addLiquifyDab(dab)
+        self.editor = editor
+        liquifyDabs = editor.currentLiquifyDabs
+        renderPreview()
+    }
+
+    /// Remove every dab and record the clear as one undo step.
+    func clearLiquify() {
+        guard var editor, !liquifyDabs.isEmpty else { return }
+        pushHistory()
+        editor.clearLiquify()
+        self.editor = editor
+        liquifyDabs = []
+        renderPreview()
+    }
+
     // MARK: - Saved presets
 
     /// Save the current tone and tune under a name, the web's
@@ -2076,6 +2158,7 @@ final class EditorModel {
     /// step, and the open ruler moves to the first slider the preset changed.
     func applyChainPreset(_ preset: ChainPreset) {
         guard editor != nil else { return }
+        liquifyOn = false
         let keys = preset.chain.adjust ?? [:]
         guard !keys.isEmpty else { return }
         var values = adjustments
@@ -2133,7 +2216,8 @@ final class EditorModel {
                 perspectiveY: perspectiveY,
                 flipH: flipH,
                 flipV: flipV,
-                texts: texts
+                texts: texts,
+                liquifyDabs: liquifyDabs
             )
         )
         if undoStack.count > 60 {
@@ -2198,7 +2282,8 @@ final class EditorModel {
             perspectiveY: perspectiveY,
             flipH: flipH,
             flipV: flipV,
-            texts: texts
+            texts: texts,
+            liquifyDabs: liquifyDabs
         )
     }
 
@@ -2213,6 +2298,7 @@ final class EditorModel {
         flipH = snapshot.flipH
         flipV = snapshot.flipV
         texts = snapshot.texts
+        liquifyDabs = snapshot.liquifyDabs
         selectedTextId = snapshot.texts.first?.id
         aspect = .free
         editor.setGeometry(rotate: rotation, flipH: flipH, flipV: flipV)
@@ -2222,6 +2308,7 @@ final class EditorModel {
         editor.setFilter(filter)
         editor.setCrop(crop)
         editor.setTextLayers(texts)
+        editor.setLiquifyDabs(liquifyDabs)
         self.editor = editor
         renderPreview()
     }

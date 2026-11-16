@@ -302,6 +302,111 @@ final class LiquifyFieldTests: XCTestCase {
         XCTAssertEqual(editor.currentLiquifyDabs.last?.x, dabs[699].x)
     }
 
+    // MARK: - Output mapping
+
+    func testOutputPointMapsToTheIdentitySourceUV() throws {
+        var editor = try editor(gradient(size))
+        let centre = editor.sourceUV(
+            forOutputPoint: SIMD2<Float>(0.5, 0.5)
+        )
+        XCTAssertEqual(centre.x, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(centre.y, 0.5, accuracy: 0.0001)
+
+        let quarter = editor.sourceUV(
+            forOutputPoint: SIMD2<Float>(0.25, 0.75)
+        )
+        XCTAssertEqual(quarter.x, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(quarter.y, 0.75, accuracy: 0.0001)
+
+        // Points outside the output clamp to its edge, so a drag that leaves
+        // the photo can never anchor a dab outside the source.
+        let outside = editor.sourceUV(
+            forOutputPoint: SIMD2<Float>(-0.5, 1.5)
+        )
+        XCTAssertEqual(outside.x, 0, accuracy: 0.0001)
+        XCTAssertEqual(outside.y, 1, accuracy: 0.0001)
+
+        // The existing warp must not feed back into the anchor: a new dab is
+        // placed where the person touched, exactly like the web.
+        editor.addLiquifyDab(
+            EditorLiquifyDab(
+                x: 0.5,
+                y: 0.5,
+                dx: 0.06,
+                dy: 0,
+                radius: 0.2
+            )
+        )
+        let after = editor.sourceUV(
+            forOutputPoint: SIMD2<Float>(0.5, 0.5)
+        )
+        XCTAssertEqual(after.x, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(after.y, 0.5, accuracy: 0.0001)
+    }
+
+    func testQuarterTurnMapsTheDisplayCornerToTheStoredCorner() throws {
+        var editor = try editor(gradient(size))
+        editor.setGeometry(rotate: 1, flipH: false, flipV: false)
+        let topLeft = editor.sourceUV(
+            forOutputPoint: SIMD2<Float>(0, 0)
+        )
+        XCTAssertEqual(topLeft.x, 0, accuracy: 0.0001)
+        XCTAssertEqual(topLeft.y, 1, accuracy: 0.0001)
+
+        editor.setGeometry(rotate: 3, flipH: false, flipV: false)
+        let other = editor.sourceUV(
+            forOutputPoint: SIMD2<Float>(0, 0)
+        )
+        XCTAssertEqual(other.x, 1, accuracy: 0.0001)
+        XCTAssertEqual(other.y, 0, accuracy: 0.0001)
+    }
+
+    func testCropMapsTheOutputCentreBackIntoTheSource() throws {
+        var editor = try Editor(
+            width: 120,
+            height: 80,
+            rgba: gradientMatching(width: 120, height: 80)
+        )
+        editor.setCrop(
+            EditorCrop(x: 0.25, y: 0.25, width: 0.5, height: 1)
+        )
+        let centre = editor.sourceUV(
+            forOutputPoint: SIMD2<Float>(0.5, 0.5)
+        )
+        XCTAssertEqual(centre.x, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(centre.y, 0.625, accuracy: 0.0001)
+
+        let corners = editor.sourceUV(
+            forOutputPoint: SIMD2<Float>(1, 1)
+        )
+        XCTAssertEqual(corners.x, 0.75, accuracy: 0.0001)
+        XCTAssertEqual(corners.y, 1, accuracy: 0.0001)
+    }
+
+    func testHorizontalFlipMapsTheDisplayXBack() throws {
+        var editor = try editor(gradient(size))
+        editor.setGeometry(rotate: 0, flipH: true, flipV: false)
+        let point = editor.sourceUV(
+            forOutputPoint: SIMD2<Float>(0.25, 0.5)
+        )
+        XCTAssertEqual(point.x, 0.75, accuracy: 0.0001)
+        XCTAssertEqual(point.y, 0.5, accuracy: 0.0001)
+    }
+
+    private func gradientMatching(width: Int, height: Int) -> [UInt8] {
+        var rgba = [UInt8](repeating: 0, count: width * height * 4)
+        for y in 0..<height {
+            for x in 0..<width {
+                let offset = (y * width + x) * 4
+                rgba[offset] = UInt8(x * 255 / max(1, width - 1))
+                rgba[offset + 1] = UInt8(y * 255 / max(1, height - 1))
+                rgba[offset + 2] = 128
+                rgba[offset + 3] = 255
+            }
+        }
+        return rgba
+    }
+
     // MARK: - Web state
 
     func testDabsRoundTripTheWebJSONShape() throws {

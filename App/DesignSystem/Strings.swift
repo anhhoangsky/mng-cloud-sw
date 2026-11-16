@@ -413,6 +413,11 @@ enum Strings {
     static let editorEyeSize = "Mắt"
     static let editorNoseSize = "Mũi"
     static let editorMouthSize = "Miệng"
+    /// The free-liquify brush of the Chân dung tab.
+    static let editorLiquify = "Bóp méo"
+    static let editorLiquifyTitle = "Bóp méo vùng ảnh bằng cọ"
+    static let editorBrushSize = "Cỡ cọ"
+    static let editorClearLiquify = "Xóa bóp méo"
     /// The short names of the adjustments, the ones on the chips.
     static let editorBrightnessShort = "Sáng"
     static let editorContrastShort = "Tương phản"

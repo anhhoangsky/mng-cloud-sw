@@ -72,6 +72,12 @@ struct EditorView: View {
     /// The live stroke of the AI mask brush (normalized source coordinates).
     @State private var aiStrokeLast: CGPoint?
     @State private var aiStrokeActive = false
+    /// The live free-liquify stroke: the finger on screen, the last emitted
+    /// point and the source UV of the previous dab.
+    @State private var liquifyRing: CGPoint?
+    @State private var liquifyStrokeScreen: CGPoint?
+    @State private var liquifyStrokeSource: SIMD2<Float>?
+    @State private var liquifyStrokeActive = false
 
     /// The four modes of the crop pane, in the web's order: ratio, rotation
     /// and the two 3D perspective axes.
@@ -441,6 +447,15 @@ struct EditorView: View {
                                     )
                             }
 
+                            if editor.liquifyOn, !isComparing,
+                               !editor.aiRefining {
+                                liquifyCanvas(fitted: fitted)
+                                    .frame(
+                                        width: fitted.width,
+                                        height: fitted.height
+                                    )
+                            }
+
                             if editor.aiRefining, editor.aiRefinePreview != nil {
                                 aiBrushCanvas(fitted: fitted)
                                     .frame(
@@ -482,11 +497,15 @@ struct EditorView: View {
             .gesture(
                 DragGesture()
                     .onChanged { value in
-                        guard !editor.aiRefining else { return }
+                        guard !editor.aiRefining, !editor.liquifyOn else {
+                            return
+                        }
                         gestureOffset = value.translation
                     }
                     .onEnded { value in
-                        guard !editor.aiRefining else { return }
+                        guard !editor.aiRefining, !editor.liquifyOn else {
+                            return
+                        }
                         stageOffset.width += value.translation.width
                         stageOffset.height += value.translation.height
                         gestureOffset = .zero
@@ -496,11 +515,15 @@ struct EditorView: View {
             .simultaneousGesture(
                 MagnificationGesture()
                     .onChanged { value in
-                        guard !editor.aiRefining else { return }
+                        guard !editor.aiRefining, !editor.liquifyOn else {
+                            return
+                        }
                         gestureScale = value
                     }
                     .onEnded { value in
-                        guard !editor.aiRefining else { return }
+                        guard !editor.aiRefining, !editor.liquifyOn else {
+                            return
+                        }
                         pinchStart = max(min(stageScale * value, 6), 1)
                         stageScale = pinchStart
                         gestureScale = 1
@@ -508,7 +531,10 @@ struct EditorView: View {
                 including: editor.tab == .text ? .subviews : .all
             )
             .onTapGesture(count: 2) {
-                guard editor.tab != .text, !editor.aiRefining else { return }
+                guard editor.tab != .text, !editor.aiRefining,
+                      !editor.liquifyOn else {
+                    return
+                }
                 withAnimation(.easeOut(duration: 0.22)) {
                     if stageScale > 1.05 {
                         stageScale = 1
@@ -523,6 +549,11 @@ struct EditorView: View {
             }
             .onChange(of: geometry.size) { _, size in
                 stageSize = size
+            }
+            .onChange(of: editor.liquifyOn) { _, on in
+                if !on {
+                    resetLiquifyStroke()
+                }
             }
         }
         .frame(maxHeight: .infinity)
@@ -570,6 +601,125 @@ struct EditorView: View {
                 aiStrokeActive = false
                 aiStrokeLast = nil
             }
+    }
+
+    // MARK: - Liquify brush
+
+    /// The transparent painting layer over the cropped photo, plus the gold
+    /// ring that shows the true source size of the brush.
+    private func liquifyCanvas(fitted: CGSize) -> some View {
+        ZStack(alignment: .topLeading) {
+            Color.clear
+                .contentShape(Rectangle())
+                .highPriorityGesture(liquifyGesture(fitted: fitted))
+
+            if let ring = liquifyRing {
+                let radius = max(
+                    4,
+                    editor.liquifyRingFraction * fitted.width
+                )
+                Circle()
+                    .stroke(Color.black.opacity(0.55), lineWidth: 3)
+                    .overlay {
+                        Circle().stroke(Aurum.gold, lineWidth: 1.5)
+                    }
+                    .frame(width: radius * 2, height: radius * 2)
+                    .position(x: ring.x, y: ring.y)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    /// One brush stroke is one undo step. Dabs are spaced 0.35 × the screen
+    /// radius apart, at most 48 per event, exactly like the web pointer
+    /// handler; both ends of a dab are stored-source UV, so the preview and
+    /// the full-resolution export bend the same pixels.
+    private func liquifyGesture(fitted: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .onChanged { value in
+                guard editor.liquifyOn else { return }
+                liquifyRing = sourceUV(value.location, fitted: fitted) == nil
+                    ? nil
+                    : value.location
+
+                if !liquifyStrokeActive {
+                    guard let start = sourceUV(
+                        value.startLocation,
+                        fitted: fitted
+                    ) else {
+                        return
+                    }
+                    liquifyStrokeActive = true
+                    liquifyStrokeScreen = value.startLocation
+                    liquifyStrokeSource = start
+                    editor.beginEdit()
+                }
+
+                guard let lastScreen = liquifyStrokeScreen,
+                      var lastSource = liquifyStrokeSource else {
+                    return
+                }
+                let radius = max(
+                    4,
+                    editor.liquifyRingFraction * fitted.width
+                )
+                let spacing = max(1.5, radius * 0.35)
+                let remaining = hypot(
+                    value.location.x - lastScreen.x,
+                    value.location.y - lastScreen.y
+                )
+                guard remaining >= spacing else { return }
+                let dirX = (value.location.x - lastScreen.x) / remaining
+                let dirY = (value.location.y - lastScreen.y) / remaining
+                let steps = min(48, Int(remaining / spacing))
+                var cursor = lastScreen
+                for _ in 0..<steps {
+                    cursor.x += dirX * spacing
+                    cursor.y += dirY * spacing
+                    guard let next = sourceUV(cursor, fitted: fitted) else {
+                        continue
+                    }
+                    if abs(next.x - lastSource.x)
+                        + abs(next.y - lastSource.y) > 0.000001 {
+                        editor.drawLiquify(from: lastSource, to: next)
+                        lastSource = next
+                    }
+                }
+                liquifyStrokeScreen = cursor
+                liquifyStrokeSource = lastSource
+            }
+            .onEnded { _ in
+                if liquifyStrokeActive {
+                    editor.endEdit()
+                }
+                resetLiquifyStroke()
+            }
+    }
+
+    /// Map a point of the fitted preview to stored-source UV, or nil when the
+    /// finger is in the letterbox outside the photo.
+    private func sourceUV(
+        _ point: CGPoint,
+        fitted: CGSize
+    ) -> SIMD2<Float>? {
+        guard fitted.width > 1, fitted.height > 1,
+              point.x >= 0, point.x <= fitted.width,
+              point.y >= 0, point.y <= fitted.height else {
+            return nil
+        }
+        return editor.sourceUV(
+            forOutputPoint: SIMD2<Float>(
+                Float(point.x / fitted.width),
+                Float(point.y / fitted.height)
+            )
+        )
+    }
+
+    private func resetLiquifyStroke() {
+        liquifyStrokeActive = false
+        liquifyStrokeScreen = nil
+        liquifyStrokeSource = nil
+        liquifyRing = nil
     }
 
     // MARK: - Text layers
@@ -1266,16 +1416,19 @@ struct EditorView: View {
     private var portraitPane: some View {
         paramDeck(
             groups: EditorModel.portraitGroups,
-            lead: EditorModel.portraitPresets
+            lead: EditorModel.portraitPresets,
+            showsLiquify: true
         )
     }
 
     /// One chip rail, one value chip and one ruler. The Tinh chỉnh tab adds
-    /// the fixed Auto action; the Chân dung tab leads with the chain chips.
+    /// the fixed Auto action; the Chân dung tab leads with the chain chips and
+    /// ends with the free-liquify brush.
     private func paramDeck(
         groups: [EditorModel.AdjustmentGroup],
         lead: [ChainPreset] = [],
-        showsAuto: Bool = false
+        showsAuto: Bool = false,
+        showsLiquify: Bool = false
     ) -> some View {
         VStack(spacing: 8) {
             HStack(spacing: 5) {
@@ -1313,6 +1466,18 @@ struct EditorView: View {
                                     }
                                     .id(key.rawValue)
                                 }
+                                if showsLiquify, group == .shape {
+                                    selectChip(
+                                        Strings.editorLiquify,
+                                        icon: "paintbrush.pointed",
+                                        active: editor.liquifyOn,
+                                        height: 30,
+                                        fontSize: 11
+                                    ) {
+                                        editor.toggleLiquify()
+                                    }
+                                    .id("liquify")
+                                }
                             }
                         }
                         .padding(.horizontal, 2)
@@ -1334,34 +1499,123 @@ struct EditorView: View {
                             proxy.scrollTo(key.rawValue, anchor: .center)
                         }
                     }
+                    .onChange(of: editor.liquifyOn) { _, on in
+                        guard on else { return }
+                        withAnimation(.easeOut(duration: 0.26)) {
+                            proxy.scrollTo("liquify", anchor: .center)
+                        }
+                    }
                 }
 
                 valueChip(for: editor.activeAdjustment)
             }
             .padding(.horizontal, 12)
 
+            if showsLiquify && editor.liquifyOn {
+                liquifyRow
+            } else {
+                TickSlider(
+                    value: Binding(
+                        get: {
+                            editor.activeAdjustment.value(
+                                in: editor.adjustments
+                            )
+                        },
+                        set: { editor.setActiveAdjustment(value: $0) }
+                    ),
+                    label: editor.activeAdjustment.title,
+                    minimum: editor.activeAdjustment.minimum,
+                    maximum: 100,
+                    zero: editor.activeAdjustment.showsZero,
+                    ruler: true,
+                    onEditingChanged: { editing in
+                        if editing {
+                            editor.beginEdit()
+                        } else {
+                            editor.endEdit()
+                        }
+                    }
+                )
+                .padding(.horizontal, 12)
+            }
+        }
+    }
+
+    /// The brush-size rail that replaces the value ruler while the liquify
+    /// brush is on. The height matches the ruler, so entering the mode cannot
+    /// move the photo; the gold chip resets the brush to 5 %, like the web.
+    private var liquifyRow: some View {
+        HStack(spacing: 6) {
+            Button {
+                editor.setLiquifySize(5)
+            } label: {
+                Text("\(editor.liquifySize)%")
+                    .font(Font.mng(11.5, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(Aurum.gold)
+                    .frame(width: 48, height: 40)
+                    .background(
+                        Aurum.gold.opacity(0.14),
+                        in: RoundedRectangle(
+                            cornerRadius: 11,
+                            style: .continuous
+                        )
+                    )
+                    .overlay {
+                        RoundedRectangle(
+                            cornerRadius: 11,
+                            style: .continuous
+                        )
+                        .stroke(Aurum.gold.opacity(0.30), lineWidth: 1)
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                "\(Strings.editorBrushSize): \(editor.liquifySize)%"
+            )
+
             TickSlider(
                 value: Binding(
-                    get: {
-                        editor.activeAdjustment.value(in: editor.adjustments)
-                    },
-                    set: { editor.setActiveAdjustment(value: $0) }
+                    get: { Float(editor.liquifySize) },
+                    set: { editor.setLiquifySize($0) }
                 ),
-                label: editor.activeAdjustment.title,
-                minimum: editor.activeAdjustment.minimum,
-                maximum: 100,
-                zero: editor.activeAdjustment.showsZero,
-                ruler: true,
-                onEditingChanged: { editing in
-                    if editing {
-                        editor.beginEdit()
-                    } else {
-                        editor.endEdit()
-                    }
-                }
+                label: Strings.editorBrushSize,
+                minimum: 1,
+                maximum: 20,
+                tickStep: 1
             )
-            .padding(.horizontal, 12)
+
+            Button {
+                editor.clearLiquify()
+            } label: {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(Font.mng(14, weight: .semibold))
+                    .foregroundStyle(
+                        editor.liquifyDabs.isEmpty
+                            ? Aurum.text3
+                            : Color.white
+                    )
+                    .frame(width: 44, height: 40)
+                    .background(
+                        Color.white.opacity(0.06),
+                        in: RoundedRectangle(
+                            cornerRadius: 11,
+                            style: .continuous
+                        )
+                    )
+                    .overlay {
+                        RoundedRectangle(
+                            cornerRadius: 11,
+                            style: .continuous
+                        )
+                        .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                    }
+            }
+            .buttonStyle(.plain)
+            .disabled(editor.liquifyDabs.isEmpty)
+            .accessibilityLabel(Strings.editorClearLiquify)
         }
+        .padding(.horizontal, 12)
     }
 
     private var autoButton: some View {

@@ -902,6 +902,31 @@ public struct Editor: Sendable {
         return (crop.width, crop.height)
     }
 
+    /// Map a normalized point on the rendered output (0…1 across the current
+    /// crop) to stored-source UV.
+    ///
+    /// This is the web's `sourcePointAt`: it undoes the display geometry
+    /// (quarter turn, flip, crop, fine rotation, perspective) only. The face
+    /// warp and the liquify field are deliberately not undone, because a new
+    /// dab is anchored at the source point the person touched; feeding the
+    /// current displacement back would make a stroke chase itself.
+    public func sourceUV(forOutputPoint point: SIMD2<Float>) -> SIMD2<Float> {
+        let crop = cropPixels()
+        let u = min(max(point.x, 0), 1)
+        let v = min(max(point.y, 0), 1)
+        let displayX = Float(crop.x) + u * Float(crop.width)
+        let displayY = Float(crop.y) + v * Float(crop.height)
+        let base = displayToSource(
+            displayX,
+            displayY,
+            geometry: sampleGeometry()
+        )
+        return SIMD2<Float>(
+            min(max(base.0 / Float(max(1, width)), 0), 1),
+            min(max(base.1 / Float(max(1, height)), 0), 1)
+        )
+    }
+
     public var lastRenderSize: (width: UInt32, height: UInt32) {
         rendered
     }
