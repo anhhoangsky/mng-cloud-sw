@@ -205,7 +205,8 @@ public struct EditorTextLayer: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// The sliders of the editor. Every value is clamped to ±100.
+/// The sliders of the editor. Ranges follow the web `ADJUST_RANGES`: mostly
+/// ±100, with 0…100 for the amount-only sliders.
 public struct EditorAdjustments: Codable, Equatable, Sendable {
     public var brightness: Float
     public var contrast: Float
@@ -224,6 +225,12 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
     public var vibrance: Float
     /// The midtones of the tone curve.
     public var gamma: Float
+    /// Halo-limited local contrast, −100…100.
+    public var clarity: Float
+    /// Small-radius output sharpening, 0…100.
+    public var sharpen: Float
+    /// Edge-aware luminance denoise, 0…100.
+    public var denoise: Float
     /// Portrait skin smoothing, 0…100. Edge-aware and mask-guided.
     public var smoothSkin: Float
     /// Blemish/spot removal strength, 0…100.
@@ -254,6 +261,9 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         blacks: Float = 0,
         vibrance: Float = 0,
         gamma: Float = 0,
+        clarity: Float = 0,
+        sharpen: Float = 0,
+        denoise: Float = 0,
         smoothSkin: Float = 0,
         blemish: Float = 0,
         skinTexture: Float = 0,
@@ -278,6 +288,9 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         self.blacks = blacks
         self.vibrance = vibrance
         self.gamma = gamma
+        self.clarity = clarity
+        self.sharpen = sharpen
+        self.denoise = denoise
         self.smoothSkin = smoothSkin
         self.blemish = blemish
         self.skinTexture = skinTexture
@@ -296,10 +309,10 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         self == EditorAdjustments.zero
     }
 
-    /// True when the colour pass can be skipped. The reshape sliders do not
-    /// touch colour, so they must not force a per-pixel colour round-trip.
-    /// The beauty sliders are also excluded: their pass needs the source UV,
-    /// so `renderRGBA` runs it separately before this colour stack.
+    /// True when the colour pass can be skipped. The reshape, detail and beauty
+    /// sliders do not touch colour, so they must not force a per-pixel colour
+    /// round-trip. Their passes need the source UV and run separately before
+    /// this colour stack.
     var isColorIdentity: Bool {
         brightness == 0 && contrast == 0 && saturation == 0 && exposure == 0
             && warmth == 0 && tint == 0 && highlights == 0 && shadows == 0
@@ -312,6 +325,21 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
     var isBeautyIdentity: Bool {
         let total = abs(smoothSkin) + abs(blemish) + abs(skinTone)
         return !total.isFinite || total < 0.1
+    }
+
+    /// True when the three detail passes can be skipped.
+    var isDetailIdentity: Bool {
+        let total = abs(clarity) + sharpen + denoise
+        return !total.isFinite || total < 0.1
+    }
+
+    /// The three detail sliders in the normalised form `DetailKernel` consumes.
+    var detail: DetailParameters {
+        DetailParameters(
+            clarity: clarity / 100,
+            sharpen: sharpen / 100,
+            denoise: denoise / 100
+        )
     }
 
     /// The four portrait sliders in the normalised form `BeautyKernel`
@@ -341,6 +369,7 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         case brightness, contrast, saturation, exposure, warmth
         case tint, highlights, shadows, vignette
         case whites, blacks, vibrance, gamma
+        case clarity, sharpen, denoise
         case smoothSkin, blemish, skinTexture, skinTone
         case faceSlim, jawline, chin, eyeSize, noseSize, mouthSize
     }
@@ -360,6 +389,9 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         blacks = try container.decodeIfPresent(Float.self, forKey: .blacks) ?? 0
         vibrance = try container.decodeIfPresent(Float.self, forKey: .vibrance) ?? 0
         gamma = try container.decodeIfPresent(Float.self, forKey: .gamma) ?? 0
+        clarity = try container.decodeIfPresent(Float.self, forKey: .clarity) ?? 0
+        sharpen = try container.decodeIfPresent(Float.self, forKey: .sharpen) ?? 0
+        denoise = try container.decodeIfPresent(Float.self, forKey: .denoise) ?? 0
         smoothSkin = try container.decodeIfPresent(Float.self, forKey: .smoothSkin) ?? 0
         blemish = try container.decodeIfPresent(Float.self, forKey: .blemish) ?? 0
         skinTexture = try container.decodeIfPresent(Float.self, forKey: .skinTexture) ?? 0
@@ -387,6 +419,9 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         try container.encode(blacks, forKey: .blacks)
         try container.encode(vibrance, forKey: .vibrance)
         try container.encode(gamma, forKey: .gamma)
+        try container.encode(clarity, forKey: .clarity)
+        try container.encode(sharpen, forKey: .sharpen)
+        try container.encode(denoise, forKey: .denoise)
         try container.encode(smoothSkin, forKey: .smoothSkin)
         try container.encode(blemish, forKey: .blemish)
         try container.encode(skinTexture, forKey: .skinTexture)
@@ -400,14 +435,15 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
     }
 
     /// Non-finite values become zero and every value is clamped to the range of
-    /// the web editor's `ADJUST_RANGES`: ±100 for the colour sliders, 0…100 for
-    /// the three portrait amounts and −100…100 for the skin tone.
+    /// the web editor's `ADJUST_RANGES`: ±100 for the colour and clarity
+    /// sliders, 0…100 for the amount-only sliders and −100…100 for the tone.
     public func clamped() -> EditorAdjustments {
         var copy = self
         let fields: [WritableKeyPath<EditorAdjustments, Float>] = [
             \.brightness, \.contrast, \.saturation, \.exposure, \.warmth,
             \.tint, \.highlights, \.shadows, \.vignette,
             \.whites, \.blacks, \.vibrance, \.gamma,
+            \.clarity, \.sharpen, \.denoise,
             \.smoothSkin, \.blemish, \.skinTexture, \.skinTone,
             \.faceSlim, \.jawline, \.chin, \.eyeSize, \.noseSize, \.mouthSize,
         ]
@@ -418,6 +454,8 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
             }
             copy[keyPath: field] = min(max(value, -100), 100)
         }
+        copy.sharpen = min(max(copy.sharpen, 0), 100)
+        copy.denoise = min(max(copy.denoise, 0), 100)
         copy.smoothSkin = min(max(copy.smoothSkin, 0), 100)
         copy.blemish = min(max(copy.blemish, 0), 100)
         copy.skinTexture = min(max(copy.skinTexture, 0), 100)
@@ -932,6 +970,11 @@ public struct Editor: Sendable {
             mask: beautyMask,
             anchors: faceAnchors
         )
+        // Denoise, clarity and sharpening come before the portrait pass, as in
+        // sections 1–3 of `main.glsl`; all three need source-UV taps.
+        let detail = DetailKernel(parameters: adjustments.clamped().detail)
+        let detailActive = !detail.isIdentity
+        let beautyActive = !beauty.isIdentity
 
         let xScale = Float(crop.width) / Float(outWidth)
         let yScale = Float(crop.height) / Float(outHeight)
@@ -954,13 +997,13 @@ public struct Editor: Sendable {
         let sourcePixels = source
         out.withUnsafeMutableBufferPointer { destination in
             sourcePixels.withUnsafeBufferPointer { pixels in
-                let beautySource: BeautySampleSource? = beauty.isIdentity
-                    ? nil
-                    : BeautySampleSource(
+                let sourcePass: BeautySampleSource? = (detailActive || beautyActive)
+                    ? BeautySampleSource(
                         width: Int(width),
                         height: Int(height),
                         pixels: pixels
                     )
+                    : nil
                 for row in 0..<pixelHeight {
                     let displayY = Float(crop.y)
                         + (Float(row) + 0.5) * yScale
@@ -988,7 +1031,7 @@ public struct Editor: Sendable {
                             / maxRadius
                         let normalizedY = (Float(row) + 0.5 - centerY)
                             / maxRadius
-                        if let beautySource {
+                        if let sourcePass {
                             let uv = mappedSourceUV(
                                 displayX,
                                 displayY,
@@ -1000,11 +1043,21 @@ public struct Editor: Sendable {
                                 Float(sampled.y) / 255,
                                 Float(sampled.z) / 255
                             )
-                            let shown = beauty.apply(
-                                base,
-                                uv: uv,
-                                source: beautySource
-                            )
+                            var shown = base
+                            if detailActive {
+                                shown = detail.apply(
+                                    shown,
+                                    uv: uv,
+                                    source: sourcePass
+                                )
+                            }
+                            if beautyActive {
+                                shown = beauty.apply(
+                                    shown,
+                                    uv: uv,
+                                    source: sourcePass
+                                )
+                            }
                             if colorIdentity {
                                 destination[offset] = Editor.byte(shown.x)
                                 destination[offset + 1] = Editor.byte(shown.y)

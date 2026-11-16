@@ -535,6 +535,11 @@ struct BeautySampleSource {
     let height: Int
     let pixels: UnsafeBufferPointer<UInt8>
 
+    /// One source texel in UV units, the shader's `u_texel`.
+    var texel: SIMD2<Float> {
+        SIMD2<Float>(1 / Float(max(1, width)), 1 / Float(max(1, height)))
+    }
+
     func sample(_ uv: SIMD2<Float>) -> SIMD3<Float> {
         let x = min(max(uv.x, 0), 1) * Float(width) - 0.5
         let y = min(max(uv.y, 0), 1) * Float(height) - 0.5

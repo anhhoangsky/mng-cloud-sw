@@ -1317,9 +1317,9 @@ struct EditorView: View {
                     set: { editor.setActiveAdjustment(value: $0) }
                 ),
                 label: editor.activeAdjustment.title,
-                minimum: editor.activeAdjustment == .vignette ? 0 : -100,
+                minimum: editor.activeAdjustment.minimum,
                 maximum: 100,
-                zero: editor.activeAdjustment != .vignette,
+                zero: editor.activeAdjustment.showsZero,
                 ruler: true,
                 onEditingChanged: { editing in
                     if editing {
@@ -1399,6 +1399,7 @@ struct EditorView: View {
         switch group {
         case .light: return Strings.editorGroupLight
         case .color: return Strings.editorGroupColor
+        case .detail: return Strings.editorGroupDetail
         case .effect: return Strings.editorGroupEffect
         }
     }
@@ -1410,7 +1411,7 @@ struct EditorView: View {
     ) -> some View {
         let label = formatAdjustment(
             key.value(in: editor.adjustments),
-            unsigned: key == .vignette
+            unsigned: key.minimum >= 0
         )
         return Button {
             editor.resetAdjustment(key)

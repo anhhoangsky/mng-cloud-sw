@@ -75,6 +75,7 @@ final class EditorModel {
     enum AdjustmentGroup: String, CaseIterable, Identifiable {
         case light
         case color
+        case detail
         case effect
 
         var id: String { rawValue }
@@ -94,6 +95,9 @@ final class EditorModel {
         case warmth
         case tint
         case gamma
+        case clarity
+        case sharpen
+        case denoise
         case vignette
 
         var id: String { rawValue }
@@ -104,6 +108,8 @@ final class EditorModel {
                 return .light
             case .saturation, .vibrance, .warmth, .tint, .gamma:
                 return .color
+            case .clarity, .sharpen, .denoise:
+                return .detail
             case .vignette:
                 return .effect
             }
@@ -123,6 +129,9 @@ final class EditorModel {
             case .blacks: return Strings.editorBlacks
             case .vibrance: return Strings.editorVibrance
             case .gamma: return Strings.editorGamma
+            case .clarity: return Strings.editorClarity
+            case .sharpen: return Strings.editorSharpen
+            case .denoise: return Strings.editorDenoise
             case .vignette: return Strings.editorVignette
             }
         }
@@ -142,6 +151,9 @@ final class EditorModel {
             case .blacks: return Strings.editorBlacksShort
             case .vibrance: return Strings.editorVibranceShort
             case .gamma: return Strings.editorGammaShort
+            case .clarity: return Strings.editorClarityShort
+            case .sharpen: return Strings.editorSharpenShort
+            case .denoise: return Strings.editorDenoiseShort
             case .vignette: return Strings.editorVignetteShort
             }
         }
@@ -160,6 +172,9 @@ final class EditorModel {
             case .blacks: return adjustments.blacks
             case .vibrance: return adjustments.vibrance
             case .gamma: return adjustments.gamma
+            case .clarity: return adjustments.clarity
+            case .sharpen: return adjustments.sharpen
+            case .denoise: return adjustments.denoise
             case .vignette: return adjustments.vignette
             }
         }
@@ -178,9 +193,26 @@ final class EditorModel {
             case .blacks: adjustments.blacks = value
             case .vibrance: adjustments.vibrance = value
             case .gamma: adjustments.gamma = value
+            case .clarity: adjustments.clarity = value
+            case .sharpen: adjustments.sharpen = value
+            case .denoise: adjustments.denoise = value
             case .vignette: adjustments.vignette = value
             }
         }
+
+        /// The bottom of the slider. Most adjustments are bipolar; vignette
+        /// and the two amount-only detail sliders start at zero.
+        var minimum: Float {
+            switch self {
+            case .vignette, .sharpen, .denoise:
+                return 0
+            default:
+                return -100
+            }
+        }
+
+        /// Whether the ruler shows the neutral zero tick.
+        var showsZero: Bool { minimum < 0 }
     }
 
     /// The crop aspect presets of the editor, the same rail as the web's
@@ -1401,9 +1433,7 @@ final class EditorModel {
 
     /// Write the tune slider back into the same adjustments as the Adjust tab.
     func setTune(value: Float) {
-        let clamped = tuneKey == .vignette
-            ? min(max(value, 0), 100)
-            : value
+        let clamped = min(max(value, tuneKey.minimum), 100)
         setAdjustment(tuneKey, value: clamped)
     }
 

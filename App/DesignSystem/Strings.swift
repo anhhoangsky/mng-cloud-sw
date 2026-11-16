@@ -399,6 +399,9 @@ enum Strings {
     static let editorBlacks = "Điểm đen"
     static let editorVibrance = "Độ sống động"
     static let editorGamma = "Gamma"
+    static let editorClarity = "Độ rõ nét"
+    static let editorSharpen = "Làm nét"
+    static let editorDenoise = "Khử nhiễu"
     /// The short names of the adjustments, the ones on the chips.
     static let editorBrightnessShort = "Sáng"
     static let editorContrastShort = "Tương phản"
@@ -412,6 +415,9 @@ enum Strings {
     static let editorBlacksShort = "Đen"
     static let editorVibranceShort = "Sống động"
     static let editorGammaShort = "Gamma"
+    static let editorClarityShort = "Rõ nét"
+    static let editorSharpenShort = "Nét"
+    static let editorDenoiseShort = "Khử nhiễu"
     static let editorVignetteShort = "Mờ góc"
     static let editorFilterOriginal = "Nguyên bản"
     static let editorFilterVivid = "Sống động"
@@ -430,6 +436,7 @@ enum Strings {
     // Adjust group captions
     static let editorGroupLight = "Ánh sáng"
     static let editorGroupColor = "Màu"
+    static let editorGroupDetail = "Chi tiết"
     static let editorGroupEffect = "Hiệu ứng"
     // Tone tuning
     static let editorTuneTitle = "Tùy chỉnh tone"
