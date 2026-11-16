@@ -1926,6 +1926,12 @@ final class EditorModel {
         liquifySize = min(max(Int(value.rounded()), 1), 20)
     }
 
+    /// Stored-source UV of a point on the rendered output. The liquify brush
+    /// needs the `Editor`'s geometry, which the model keeps private.
+    func sourceUV(forOutputPoint point: SIMD2<Float>) -> SIMD2<Float>? {
+        editor?.sourceUV(forOutputPoint: point)
+    }
+
     /// The ring radius as a fraction of the fitted preview width.
     ///
     /// The web asks `screenPointAt` for the display distance of a source-space

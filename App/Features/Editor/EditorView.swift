@@ -1592,7 +1592,7 @@ struct EditorView: View {
                     .font(Font.mng(14, weight: .semibold))
                     .foregroundStyle(
                         editor.liquifyDabs.isEmpty
-                            ? Aurum.text3
+                            ? Aurum.muted
                             : Color.white
                     )
                     .frame(width: 44, height: 40)
