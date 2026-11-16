@@ -21,7 +21,7 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 | Settings | Kết nối / iCloud / Thư viện / Tài khoản / Giới thiệu; test, rescan, retry thumbs, clear temp | 🟡 ported: cloud probe rows, iCloud status, scan/thumbs/tmp actions, storage, duplicates entry, account/about; device check pending |
 | Duplicates | legacy summary, 30 groups per page, open group in viewer | 🟡 ported: summary + pending-thumbnail note, 30 groups per page, 128 pt grid, group-seeded viewer; device check pending |
 | Vault | native list/unlock/browse/upload/folder/delete/auto-lock (the Seafile E2EE reader was removed from the web app) | 🟡 ported: vault list, unlock, browser with folders/search, 4 MiB chunked upload, encrypted preview, rename, delete, library → vault move, 15-minute auto-lock; device check pending |
-| Editor | rotate → flip → crop, adjustments, filters, text, AI, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, five native tabs (Tinh chỉnh / Bộ lọc / Chữ / AI / Cắt), thirteen sliders, twenty-nine Aurum presets with six categories and the seven-slider tone tune, saved personal presets, text layers with CoreText export burn and an on-photo frame, continuous ±180° crop rotation with cover fill, ratio + screen presets, crop scrim/grid/bevel handles, perspective correction, an on-device Vision AI tab (background remove/person/blur/white, five retouch passes, model picker, mask brush with live blur/retouch preview, progress/cancel and AI-only undo), hold-to-compare, export sheet with quality and the two save modes, multipart upload; the six portrait reshape sliders are wired through the shared warp engine (Vision landmarks, preview/export identical), the four beauty sliders run through a line-by-line port of the web's R/G/B mask builder and `main.glsl` portrait pass (mask build is opt-in until the native pane and `EditorModel` wiring land), and the free-liquify field plus its 640-dab history are ported (`LiquifyField`, RG = drag in source UV, preview/export identical) but have no native brush yet; device check pending |
+| Editor | rotate → flip → crop, adjustments, filters, text, AI, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, five native tabs (Tinh chỉnh / Bộ lọc / Chữ / AI / Cắt), thirteen sliders, twenty-nine Aurum presets with six categories and the seven-slider tone tune, saved personal presets, text layers with CoreText export burn and an on-photo frame, continuous ±180° crop rotation with cover fill, ratio + screen presets, crop scrim/grid/bevel handles, perspective correction, an on-device Vision AI tab (background remove/person/blur/white, five retouch passes, model picker, mask brush with live blur/retouch preview, progress/cancel and AI-only undo), hold-to-compare, export sheet with quality and the two save modes, multipart upload; the six portrait reshape sliders are wired through the shared warp engine (Vision landmarks, preview/export identical), the four beauty sliders run through a line-by-line port of the web's R/G/B mask builder and `main.glsl` portrait pass (mask build is opt-in until the native pane and `EditorModel` wiring land), the free-liquify field plus its 640-dab history are ported (`LiquifyField`, RG = drag in source UV, preview/export identical) but have no native brush yet, and clarity/sharpen/denoise run through `DetailKernel` (sections 1–3 of `main.glsl`); device check pending |
 | Admin | lazy mount, users, password, activate, admin, delete, scan | 🟡 ported: Settings row for admins only, lazy list, create/reset/reprovision/update/delete/scan; device check pending |
 | iCloud | honest status, 2.2 s job poll, login/2FA/start/save/pause/cancel/logout | 🟡 ported: full importer sheet with the 2.2 s poll that stops with the sheet; device check pending |
 | PWA-only surfaces | service worker, Trusted Types, extension | ➖ |
@@ -444,6 +444,36 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   0.09 shift cap, centre move with an untouched corner, clear-to-identity,
   clamp/newest-640, and the web JSON round-trip. CI run `43814818535` is green
   at `bca2c5f`; the native brush and ruler are still phase A6.
+
+## Round 10 notes
+
+- Clarity, sharpen and denoise now decode into `EditorAdjustments` with the web
+  ranges (−100…100 for clarity, 0…100 for the two amounts) and run in
+  `DetailKernel`, a line-by-line port of sections 1–3 of `main.glsl`. Denoise
+  uses the eight edge-aware taps of the export path at 2.5 texels, clarity the
+  eight-tap 10-texel blur with the −0.18…0.18 halo limit and the 0.72 highlight
+  mid mask, and sharpening the four 1-texel taps with the 0.006…0.022 noise
+  floor. The pass runs after warp/liquify and before beauty and the colour
+  stack.
+- Tap radii are source-texel distances converted through the source size, so
+  the preview and a full-resolution export sharpen the same detail. The app
+  always takes the export-quality path instead of dropping taps on a small
+  preview; the trade is CPU time, which the device check has to measure.
+- The three passes only wake when their own values are non-zero, and a
+  flat photo stays byte-identical at clarity/sharpen 100 because the detail and
+  halo terms collapse to zero. Colour identity no longer includes them, so a
+  detail-only edit skips the colour round-trip without skipping the kernel.
+- The Adjust pane gains the "Chi tiết" group with the three chips, Vietnamese
+  labels and short names, zero-based ruler and unsigned value chip. The tone
+  tune clamps through the same `minimum` rule instead of special-casing
+  vignette.
+- `MNGEdit` now runs 61 test methods on macOS, eight of them new: identity
+  bytes with the detail sliders neutral, a flat photo staying neutral, denoise
+  lowering flat variance while preserving a hard edge, clarity/sharpen
+  expanding a low-contrast step, the noise floor under ±1 LSB grain, a monotone
+  ramp never inverting at maximum values, preview/export PSNR > 45 dB and the
+  JSON round-trip/clamp. CI run `43816541257` is green at `4c4a675`, including
+  the simulator build, device build, simulator test and both upload steps.
 
 ## Visual checks per UI phase
 
