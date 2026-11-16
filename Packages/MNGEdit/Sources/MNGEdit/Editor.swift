@@ -625,6 +625,10 @@ public struct Editor: Sendable {
     /// Optional R/G/B skin mask built from the source and the face boxes.
     /// When absent the kernel falls back to the procedural `skinWeight`.
     private var beautyMask: EditorBeautyMask?
+    /// Free-liquify dabs in stored source UV, newest last. The field below is
+    /// a cache: rebuilding it is cheap, but not cheap enough for every pixel.
+    private var liquifyDabs: [EditorLiquifyDab] = []
+    private var liquifyField: EditorLiquifyField?
     private var rendered: (width: UInt32, height: UInt32)
 
     public init(width: UInt32, height: UInt32, rgba: [UInt8]) throws {
@@ -659,6 +663,8 @@ public struct Editor: Sendable {
     public var textLayers: [EditorTextLayer] { texts }
     public var currentFaceAnchors: [EditorFaceAnchor] { faceAnchors }
     public var currentBeautyMask: EditorBeautyMask? { beautyMask }
+    public var currentLiquifyDabs: [EditorLiquifyDab] { liquifyDabs }
+    public var hasLiquify: Bool { !liquifyDabs.isEmpty }
 
     public mutating func setGeometry(rotate: UInt8, flipH: Bool, flipV: Bool) {
         self.rotate = rotate % 4
@@ -735,6 +741,46 @@ public struct Editor: Sendable {
         return mask
     }
 
+    /// Replace the free-liquify history.
+    ///
+    /// Every dab is clamped to the web state limits, malformed entries are
+    /// dropped, and only the newest `EditorLiquifyLimits.maxDabs` survive. The
+    /// RG field is rebuilt here, not per rendered frame.
+    public mutating func setLiquifyDabs(_ dabs: [EditorLiquifyDab]) {
+        let normalized = dabs.compactMap { $0.normalized }
+        liquifyDabs = Array(
+            normalized.suffix(EditorLiquifyLimits.maxDabs)
+        )
+        rebuildLiquifyField()
+    }
+
+    /// Append one dab, the `addLiquifyDab` of the web editor.
+    public mutating func addLiquifyDab(_ dab: EditorLiquifyDab) {
+        guard let normalized = dab.normalized else { return }
+        liquifyDabs.append(normalized)
+        if liquifyDabs.count > EditorLiquifyLimits.maxDabs {
+            liquifyDabs.removeFirst(
+                liquifyDabs.count - EditorLiquifyLimits.maxDabs
+            )
+        }
+        rebuildLiquifyField()
+    }
+
+    /// Remove every dab. Face reshape sliders and beauty are untouched.
+    public mutating func clearLiquify() {
+        guard !liquifyDabs.isEmpty else { return }
+        liquifyDabs = []
+        liquifyField = nil
+    }
+
+    private mutating func rebuildLiquifyField() {
+        liquifyField = EditorLiquifyFieldBuilder.build(
+            dabs: liquifyDabs,
+            sourceWidth: Int(width),
+            sourceHeight: Int(height)
+        )
+    }
+
     public mutating func setAdjustments(_ adjustments: EditorAdjustments) {
         self.adjustments = adjustments.clamped()
     }
@@ -784,6 +830,7 @@ public struct Editor: Sendable {
         copy.setTextLayers(texts)
         copy.setFaceAnchors(faceAnchors)
         copy.setBeautyMask(beautyMask)
+        copy.setLiquifyDabs(liquifyDabs)
         return copy
     }
 
@@ -896,7 +943,7 @@ public struct Editor: Sendable {
         )
         let exactCopy = colorIdentity && xScale == 1 && yScale == 1
             && !geometry.hasFine && !geometry.hasPerspective
-            && warp.isIdentity
+            && warp.isIdentity && liquifyField == nil
         let bytesPerRow = pixelWidth * 4
 
         // A live rotate or perspective drag renders hundreds of thousands of
@@ -1005,7 +1052,41 @@ public struct Editor: Sendable {
         return out
     }
 
-    /// Stored-source UV of one output pixel after the inverse face warp.
+    /// Display-space pixel to stored-source pixels, through free liquify and
+    /// the face warp.
+    ///
+    /// The web shader's `warpFace()` pushes `uv` through the liquify field and
+    /// then through the face reshape; both are source-UV inverse maps, so the
+    /// same order is used here. The pushed UV is clamped to the photo, exactly
+    /// like the shader's `clamp(uv + pushed, 0.0, 1.0)`.
+    @inline(__always)
+    private func sourcePoint(
+        _ displayX: Float,
+        _ displayY: Float,
+        geometry: SampleGeometry,
+        warp: FaceWarpSampler
+    ) -> (Float, Float) {
+        let base = displayToSource(
+            displayX,
+            displayY,
+            geometry: geometry
+        )
+        guard let field = liquifyField else {
+            return warpSource(base, warp: warp)
+        }
+        let uv = SIMD2<Float>(
+            base.0 / Float(width),
+            base.1 / Float(height)
+        )
+        let pushed = uv + field.displacement(at: uv)
+        let point = (
+            min(max(pushed.x, 0), 1) * Float(width),
+            min(max(pushed.y, 0), 1) * Float(height)
+        )
+        return warpSource(point, warp: warp)
+    }
+
+    /// Stored-source UV of one output pixel after liquify and the face warp.
     @inline(__always)
     private func mappedSourceUV(
         _ displayX: Float,
@@ -1013,12 +1094,10 @@ public struct Editor: Sendable {
         geometry: SampleGeometry,
         warp: FaceWarpSampler
     ) -> SIMD2<Float> {
-        let point = warpSource(
-            displayToSource(
-                displayX,
-                displayY,
-                geometry: geometry
-            ),
+        let point = sourcePoint(
+            displayX,
+            displayY,
+            geometry: geometry,
             warp: warp
         )
         return SIMD2<Float>(
@@ -1040,12 +1119,10 @@ public struct Editor: Sendable {
         warp: FaceWarpSampler,
         source pixels: UnsafeBufferPointer<UInt8>
     ) -> SIMD4<UInt8> {
-        let point = warpSource(
-            displayToSource(
-                displayX,
-                displayY,
-                geometry: geometry
-            ),
+        let point = sourcePoint(
+            displayX,
+            displayY,
+            geometry: geometry,
             warp: warp
         )
         let x = Int(min(max(floor(point.0), 0), Float(width) - 1))
@@ -1086,12 +1163,10 @@ public struct Editor: Sendable {
         warp: FaceWarpSampler,
         source pixels: UnsafeBufferPointer<UInt8>
     ) -> SIMD4<UInt8> {
-        let point = warpSource(
-            displayToSource(
-                displayX,
-                displayY,
-                geometry: geometry
-            ),
+        let point = sourcePoint(
+            displayX,
+            displayY,
+            geometry: geometry,
             warp: warp
         )
         let fx = point.0 - 0.5
