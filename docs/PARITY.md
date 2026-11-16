@@ -21,7 +21,7 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 | Settings | Kết nối / iCloud / Thư viện / Tài khoản / Giới thiệu; test, rescan, retry thumbs, clear temp | 🟡 ported: cloud probe rows, iCloud status, scan/thumbs/tmp actions, storage, duplicates entry, account/about; device check pending |
 | Duplicates | legacy summary, 30 groups per page, open group in viewer | 🟡 ported: summary + pending-thumbnail note, 30 groups per page, 128 pt grid, group-seeded viewer; device check pending |
 | Vault | native list/unlock/browse/upload/folder/delete/auto-lock (the Seafile E2EE reader was removed from the web app) | 🟡 ported: vault list, unlock, browser with folders/search, 4 MiB chunked upload, encrypted preview, rename, delete, library → vault move, 15-minute auto-lock; device check pending |
-| Editor | rotate → flip → crop, adjustments, filters, text, AI, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, five native tabs (Tinh chỉnh / Bộ lọc / Chữ / AI / Cắt), thirteen sliders, twenty-nine Aurum presets with six categories and the seven-slider tone tune, saved personal presets, text layers with CoreText export burn and an on-photo frame, continuous ±180° crop rotation with cover fill, ratio + screen presets, crop scrim/grid/bevel handles, perspective correction, an on-device Vision AI tab (background remove/person/blur/white, five retouch passes, model picker, mask brush with live blur/retouch preview, progress/cancel and AI-only undo), hold-to-compare, export sheet with quality and the two save modes, multipart upload; beauty/liquify not ported; device check pending |
+| Editor | rotate → flip → crop, adjustments, filters, text, AI, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, five native tabs (Tinh chỉnh / Bộ lọc / Chữ / AI / Cắt), thirteen sliders, twenty-nine Aurum presets with six categories and the seven-slider tone tune, saved personal presets, text layers with CoreText export burn and an on-photo frame, continuous ±180° crop rotation with cover fill, ratio + screen presets, crop scrim/grid/bevel handles, perspective correction, an on-device Vision AI tab (background remove/person/blur/white, five retouch passes, model picker, mask brush with live blur/retouch preview, progress/cancel and AI-only undo), hold-to-compare, export sheet with quality and the two save modes, multipart upload; the six portrait reshape sliders are wired through the shared warp engine (Vision landmarks, preview/export identical) but the native portrait pane, beauty and liquify are not ported yet; device check pending |
 | Admin | lazy mount, users, password, activate, admin, delete, scan | 🟡 ported: Settings row for admins only, lazy list, create/reset/reprovision/update/delete/scan; device check pending |
 | iCloud | honest status, 2.2 s job poll, login/2FA/start/save/pause/cancel/logout | 🟡 ported: full importer sheet with the 2.2 s poll that stops with the sheet; device check pending |
 | PWA-only surfaces | service worker, Trusted Types, extension | ➖ |
@@ -360,6 +360,34 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   are on screen, and a failed tile is not pinned to its path, so scrolling it
   away and back asks again. This covers the server's 404 placeholder window
   while a thumbnail is still being written.
+
+## Round 7 notes
+
+- The six portrait reshape sliders (`faceSlim`, `jawline`, `chin`, `eyeSize`,
+  `noseSize`, `mouthSize`) now decode into `EditorAdjustments` and reach the
+  pixels through `FaceWarp`, a line-by-line port of `warpFace()` from the web
+  shader. The preview and the full-resolution export call the same
+  `renderRGBA` with the same frozen `FaceWarpSampler`, so a reshape is identical
+  at every zoom; a neutral slider stays byte-identical, and a pixel outside
+  every face ellipse is never resampled.
+- `FaceAnchorDetector` turns Vision face landmarks into the web's anchor
+  contract: top-down boxes, face-local eye/nose/mouth positions clamped to
+  ±0.92, radii 0.02–0.6, strongest four. It runs off the main actor once per
+  loaded photo, and the preview rerenders when the anchors arrive. Without a
+  detectable face the warp uses the web's default feature positions; nothing
+  is fabricated.
+- Vision's box is not MediaPipe's mesh box, so the exact ellipse can differ
+  from the web for the same photo. The packing rule, the falloffs and the
+  clamp/limit behaviour are shared, which is what the cross-client contract
+  promises; a pixel-parity pass on device is still pending.
+- The reshape stays a CPU sampler inside `MNGEdit`'s one renderer instead of a
+  second Metal pipeline. The app renderer is CPU-based; adding a GPU kernel now
+  would create a path that cannot be checked on the Windows workstation and
+  would only be used once the renderer itself moves to the GPU. The sampler is
+  the reference the future kernel will be tested against.
+- `MNGEdit` on macOS now runs 16 warp/render tests: identity bytes, cheek and
+  eye direction, outside-the-face zero diff, anchor sorting/cap, JSON
+  round-trip and clamp, and the frozen sampler matching `FaceWarp.warp`.
 
 ## Visual checks per UI phase
 
