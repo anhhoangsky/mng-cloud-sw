@@ -21,7 +21,7 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 | Settings | Kết nối / iCloud / Thư viện / Tài khoản / Giới thiệu; test, rescan, retry thumbs, clear temp | 🟡 ported: cloud probe rows, iCloud status, scan/thumbs/tmp actions, storage, duplicates entry, account/about; device check pending |
 | Duplicates | legacy summary, 30 groups per page, open group in viewer | 🟡 ported: summary + pending-thumbnail note, 30 groups per page, 128 pt grid, group-seeded viewer; device check pending |
 | Vault | native list/unlock/browse/upload/folder/delete/auto-lock (the Seafile E2EE reader was removed from the web app) | 🟡 ported: vault list, unlock, browser with folders/search, 4 MiB chunked upload, encrypted preview, rename, delete, library → vault move, 15-minute auto-lock; device check pending |
-| Editor | rotate → flip → crop, adjustments, filters, text, AI, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, five native tabs (Tinh chỉnh / Bộ lọc / Chữ / AI / Cắt), thirteen sliders, twenty-nine Aurum presets with six categories and the seven-slider tone tune, saved personal presets, text layers with CoreText export burn and an on-photo frame, continuous ±180° crop rotation with cover fill, ratio + screen presets, crop scrim/grid/bevel handles, perspective correction, an on-device Vision AI tab (background remove/person/blur/white, five retouch passes, model picker, mask brush with live blur/retouch preview, progress/cancel and AI-only undo), hold-to-compare, export sheet with quality and the two save modes, multipart upload; the six portrait reshape sliders are wired through the shared warp engine (Vision landmarks, preview/export identical) but the native portrait pane, beauty and liquify are not ported yet; device check pending |
+| Editor | rotate → flip → crop, adjustments, filters, text, AI, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, five native tabs (Tinh chỉnh / Bộ lọc / Chữ / AI / Cắt), thirteen sliders, twenty-nine Aurum presets with six categories and the seven-slider tone tune, saved personal presets, text layers with CoreText export burn and an on-photo frame, continuous ±180° crop rotation with cover fill, ratio + screen presets, crop scrim/grid/bevel handles, perspective correction, an on-device Vision AI tab (background remove/person/blur/white, five retouch passes, model picker, mask brush with live blur/retouch preview, progress/cancel and AI-only undo), hold-to-compare, export sheet with quality and the two save modes, multipart upload; the six portrait reshape sliders are wired through the shared warp engine (Vision landmarks, preview/export identical), and the four beauty sliders run through a line-by-line port of the web's R/G/B mask builder and `main.glsl` portrait pass (mask build is opt-in until the native pane and `EditorModel` wiring land); liquify is not ported yet; device check pending |
 | Admin | lazy mount, users, password, activate, admin, delete, scan | 🟡 ported: Settings row for admins only, lazy list, create/reset/reprovision/update/delete/scan; device check pending |
 | iCloud | honest status, 2.2 s job poll, login/2FA/start/save/pause/cancel/logout | 🟡 ported: full importer sheet with the 2.2 s poll that stops with the sheet; device check pending |
 | PWA-only surfaces | service worker, Trusted Types, extension | ➖ |
@@ -216,7 +216,9 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   Like the web, a pass first returns a soft mask to a brush step (add/erase,
   size, stroke undo, invert, transparent background) and the blur/retouch
   sliders stay live until "Hoàn tất"; the mask is then baked into the source.
-  Beauty and liquify are not ported. Details are in
+  Liquify is not ported, and beauty has no native pane yet. The beauty pass
+  itself now lives in `MNGEdit` (`BeautyKernel`), but its mask build and the
+  `EditorModel` wiring are still phase A6. Details are in
   [`AI_NATIVE_ENGINE.md`](AI_NATIVE_ENGINE.md).
 
 ## Round 4 notes
@@ -388,6 +390,37 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - `MNGEdit` on macOS now runs 16 warp/render tests: identity bytes, cheek and
   eye direction, outside-the-face zero diff, anchor sorting/cap, JSON
   round-trip and clamp, and the frozen sampler matching `FaceWarp.warp`.
+
+## Round 8 notes
+
+- The four portrait sliders (`smoothSkin`, `blemish`, `skinTexture`, `skinTone`)
+  now decode into `EditorAdjustments` with the web's ranges (0…100 for the
+  three amounts, −100…100 for the tone) and run in `BeautyKernel`, a
+  line-by-line port of section 4 of `main.glsl`: the eight edge-aware taps at
+  0.0045 UV used by the export path, the 0.011 UV blemish ring, the relative
+  dark/red spot test and the up-to-3.5 % tone shifts. Tap radii are UV
+  distances, so a preview and a full-resolution export smooth the same facial
+  area.
+- `EditorBeautyMaskBuilder` ports `src/beauty/mask.ts` instead of reusing the
+  one-channel app mask: R = skin (a skin-chroma gate around the median cheek
+  reference, constrained to the face ellipses), G = protected eyes, brows,
+  hair and beard, B = lips, with the web's 2 px feather. The shader samples it
+  bilinearly; a zero mask is byte-identical, and a missing mask falls back to
+  the procedural `skinWeight` of `portrait.glsl`. Like the web, protect is
+  applied twice (the mask R channel already subtracts it and the pass uses
+  `R·(1−G)`); the port keeps that behaviour on purpose.
+- The pass runs after the face warp and before the colour stack, in stored
+  source UV, where the Vision boxes and the mask live. `skinTexture` only
+  modulates an active smoothing, exactly like the shader's early-out.
+- The mask build is opt-in (`Editor.setBeautyMask` / `buildBeautyMask`) and the
+  app does not call it yet: the native portrait pane and the `EditorModel`
+  wiring are phase A6, after liquify (A4) and the clarity/sharpen/denoise
+  sliders (A5).
+- `MNGEdit` now runs 44 test methods on macOS, eight of them new for this pass:
+  mask statistics and cheek/eye protection, identity bytes with a mask, a zero
+  mask at maximum sliders, cheek-vs-eye smoothing, `skinTexture` variance,
+  blemish luma, skin-tone r/b direction, preview/export PSNR > 45 dB and the
+  JSON round-trip/clamp. CI run `43813535925` is green at `a559914`.
 
 ## Visual checks per UI phase
 
