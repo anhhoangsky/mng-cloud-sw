@@ -548,6 +548,50 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   `43852777832` is green at `b90fd85`, including both builds, the simulator test
   and both uploads.
 
+## Round 13 notes
+
+- The web editor now has a fourth tab, **Hiệu ứng vùng** (region effects),
+  between Chân dung and Bộ lọc. It paints mosaic or blur with one brush and
+  one mask, matching the reference app's "mosaic brush" flow: pick a style, the
+  brush arms itself, drag on the photo and each stroke is one undo step. Size
+  (1–20 % of the source width) and strength (0–100 %) are live globals, so
+  changing them re-renders the whole painted region the way a mosaic-size
+  slider does; clearing removes stamps but keeps the brush settings.
+- State stays v2-compatible and additive: `retouch.effects = { dabs[],
+  size, strength }`, where every dab is `{ kind: 'mosaic' | 'blur', x, y,
+  radius }` in source UV with a width-normalised radius. The importer clamps
+  coordinates and radii, drops unknown kinds, keeps the newest 1600 stamps and
+  treats a missing block as the default 8 % / 60 state. Older v1 and v2 states
+  without `effects` load unchanged.
+- Stamps rasterise into one RGBA8 mask whose longest side is at most 1024 px:
+  R = mosaic, G = blur, alpha = 255. Every stamp is a solid core with a linear
+  35 % feather; overlaps accumulate with `max`, so restrokes do not build up.
+  The mask is cached by dab-array identity and source size, and is rebuilt only
+  when either changes.
+- Shader uniforms are derived from the live settings: `blockPx =
+  max(2, round(size * srcW * 0.55))`, `grid = [srcW/blockPx, srcH/blockPx]`,
+  and `blur = [size * 0.42, size * 0.42 * srcW / srcH]` so the blur stays
+  circular on non-square photos. Mosaic samples one texel at the centre of each
+  grid cell; blur averages nine taps. Both read the source texture in source UV
+  after `warpFace` and before detail and colour, so preview and every export
+  tile land on the same pixels, and mask 0 is a true pixel-identical bypass.
+- The mask is uploaded as texture unit 6 and the shader variants are unchanged:
+  the new code is unconditional, with `u_effectStrength = 0` on tools that have
+  no mask. The tab bar was tightened to 9 px labels with `nowrap` (8.5 px below
+  380 px) because seven Vietnamese labels wrapped at the old 10 px.
+- `test-effects.html` runs 33 checks: default state, normalize/clamp/cap,
+  byte JSON round-trip, mask channels/feather/1024 cap/empty dabs, block and
+  grid geometry, render diff inside/outside, flat mosaic cells, preview/export
+  PSNR, clear, blur energy loss, undo, strength 0 bypass and restore — ALL
+  PASS. `test-effects-ui.html` runs 14 checks on the 390 px layout: tab and
+  pane, chips, brush arming, stroke dabs at 8 % radius, export change, one-step
+  undo, both rulers, style switch, clear and leaving the tab — ALL PASS. The
+  7-tab bar renders every label on one line at 390 px.
+- Swift port is the next B2 step: a CPU mask builder and mosaic/blur pass inside
+  `Editor.renderRGBA` (after warp, before detail/colour), the same state fields,
+  and the tab/pane/brush UI. Until that lands, the Swift editor intentionally
+  has no effect tab; the state decoder ignores the optional block.
+
 ## Visual checks per UI phase
 
 - iPhone SE (compact, 375 pt), iPhone 15/16 (393 pt), iPad 11" portrait and
