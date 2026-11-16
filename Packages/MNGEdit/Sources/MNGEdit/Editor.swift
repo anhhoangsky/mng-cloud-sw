@@ -224,6 +224,14 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
     public var vibrance: Float
     /// The midtones of the tone curve.
     public var gamma: Float
+    /// Portrait skin smoothing, 0…100. Edge-aware and mask-guided.
+    public var smoothSkin: Float
+    /// Blemish/spot removal strength, 0…100.
+    public var blemish: Float
+    /// Skin texture preservation, 0…100. Higher keeps more pore/detail.
+    public var skinTexture: Float
+    /// Skin hue/tone correction, −100 = cooler, +100 = warmer.
+    public var skinTone: Float
     /// Portrait reshape, the six keys of the web editor's `adjust` object.
     public var faceSlim: Float
     public var jawline: Float
@@ -246,6 +254,10 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         blacks: Float = 0,
         vibrance: Float = 0,
         gamma: Float = 0,
+        smoothSkin: Float = 0,
+        blemish: Float = 0,
+        skinTexture: Float = 0,
+        skinTone: Float = 0,
         faceSlim: Float = 0,
         jawline: Float = 0,
         chin: Float = 0,
@@ -266,6 +278,10 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         self.blacks = blacks
         self.vibrance = vibrance
         self.gamma = gamma
+        self.smoothSkin = smoothSkin
+        self.blemish = blemish
+        self.skinTexture = skinTexture
+        self.skinTone = skinTone
         self.faceSlim = faceSlim
         self.jawline = jawline
         self.chin = chin
@@ -282,11 +298,31 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
 
     /// True when the colour pass can be skipped. The reshape sliders do not
     /// touch colour, so they must not force a per-pixel colour round-trip.
+    /// The beauty sliders are also excluded: their pass needs the source UV,
+    /// so `renderRGBA` runs it separately before this colour stack.
     var isColorIdentity: Bool {
         brightness == 0 && contrast == 0 && saturation == 0 && exposure == 0
             && warmth == 0 && tint == 0 && highlights == 0 && shadows == 0
             && vignette == 0 && whites == 0 && blacks == 0 && vibrance == 0
             && gamma == 0
+    }
+
+    /// True when the portrait pass can be skipped. Matches the shader's early
+    /// out: `skinTexture` only modulates a smoothing that is already active.
+    var isBeautyIdentity: Bool {
+        let total = abs(smoothSkin) + abs(blemish) + abs(skinTone)
+        return !total.isFinite || total < 0.1
+    }
+
+    /// The four portrait sliders in the normalised form `BeautyKernel`
+    /// consumes. The web shader receives the same values divided by 100.
+    var beauty: BeautyParameters {
+        BeautyParameters(
+            smoothSkin: smoothSkin / 100,
+            blemish: blemish / 100,
+            skinTexture: skinTexture / 100,
+            skinTone: skinTone / 100
+        )
     }
 
     /// The six reshape sliders in the form `FaceWarp` consumes.
@@ -305,6 +341,7 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         case brightness, contrast, saturation, exposure, warmth
         case tint, highlights, shadows, vignette
         case whites, blacks, vibrance, gamma
+        case smoothSkin, blemish, skinTexture, skinTone
         case faceSlim, jawline, chin, eyeSize, noseSize, mouthSize
     }
 
@@ -323,6 +360,10 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         blacks = try container.decodeIfPresent(Float.self, forKey: .blacks) ?? 0
         vibrance = try container.decodeIfPresent(Float.self, forKey: .vibrance) ?? 0
         gamma = try container.decodeIfPresent(Float.self, forKey: .gamma) ?? 0
+        smoothSkin = try container.decodeIfPresent(Float.self, forKey: .smoothSkin) ?? 0
+        blemish = try container.decodeIfPresent(Float.self, forKey: .blemish) ?? 0
+        skinTexture = try container.decodeIfPresent(Float.self, forKey: .skinTexture) ?? 0
+        skinTone = try container.decodeIfPresent(Float.self, forKey: .skinTone) ?? 0
         faceSlim = try container.decodeIfPresent(Float.self, forKey: .faceSlim) ?? 0
         jawline = try container.decodeIfPresent(Float.self, forKey: .jawline) ?? 0
         chin = try container.decodeIfPresent(Float.self, forKey: .chin) ?? 0
@@ -346,6 +387,10 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         try container.encode(blacks, forKey: .blacks)
         try container.encode(vibrance, forKey: .vibrance)
         try container.encode(gamma, forKey: .gamma)
+        try container.encode(smoothSkin, forKey: .smoothSkin)
+        try container.encode(blemish, forKey: .blemish)
+        try container.encode(skinTexture, forKey: .skinTexture)
+        try container.encode(skinTone, forKey: .skinTone)
         try container.encode(faceSlim, forKey: .faceSlim)
         try container.encode(jawline, forKey: .jawline)
         try container.encode(chin, forKey: .chin)
@@ -354,13 +399,16 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         try container.encode(mouthSize, forKey: .mouthSize)
     }
 
-    /// Non-finite values become zero and every value is clamped to ±100.
+    /// Non-finite values become zero and every value is clamped to the range of
+    /// the web editor's `ADJUST_RANGES`: ±100 for the colour sliders, 0…100 for
+    /// the three portrait amounts and −100…100 for the skin tone.
     public func clamped() -> EditorAdjustments {
         var copy = self
         let fields: [WritableKeyPath<EditorAdjustments, Float>] = [
             \.brightness, \.contrast, \.saturation, \.exposure, \.warmth,
             \.tint, \.highlights, \.shadows, \.vignette,
             \.whites, \.blacks, \.vibrance, \.gamma,
+            \.smoothSkin, \.blemish, \.skinTexture, \.skinTone,
             \.faceSlim, \.jawline, \.chin, \.eyeSize, \.noseSize, \.mouthSize,
         ]
         for field in fields {
@@ -370,6 +418,10 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
             }
             copy[keyPath: field] = min(max(value, -100), 100)
         }
+        copy.smoothSkin = min(max(copy.smoothSkin, 0), 100)
+        copy.blemish = min(max(copy.blemish, 0), 100)
+        copy.skinTexture = min(max(copy.skinTexture, 0), 100)
+        copy.skinTone = min(max(copy.skinTone, -100), 100)
         return copy
     }
 
@@ -570,6 +622,9 @@ public struct Editor: Sendable {
     /// Vision face anchors in oriented source space. They are derived from the
     /// photo, not edited, so they are not part of the history.
     private var faceAnchors: [EditorFaceAnchor] = []
+    /// Optional R/G/B skin mask built from the source and the face boxes.
+    /// When absent the kernel falls back to the procedural `skinWeight`.
+    private var beautyMask: EditorBeautyMask?
     private var rendered: (width: UInt32, height: UInt32)
 
     public init(width: UInt32, height: UInt32, rgba: [UInt8]) throws {
@@ -603,6 +658,7 @@ public struct Editor: Sendable {
     public var currentFilter: EditorFilter { filter }
     public var textLayers: [EditorTextLayer] { texts }
     public var currentFaceAnchors: [EditorFaceAnchor] { faceAnchors }
+    public var currentBeautyMask: EditorBeautyMask? { beautyMask }
 
     public mutating func setGeometry(rotate: UInt8, flipH: Bool, flipV: Bool) {
         self.rotate = rotate % 4
@@ -645,6 +701,38 @@ public struct Editor: Sendable {
     /// clamped and capped at four, so passing raw detector output is safe.
     public mutating func setFaceAnchors(_ anchors: [EditorFaceAnchor]) {
         faceAnchors = FaceWarp.normalize(anchors)
+    }
+
+    /// Attach an R/G/B skin mask built by `EditorBeautyMaskBuilder`.
+    ///
+    /// The mask is optional: without one the kernel uses the procedural
+    /// `skinWeight` fallback of the web shader. Passing `nil` restores it.
+    /// Building a mask is a source-sized pass, so callers build it once after
+    /// face detection (or after replacing the source) instead of per frame.
+    public mutating func setBeautyMask(_ mask: EditorBeautyMask?) {
+        beautyMask = mask
+    }
+
+    /// Build the mask the portrait sliders expect from the current source and
+    /// face anchors. Returns `nil` only when the source bitmap is invalid.
+    ///
+    /// This is deliberately opt-in: `setFaceAnchors` runs on the main thread
+    /// after Vision, and a 640 px mask pass belongs on a background queue.
+    @discardableResult
+    public mutating func buildBeautyMask(
+        maxSize: Int = 640,
+        feather: Int = 2
+    ) -> EditorBeautyMask? {
+        let mask = EditorBeautyMaskBuilder.build(
+            sourceWidth: Int(width),
+            sourceHeight: Int(height),
+            rgba: source,
+            faces: faceAnchors.map(\.box),
+            maxSize: maxSize,
+            feather: feather
+        )
+        beautyMask = mask
+        return mask
     }
 
     public mutating func setAdjustments(_ adjustments: EditorAdjustments) {
@@ -695,6 +783,7 @@ public struct Editor: Sendable {
         copy.setFilter(filter)
         copy.setTextLayers(texts)
         copy.setFaceAnchors(faceAnchors)
+        copy.setBeautyMask(beautyMask)
         return copy
     }
 
@@ -780,7 +869,7 @@ public struct Editor: Sendable {
         guard pixelWidth > 0, pixelHeight > 0 else { return out }
         let geometry = sampleGeometry()
         let effective = effectiveAdjustments()
-        let identity = effective.identity && !effective.grayscale
+        let colorIdentity = effective.identity && !effective.grayscale
         // The portrait warp is an inverse UV map applied before sampling. Its
         // sampler freezes the six sliders and the resolved anchors once, so
         // the pixel loop below only does arithmetic.
@@ -788,6 +877,14 @@ public struct Editor: Sendable {
             parameters: adjustments.clamped().faceWarp,
             anchors: faceAnchors
         ).makeSampler()
+        // The beauty pass needs the source UV of each pixel, so it runs after
+        // the warp and before the colour stack. Its tap offsets are UV
+        // distances, which keeps preview and export visually identical.
+        let beauty = BeautyKernel(
+            parameters: adjustments.clamped().beauty,
+            mask: beautyMask,
+            anchors: faceAnchors
+        )
 
         let xScale = Float(crop.width) / Float(outWidth)
         let yScale = Float(crop.height) / Float(outHeight)
@@ -797,7 +894,7 @@ public struct Editor: Sendable {
             sqrt(centerX * centerX + centerY * centerY),
             1
         )
-        let exactCopy = identity && xScale == 1 && yScale == 1
+        let exactCopy = colorIdentity && xScale == 1 && yScale == 1
             && !geometry.hasFine && !geometry.hasPerspective
             && warp.isIdentity
         let bytesPerRow = pixelWidth * 4
@@ -810,6 +907,13 @@ public struct Editor: Sendable {
         let sourcePixels = source
         out.withUnsafeMutableBufferPointer { destination in
             sourcePixels.withUnsafeBufferPointer { pixels in
+                let beautySource: BeautySampleSource? = beauty.isIdentity
+                    ? nil
+                    : BeautySampleSource(
+                        width: Int(width),
+                        height: Int(height),
+                        pixels: pixels
+                    )
                 for row in 0..<pixelHeight {
                     let displayY = Float(crop.y)
                         + (Float(row) + 0.5) * yScale
@@ -833,7 +937,47 @@ public struct Editor: Sendable {
                                 source: pixels
                             )
                         let offset = rowOffset + column * 4
-                        if identity {
+                        let normalizedX = (Float(column) + 0.5 - centerX)
+                            / maxRadius
+                        let normalizedY = (Float(row) + 0.5 - centerY)
+                            / maxRadius
+                        if let beautySource {
+                            let uv = mappedSourceUV(
+                                displayX,
+                                displayY,
+                                geometry: geometry,
+                                warp: warp
+                            )
+                            let base = SIMD3<Float>(
+                                Float(sampled.x) / 255,
+                                Float(sampled.y) / 255,
+                                Float(sampled.z) / 255
+                            )
+                            let shown = beauty.apply(
+                                base,
+                                uv: uv,
+                                source: beautySource
+                            )
+                            if colorIdentity {
+                                destination[offset] = Editor.byte(shown.x)
+                                destination[offset + 1] = Editor.byte(shown.y)
+                                destination[offset + 2] = Editor.byte(shown.z)
+                                destination[offset + 3] = sampled.w
+                            } else {
+                                let adjusted = Editor.applyPixel(
+                                    shown.x,
+                                    shown.y,
+                                    shown.z,
+                                    effective,
+                                    normalizedX: normalizedX,
+                                    normalizedY: normalizedY
+                                )
+                                destination[offset] = adjusted.0
+                                destination[offset + 1] = adjusted.1
+                                destination[offset + 2] = adjusted.2
+                                destination[offset + 3] = sampled.w
+                            }
+                        } else if colorIdentity {
                             // The colour pass is the identity here, so the
                             // original channels pass through untouched.
                             destination[offset] = sampled.x
@@ -846,10 +990,8 @@ public struct Editor: Sendable {
                                 sampled.y,
                                 sampled.z,
                                 effective,
-                                normalizedX: (Float(column) + 0.5 - centerX)
-                                    / maxRadius,
-                                normalizedY: (Float(row) + 0.5 - centerY)
-                                    / maxRadius
+                                normalizedX: normalizedX,
+                                normalizedY: normalizedY
                             )
                             destination[offset] = adjusted.0
                             destination[offset + 1] = adjusted.1
@@ -861,6 +1003,33 @@ public struct Editor: Sendable {
             }
         }
         return out
+    }
+
+    /// Stored-source UV of one output pixel after the inverse face warp.
+    @inline(__always)
+    private func mappedSourceUV(
+        _ displayX: Float,
+        _ displayY: Float,
+        geometry: SampleGeometry,
+        warp: FaceWarpSampler
+    ) -> SIMD2<Float> {
+        let point = warpSource(
+            displayToSource(
+                displayX,
+                displayY,
+                geometry: geometry
+            ),
+            warp: warp
+        )
+        return SIMD2<Float>(
+            point.0 / Float(width),
+            point.1 / Float(height)
+        )
+    }
+
+    @inline(__always)
+    private static func byte(_ value: Float) -> UInt8 {
+        UInt8(min(max((value * 255).rounded(), 0), 255))
     }
 
     @inline(__always)
@@ -1453,10 +1622,30 @@ public struct Editor: Sendable {
         normalizedX: Float,
         normalizedY: Float
     ) -> (UInt8, UInt8, UInt8) {
+        applyPixel(
+            Float(r) / 255,
+            Float(g) / 255,
+            Float(b) / 255,
+            effective,
+            normalizedX: normalizedX,
+            normalizedY: normalizedY
+        )
+    }
+
+    /// Float entry point for the portrait pass, which produces values before
+    /// the colour stack and keeps its sub-8-bit precision until the end.
+    static func applyPixel(
+        _ r: Float,
+        _ g: Float,
+        _ b: Float,
+        _ effective: Effective,
+        normalizedX: Float,
+        normalizedY: Float
+    ) -> (UInt8, UInt8, UInt8) {
         let a = effective.adjustments
-        var red = Float(r) / 255
-        var green = Float(g) / 255
-        var blue = Float(b) / 255
+        var red = r
+        var green = g
+        var blue = b
 
         // The colour matrix of the preset comes first, the adjustments of
         // the person are applied on top of it.
