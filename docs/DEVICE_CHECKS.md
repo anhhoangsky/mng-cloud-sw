@@ -161,7 +161,8 @@ usable in the simulator.
       library; "Lưu thành bản sao" keeps the original.
 - [ ] A cancelled or failed save leaves the original untouched.
 - [ ] The AI tab sits between "Chữ" and "Cắt"; the model picker expands to
-      Chất lượng / Cân bằng / Nhanh.
+      Tối đa / Chất lượng / Cân bằng / Nhanh, best-to-fastest, and defaults to
+      Chất lượng.
 - [ ] An AI background pass opens the brush step instead of baking at once:
       "Thêm"/"Xoá", the size slider, the stroke undo, "Đảo mask" and "Nền
       trong suốt" all update the full-source preview under the finger.
@@ -170,7 +171,7 @@ usable in the simulator.
 - [ ] "Mờ phông" keeps its "Độ mờ" slider live in the brush step; moving it
       changes the blur before "Hoàn tất".
 - [ ] The retouch sliders (strength, tone, hair colour) stay adjustable in the
-      brush step and update the preview without rerunning Vision.
+      brush step and update the preview without rerunning the AI pass.
 - [ ] "Hoàn tất" bakes the painted mask; "Huỷ" leaves the photo untouched.
       Leaving the AI tab while refining also discards the mask.
 - [ ] "Xoá phông" and "Tách người" cut the subject out; a PNG/WebP item keeps
@@ -188,7 +189,30 @@ usable in the simulator.
       the pass.
 - [ ] While the brush step is open the save button, undo/redo and the geometry
       tools are disabled, and the text layers and hold-to-compare are hidden.
-- [ ] All AI actions work in airplane mode (Vision runs on the device).
+- [ ] All AI actions work in airplane mode (Vision runs on the device, and a
+      downloaded Core ML model needs no network).
+- [ ] Choosing Cân bằng on a fresh install offers the MODNet download; the
+      pass still runs on Vision while the sheet is open or after cancelling.
+- [ ] Choosing Chất lượng on a fresh install offers the 82 MB BiRefNet
+      download; the sheet says it needs Wi-Fi, a cellular attempt reports the
+      Wi-Fi message, and cancelling leaves the pass on Vision.
+- [ ] After BiRefNet installs, Quality runs the model on a portrait and on a
+      product/landscape shot; removing the app's `AIModels` cache returns it
+      to Vision without an error.
+- [ ] Choosing Tối đa on a fresh install offers the ISNet 1024 download with
+      the Apache-2.0 DIS attribution and the Wi-Fi requirement; cancelling
+      leaves the pass on BiRefNet (when installed) or Vision.
+- [ ] After ISNet installs, Maximum runs it on a portrait, a product shot and
+      a landscape; a no-subject landscape returns the existing "Không tìm thấy
+      chủ thể" path instead of cutting out scenery.
+- [ ] Removing only the ISNet version makes Maximum fall back to BiRefNet,
+      then Vision; no sheet reappears mid-pass and the result still bakes.
+- [ ] The first hair pass offers BiSeNet after the Vision ellipse mask
+      appears; after install the next pass follows a ponytail.
+
+The Phase 2/Phase 4/Phase 5 model download/fallback/quality matrix is in
+[`AI_BENCHMARK.md`](AI_BENCHMARK.md) §9. Maximum names ISNet 1024, falls back
+to BiRefNet Lite 512, and always ends at Vision.
 
 ## Administration (admin account only)
 

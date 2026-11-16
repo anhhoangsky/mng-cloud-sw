@@ -1,0 +1,24 @@
+name: ai-models-release
+
+# A tag run publishes the archives to an immutable GitHub release, so the app
+# catalog can pin SHA-256 values that never change. Never reuse an
+# ai-models-v* tag: archive bytes are not reproducible.
+on:
+  push:
+    tags:
+      - "ai-models-v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ai-models-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  convert:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/ai-models-convert.yml
+    with:
+      publish: true

@@ -205,7 +205,7 @@ public struct EditorTextLayer: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// The nine sliders of the editor. Every value is clamped to ±100.
+/// The sliders of the editor. Every value is clamped to ±100.
 public struct EditorAdjustments: Codable, Equatable, Sendable {
     public var brightness: Float
     public var contrast: Float
@@ -224,6 +224,13 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
     public var vibrance: Float
     /// The midtones of the tone curve.
     public var gamma: Float
+    /// Portrait reshape, the six keys of the web editor's `adjust` object.
+    public var faceSlim: Float
+    public var jawline: Float
+    public var chin: Float
+    public var eyeSize: Float
+    public var noseSize: Float
+    public var mouthSize: Float
 
     public init(
         brightness: Float = 0,
@@ -238,7 +245,13 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         whites: Float = 0,
         blacks: Float = 0,
         vibrance: Float = 0,
-        gamma: Float = 0
+        gamma: Float = 0,
+        faceSlim: Float = 0,
+        jawline: Float = 0,
+        chin: Float = 0,
+        eyeSize: Float = 0,
+        noseSize: Float = 0,
+        mouthSize: Float = 0
     ) {
         self.brightness = brightness
         self.contrast = contrast
@@ -253,6 +266,12 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         self.blacks = blacks
         self.vibrance = vibrance
         self.gamma = gamma
+        self.faceSlim = faceSlim
+        self.jawline = jawline
+        self.chin = chin
+        self.eyeSize = eyeSize
+        self.noseSize = noseSize
+        self.mouthSize = mouthSize
     }
 
     public static let zero = EditorAdjustments()
@@ -261,10 +280,32 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         self == EditorAdjustments.zero
     }
 
+    /// True when the colour pass can be skipped. The reshape sliders do not
+    /// touch colour, so they must not force a per-pixel colour round-trip.
+    var isColorIdentity: Bool {
+        brightness == 0 && contrast == 0 && saturation == 0 && exposure == 0
+            && warmth == 0 && tint == 0 && highlights == 0 && shadows == 0
+            && vignette == 0 && whites == 0 && blacks == 0 && vibrance == 0
+            && gamma == 0
+    }
+
+    /// The six reshape sliders in the form `FaceWarp` consumes.
+    public var faceWarp: FaceWarpParameters {
+        FaceWarpParameters(
+            faceSlim: faceSlim,
+            jawline: jawline,
+            chin: chin,
+            eyeSize: eyeSize,
+            noseSize: noseSize,
+            mouthSize: mouthSize
+        )
+    }
+
     private enum CodingKeys: String, CodingKey {
         case brightness, contrast, saturation, exposure, warmth
         case tint, highlights, shadows, vignette
         case whites, blacks, vibrance, gamma
+        case faceSlim, jawline, chin, eyeSize, noseSize, mouthSize
     }
 
     public init(from decoder: Decoder) throws {
@@ -282,6 +323,12 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         blacks = try container.decodeIfPresent(Float.self, forKey: .blacks) ?? 0
         vibrance = try container.decodeIfPresent(Float.self, forKey: .vibrance) ?? 0
         gamma = try container.decodeIfPresent(Float.self, forKey: .gamma) ?? 0
+        faceSlim = try container.decodeIfPresent(Float.self, forKey: .faceSlim) ?? 0
+        jawline = try container.decodeIfPresent(Float.self, forKey: .jawline) ?? 0
+        chin = try container.decodeIfPresent(Float.self, forKey: .chin) ?? 0
+        eyeSize = try container.decodeIfPresent(Float.self, forKey: .eyeSize) ?? 0
+        noseSize = try container.decodeIfPresent(Float.self, forKey: .noseSize) ?? 0
+        mouthSize = try container.decodeIfPresent(Float.self, forKey: .mouthSize) ?? 0
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -299,6 +346,12 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
         try container.encode(blacks, forKey: .blacks)
         try container.encode(vibrance, forKey: .vibrance)
         try container.encode(gamma, forKey: .gamma)
+        try container.encode(faceSlim, forKey: .faceSlim)
+        try container.encode(jawline, forKey: .jawline)
+        try container.encode(chin, forKey: .chin)
+        try container.encode(eyeSize, forKey: .eyeSize)
+        try container.encode(noseSize, forKey: .noseSize)
+        try container.encode(mouthSize, forKey: .mouthSize)
     }
 
     /// Non-finite values become zero and every value is clamped to ±100.
@@ -308,6 +361,7 @@ public struct EditorAdjustments: Codable, Equatable, Sendable {
             \.brightness, \.contrast, \.saturation, \.exposure, \.warmth,
             \.tint, \.highlights, \.shadows, \.vignette,
             \.whites, \.blacks, \.vibrance, \.gamma,
+            \.faceSlim, \.jawline, \.chin, \.eyeSize, \.noseSize, \.mouthSize,
         ]
         for field in fields {
             var value = copy[keyPath: field]
@@ -513,6 +567,9 @@ public struct Editor: Sendable {
     private var adjustments: EditorAdjustments = .zero
     private var filter: EditorFilter = .original
     private var texts: [EditorTextLayer] = []
+    /// Vision face anchors in oriented source space. They are derived from the
+    /// photo, not edited, so they are not part of the history.
+    private var faceAnchors: [EditorFaceAnchor] = []
     private var rendered: (width: UInt32, height: UInt32)
 
     public init(width: UInt32, height: UInt32, rgba: [UInt8]) throws {
@@ -545,6 +602,7 @@ public struct Editor: Sendable {
     public var currentAdjustments: EditorAdjustments { adjustments }
     public var currentFilter: EditorFilter { filter }
     public var textLayers: [EditorTextLayer] { texts }
+    public var currentFaceAnchors: [EditorFaceAnchor] { faceAnchors }
 
     public mutating func setGeometry(rotate: UInt8, flipH: Bool, flipV: Bool) {
         self.rotate = rotate % 4
@@ -580,6 +638,15 @@ public struct Editor: Sendable {
         texts = layers.map { $0.normalized() }
     }
 
+    /// Attach the Vision face anchors used by the six reshape sliders.
+    ///
+    /// The boxes are normalised to the oriented source photo, the same space
+    /// as the web editor's `u_faces`/`u_anchors` textures. The list is sorted,
+    /// clamped and capped at four, so passing raw detector output is safe.
+    public mutating func setFaceAnchors(_ anchors: [EditorFaceAnchor]) {
+        faceAnchors = FaceWarp.normalize(anchors)
+    }
+
     public mutating func setAdjustments(_ adjustments: EditorAdjustments) {
         self.adjustments = adjustments.clamped()
     }
@@ -593,6 +660,15 @@ public struct Editor: Sendable {
         EditorSourceSnapshot(
             width: width,
             height: height,
+            rgba: source
+        )
+    }
+
+    /// The source pixels as a `CGImage`, for Vision face detection.
+    public func sourceCGImage() -> CGImage? {
+        EditorBitmap.cgImage(
+            width: Int(width),
+            height: Int(height),
             rgba: source
         )
     }
@@ -618,6 +694,7 @@ public struct Editor: Sendable {
         copy.setAdjustments(adjustments)
         copy.setFilter(filter)
         copy.setTextLayers(texts)
+        copy.setFaceAnchors(faceAnchors)
         return copy
     }
 
@@ -704,6 +781,13 @@ public struct Editor: Sendable {
         let geometry = sampleGeometry()
         let effective = effectiveAdjustments()
         let identity = effective.identity && !effective.grayscale
+        // The portrait warp is an inverse UV map applied before sampling. Its
+        // sampler freezes the six sliders and the resolved anchors once, so
+        // the pixel loop below only does arithmetic.
+        let warp = FaceWarp(
+            parameters: adjustments.clamped().faceWarp,
+            anchors: faceAnchors
+        ).makeSampler()
 
         let xScale = Float(crop.width) / Float(outWidth)
         let yScale = Float(crop.height) / Float(outHeight)
@@ -715,6 +799,7 @@ public struct Editor: Sendable {
         )
         let exactCopy = identity && xScale == 1 && yScale == 1
             && !geometry.hasFine && !geometry.hasPerspective
+            && warp.isIdentity
         let bytesPerRow = pixelWidth * 4
 
         // A live rotate or perspective drag renders hundreds of thousands of
@@ -737,12 +822,14 @@ public struct Editor: Sendable {
                                 displayX,
                                 displayY,
                                 geometry: geometry,
+                                warp: warp,
                                 source: pixels
                             )
                             : sampleBilinear(
                                 displayX,
                                 displayY,
                                 geometry: geometry,
+                                warp: warp,
                                 source: pixels
                             )
                         let offset = rowOffset + column * 4
@@ -781,12 +868,16 @@ public struct Editor: Sendable {
         _ displayX: Float,
         _ displayY: Float,
         geometry: SampleGeometry,
+        warp: FaceWarpSampler,
         source pixels: UnsafeBufferPointer<UInt8>
     ) -> SIMD4<UInt8> {
-        let point = displayToSource(
-            displayX,
-            displayY,
-            geometry: geometry
+        let point = warpSource(
+            displayToSource(
+                displayX,
+                displayY,
+                geometry: geometry
+            ),
+            warp: warp
         )
         let x = Int(min(max(floor(point.0), 0), Float(width) - 1))
         let y = Int(min(max(floor(point.1), 0), Float(height) - 1))
@@ -799,24 +890,52 @@ public struct Editor: Sendable {
         )
     }
 
+    /// Apply the inverse face warp in oriented source UV space.
+    ///
+    /// Vision boxes and the web shader's `u_faces` are both normalised to the
+    /// oriented photo, so the warp belongs after the geometry mapper has
+    /// returned a source pixel and before that pixel is sampled.
+    @inline(__always)
+    private func warpSource(
+        _ point: (Float, Float),
+        warp: FaceWarpSampler
+    ) -> (Float, Float) {
+        guard !warp.isIdentity else { return point }
+        let imageWidth = Float(width)
+        let imageHeight = Float(height)
+        let warped = warp.warp(
+            SIMD2<Float>(point.0 / imageWidth, point.1 / imageHeight)
+        )
+        return (warped.x * imageWidth, warped.y * imageHeight)
+    }
+
     @inline(__always)
     private func sampleBilinear(
         _ displayX: Float,
         _ displayY: Float,
         geometry: SampleGeometry,
+        warp: FaceWarpSampler,
         source pixels: UnsafeBufferPointer<UInt8>
     ) -> SIMD4<UInt8> {
-        let point = displayToSource(
-            displayX,
-            displayY,
-            geometry: geometry
+        let point = warpSource(
+            displayToSource(
+                displayX,
+                displayY,
+                geometry: geometry
+            ),
+            warp: warp
         )
         let fx = point.0 - 0.5
         let fy = point.1 - 0.5
         let x0 = floor(fx)
         let y0 = floor(fy)
-        let tx = fx - x0
-        let ty = fy - y0
+        // A UV round-trip through the warp leaves a sub-1e-4 fraction on a
+        // pixel centre. Snapping it keeps an unwarped pixel bit-identical to
+        // the nearest sample instead of nudging it by a rounding error.
+        var tx = fx - x0
+        var ty = fy - y0
+        if tx < 0.0001 { tx = 0 } else if tx > 0.9999 { tx = 1 }
+        if ty < 0.0001 { ty = 0 } else if ty > 0.9999 { ty = 1 }
 
         let maxX = Int(width) - 1
         let maxY = Int(height) - 1
@@ -1110,7 +1229,7 @@ public struct Editor: Sendable {
         return Effective(
             adjustments: values,
             grayscale: false,
-            identity: values.isIdentity && transform == nil,
+            identity: values.isColorIdentity && transform == nil,
             matrix: transform?.matrix,
             offset: transform?.offset
         )

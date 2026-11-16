@@ -1,0 +1,668 @@
+# Native AI engine — architecture and model plan
+
+Status: **phases 1–5 implemented and the model/catalog work landed on
+`feature/native-ai-models`; device validation pending.** The store, catalog and
+four converted models are in the branch: Balanced can download MODNet 512,
+Quality can download BiRefNet Lite 512 (`ai-models-v2`), Maximum can download
+ISNet 1024 (`ai-models-v3`, the exact web Quality model), and hair retouch can
+download BiSeNet 512. Maximum falls back to BiRefNet, then Vision. The numbers
+below are from the web's ONNX models on a desktop CPU plus the bundled sample
+images. iPhone numbers still require the protocol in
+[`AI_BENCHMARK.md`](AI_BENCHMARK.md); Vision subject lifting does not run in the
+Simulator.
+
+## 1. Summary
+
+The native AI tab keeps Apple Vision as its zero-download engine; every tier
+ends in Vision. The web runs different models per tier, and its Quality tier
+is ISNet 1024, not Vision and not BiRefNet. That is the structural reason the
+phone's cut-outs look less detailed than the web's.
+
+The fix is not "replace Vision". Vision stays the zero-download fast engine.
+A Core ML runtime sits beside it, with the same on-demand model lifecycle as
+the web: pinned download, SHA-256, on-device compile/cache, explicit fallback,
+and no model bytes in the IPA.
+
+Audit conclusions:
+
+1. **ISNet remains the best all-round model** on real photos and is the exact
+   web Quality target. The native Maximum engine is rebuilt from the official
+   DIS general-use checkpoint (Apache-2.0 code and mirror); the
+   `onnx-community` fp16 ONNX card says AGPL-3.0, so that file is used only as
+   the parity reference and is never shipped to the app.
+2. **BiRefNet Lite (MIT)** has the cleanest halo and contour of the
+   license-clean models. Hair is slightly softer than ISNet, but it is a safe
+   default for the Quality tier and is already the web's Balanced model.
+3. **BEN2 (MIT)** is the closest license-clean hair quality to ISNet. It is
+   also 219 MB, 14–19 s per image on desktop CPU, and it cuts scenery on
+   no-subject photos. It remains unconverted; ISNet is the Maximum engine and
+   BEN2 is only a future alternative if the device run disproves it.
+4. **InSPyReNet Swin-B (Apache-2.0)** is rejected: worst halo by 2–6×, softest
+   edge, selects scenery on landscapes, 15–18 s on desktop CPU, and its
+   `GatherND`/`ScatterND` graph is conversion-hostile.
+5. **MODNet (Apache-2.0)** is small and fast but portrait-only, with a visible
+   halo and lost strands. Use it only for the Balanced person path.
+6. The **hair retouch gap is separate** from background removal. The web uses
+   BiSeNet hair class 17 on a 1.9× face-width crop; the native fallback is a
+   face ellipse, and the downloaded BiSeNet parser replaces it when installed.
+   BiSeNet is MIT and conversion-friendly, so it was the first model to port.
+
+Decision: four native tiers.
+
+| Tier | Primary engine | Fallback | Download |
+|---|---|---|---|
+| Fast | Vision person/subject | — | 0 |
+| Balanced | MODNet 512 for people, Vision subject otherwise | Vision | 13 MB optional |
+| Quality | BiRefNet Lite 512 | Vision subject, then person | 82 MB on demand (Wi-Fi) |
+| Maximum | ISNet 1024 (exact web Quality model) | BiRefNet Lite 512, then Vision | 82 MB on demand (Wi-Fi) |
+
+BiSeNet hair parsing upgrades retouch in every tier. ISNet is the Maximum
+engine and the native/web parity target; it is no longer an optional hidden
+model.
+
+## 2. What the web actually runs
+
+The web has two independent AI subsystems. The native refactor has to cover
+both; the background model table alone is not enough.
+
+### 2.1 Background removal / matting (`src/ai-engine`)
+
+| Web UI | Model id | Input | Download | License | Native plan |
+|---|---|---|---|---|---|
+| Quality (default) | `isnet-fp16` | 1024×1024 | 88,116,798 B | DIS checkpoint Apache-2.0; ONNX card AGPL-3.0 (reference only) | **Maximum**, exact web parity |
+| Balanced | `birefnet-lite-512-fp16` | 512×512 | 98,484,532 B | MIT | Quality tier |
+| Fast | `modnet-fp16` | shortest edge 512, H/W multiple of 32 | 12,984,781 B | Apache-2.0 (verify artifact) | Balanced person path |
+| Person mode | forces `modnet-fp16` | as above | 12,984,781 B | Apache-2.0 | Balanced person path |
+
+Pinned metadata lives in `aurum-repo/src/ai-engine/registry.ts`. The web
+default is ISNet. On the phone, Fast is Vision; Balanced offers MODNet for
+photos with a person, Quality offers BiRefNet, and Maximum offers ISNet with a
+BiRefNet fallback. Every tier still ends at Vision when the model is absent or
+fails.
+
+### 2.2 Retouch (`src/ai-retouch`)
+
+| Task | Web model | Input | Download | License | Native plan |
+|---|---|---|---|---|---|
+| Face detection | BlazeFace | 128×128 | 535,842 B | **unknown** on the pinned mirror | Replaced by Vision face detection |
+| Hair mask | BiSeNet face parsing | 512×512 face crop | 53,205,364 B | MIT | Port to Core ML, all tiers |
+| Skin / whiten / smooth / tone | BlazeFace + CPU YCbCr/ellipse heuristics | — | — | — | Keep native heuristic; web is heuristic too |
+
+The native hair mask starts as a face-box ellipse with feature punch-outs
+(`EditorAIService.faceMasks`). When the BiSeNet archive is installed, each of
+the largest four faces is parsed with the web's 1.9×/2.5× crop and merged with
+`max`; the ellipse remains the fallback. The web's BiSeNet mask follows the
+real hair, including ponytails and flyaways, and this was the largest retouch
+parity gap.
+
+## 3. Measured audit
+
+All local results use the same five bundled images and the pinned model bytes.
+The scripts live in `D:\rk3229\ai-audit\` (`compare_web_models.py`,
+`compare_ben2.py`, `compare_inspyrenet.py`, `metrics_all.py`, `zoom_all.py`).
+They are audit tools, not committed app code.
+
+### 3.1 DIS-TE1, 30 samples (desktop CPU, from the web benchmark docs)
+
+| Model | IoU | Dice | Boundary F (2px) | Alpha MAE | Median |
+|---|---|---|---|---|---|
+| ISNet fp16 1024 | 0.9221 | 0.9575 | 0.8301 | 0.0079 | 2314 ms |
+| BiRefNet Lite 512 | 0.7725 | 0.8388 | 0.5646 | 0.0135 | 2903 ms |
+| MODNet fp16 | 0.1405 | 0.1958 | 0.1264 | 0.1116 | 450 ms |
+
+MODNet is out-of-domain on DIS (portrait matting model, general saliency
+ground truth), so its low score does not mean it is useless for people. It
+does mean it must not be the general Quality model.
+
+### 3.2 Same-image audit
+
+`halo` = mean alpha in a 6 px ring just outside the 0.5 contour. Lower is
+better; a clean matte leaves the ring near zero. `soft` = fraction of pixels in
+the 0.02–0.98 transition band, shown for context. `edge` = mean alpha gradient
+inside that band; it is not a standalone quality score because a hard cut also
+raises it.
+
+| Image | Model | Coverage | Soft | Halo | Edge |
+|---|---|---|---|---|---|
+| portrait | ISNet 1024 | 0.508 | 0.0097 | **0.043** | 0.247 |
+| portrait | BiRefNet Lite 512 | 0.508 | 0.0129 | **0.028** | 0.357 |
+| portrait | BEN2 1024 | 0.504 | 0.0109 | 0.041 | 0.227 |
+| portrait | MODNet | 0.509 | 0.0241 | 0.056 | 0.192 |
+| portrait | InSPyReNet 1024 | 0.523 | 0.0616 | **0.250** | 0.045 |
+| photo-64 | ISNet 1024 | 0.264 | 0.0364 | 0.126 | 0.085 |
+| photo-64 | BiRefNet Lite 512 | 0.277 | 0.0146 | **0.046** | 0.241 |
+| photo-64 | BEN2 1024 | 0.277 | 0.0160 | 0.064 | 0.128 |
+| photo-64 | MODNet | 0.279 | 0.0474 | 0.134 | 0.076 |
+| photo-64 | InSPyReNet 1024 | 0.292 | 0.0567 | **0.234** | 0.036 |
+| photo-pug | ISNet 1024 | 0.276 | 0.0402 | 0.123 | 0.081 |
+| photo-pug | BiRefNet Lite 512 | 0.278 | 0.0135 | **0.038** | 0.329 |
+| photo-pug | BEN2 1024 | 0.274 | 0.0281 | 0.100 | 0.141 |
+| photo-pug | MODNet | 0.292 | 0.0447 | 0.124 | 0.102 |
+| photo-pug | InSPyReNet 1024 | 0.307 | 0.0815 | **0.314** | 0.035 |
+
+Visual zoom (full-size crops in `ai-audit/out/hair-zoom-all-*.jpg`):
+
+- **ISNet** keeps the finest flyaway hair and gives the cleanest overall
+  portrait cut. Its halo is visible on the backlit woman but is local.
+- **BiRefNet Lite** has the cleanest contour and lowest halo, but is slightly
+  softer on the wispy strands and keeps a little background near the ear on the
+  suit portrait.
+- **BEN2** is close to ISNet on hair and fur, with a low halo. Its no-subject
+  behaviour is the problem, not its edge quality.
+- **MODNet** leaves a clear halo and loses strands; it is a speed model.
+- **InSPyReNet** leaves a broad glow around the head and shoulders and is the
+  softest model in the set. It is not a Quality upgrade.
+
+### 3.3 No-subject behaviour
+
+`sample-portrait.jpg` is actually a flat vector landscape, which makes it a
+useful semantic test. `photo-river.jpg` is a landscape photo.
+
+| Image | ISNet | BiRefNet | BEN2 | MODNet | InSPyReNet |
+|---|---|---|---|---|---|
+| photo-river coverage | **0.000** | **0.000** | 0.675 | 0.143 | 0.054 |
+| sample-portrait coverage | 0.035 (clouds) | **0.000** | 0.200 | 0.172 | 0.381 |
+
+ISNet and BiRefNet correctly return an empty mask; BEN2 and InSPyReNet cut
+scenery, and MODNet false-positives. The native engine therefore treats an
+empty alpha as `empty-mask` and falls through to Vision; it does not need a
+second Vision pre-pass on every product shot.
+
+### 3.4 License matrix
+
+| Model | Upstream license | Artifact license | Ship? |
+|---|---|---|---|
+| ISNet general use | DIS code Apache-2.0; checkpoint mirror Apache-2.0 | HF ONNX card AGPL-3.0, used only as a parity reference | **Yes**, from the DIS checkpoint |
+| BiRefNet Lite 512 | MIT | MIT (studioludens mirror) | Yes |
+| MODNet | Apache-2.0 | Apache-2.0 (Xenova mirror; verify file) | Yes |
+| BEN2 | MIT | MIT (PramaLLC / onnx-community) | Not converted |
+| InSPyReNet | MIT | Apache-2.0 (PinkPixel mirror) | Rejected on quality |
+| BiSeNet face parsing | MIT | MIT (jbrownkramer mirror) | Yes |
+| BlazeFace mirror | MediaPipe Apache-2.0 | **unknown** on pinned mirror | Do not ship; use Vision |
+
+## 4. Decision
+
+### 4.1 Tier table
+
+| Tier | Label | Engine order | Why |
+|---|---|---|---|
+| Fast | Nhanh | Vision person (fast) → Vision subject | Instant, zero download, person path is the common case |
+| Balanced | Cân bằng | MODNet 512 (person) → Vision subject | 13 MB, fast neural matting; no model needed for non-people |
+| Quality | Chất lượng | BiRefNet Lite 512 → Vision subject → Vision person | Best license-clean halo/contour; general subjects |
+| Maximum | Tối đa | ISNet 1024 → BiRefNet Lite 512 → Vision subject → Vision person | Exact web Quality model; BiRefNet and Vision cover devices or memory states that cannot run ISNet |
+
+Quality is not expected to be pixel-identical to web Quality, because web
+Quality is ISNet. Quality targets the best license-clean general cut-out.
+Maximum is the native/web parity tier: it runs ISNet first and therefore
+matches the web model, checkpoint and preprocessing exactly. If ISNet is
+missing or denied by the memory/thermal guard, Maximum falls back to BiRefNet
+and then Vision.
+
+The picker gains a fourth case, `maximum`, with a detail string naming the
+actual engine (`ISNet / BiRefNet / Vision · Tối đa`). The existing
+`quality / balanced / fast` raw values stay unchanged for state restoration.
+Picker order stays best-to-fastest: Tối đa, Chất lượng, Cân bằng, Nhanh; the
+default stays `.quality`. When the selected tier has a model that is not
+installed, Quality/Balanced/Maximum show a download sheet with size, license
+and Wi-Fi requirement. A sheet never silently runs Vision without telling the
+user. If the user declines or is offline, the pass uses the next installed
+engine and the result metadata records the fallback.
+
+### 4.2 Engine resolution
+
+```
+resolve(mode, content, device):
+  fast      -> [vision]
+  balanced  -> content.hasPerson ? [modnet, vision] : [vision]
+  quality   -> [birefnet, vision]
+  maximum   -> [isnet, birefnet, vision]
+                .filter(installed && fitsMemory && thermalAllows)
+```
+
+`maximum` always starts at ISNet. A missing download or a memory/thermal
+denial is a normal engine fallback, not a tier failure: BiRefNet runs next,
+then Vision.
+
+`content.hasPerson` comes from `VNDetectHumanRectanglesRequest` (fast) plus
+the existing face detector when it already ran. The general models are not
+pre-gated on a person, because products and animals are valid subjects. A model
+that returns an empty alpha (coverage ≤ 0.05 %) throws `empty-mask`, and the
+selector moves to the next engine. This stops a busy landscape from becoming a
+scenery cut-out without spending a second Vision pass on every product photo.
+The remaining risk is a model that confidently segments scenery instead of
+returning empty; the device matrix in `AI_BENCHMARK.md` tests that case.
+
+### 4.3 Why not the other models
+
+- **InSPyReNet**: rejected on measured halo, softness, scenery selection, CPU
+  time and conversion risk. Apache-2.0 is not a reason to ship a worse matte.
+- **ISNet**: now the Maximum engine, rebuilt from the official DIS checkpoint.
+  The exact web fp16 ONNX is the parity reference, not a distributed artifact;
+  its model card is AGPL-3.0 while the DIS checkpoint is Apache-2.0.
+- **Full BiRefNet / BiRefNet HR / BEN2 4K**: too large for the download and
+  memory budget on an A14 device. Revisit only after the benchmark shows
+  headroom.
+- **SAM / MobileSAM**: promptable segmentation is a different interaction; not
+  a replacement for one-tap background removal.
+- **Real-ESRGAN / NAFNet**: out of scope for this round; the web retouch
+  registry lists them as separate tasks.
+
+## 5. Architecture
+
+### 5.1 Module layout
+
+New files under `App/Features/Editor/AI/`:
+
+| File | Responsibility |
+|---|---|
+| `EditorAIEngine.swift` | `EditorAISegmentationEngine` protocol, request/result, engine id, timings |
+| `EditorAIEngineSelector.swift` | Tier → ordered engine list, content gates, capability checks |
+| `EditorVisionEngine.swift` | Existing Vision foreground/person code extracted unchanged |
+| `EditorCoreMLEngine.swift` | Model load, preprocessing, prediction, alpha extraction, unload |
+| `EditorAIModelCatalog.swift` | Embedded pinned descriptors; no remote manifest |
+| `EditorAIModelStore.swift` | Download, SHA-256 verify, staging, compile, cache, LRU evict |
+| `EditorAIMemoryGuard.swift` | `os_proc_available_memory`, thermal/power checks, model budgets |
+| `EditorAIMaskOps.swift` | Resize, feather, top-down mask conversion, asymmetric test helpers |
+| `EditorFaceParsingEngine.swift` | BiSeNet hair crop, logits, hair probability, crop mapping |
+| `EditorAIBenchmark.swift` | DEBUG-only matrix runner and CSV/mask export |
+
+`EditorAIService` stays the public facade. `EditorModel`, the brush toolbar and
+the bake path keep calling `backgroundMask` / `retouchMask`; only the internals
+change. This keeps the existing brush, live preview, undo and JPEG-alpha
+behaviour intact.
+
+### 5.2 Protocol
+
+```swift
+struct EditorAISegmentationRequest: Sendable {
+    let source: EditorSourceSnapshot
+    let mode: EditorAIBackgroundMode
+    let content: EditorAIContentHints
+    let report: @Sendable (String) async -> Void
+}
+
+struct EditorAISegmentationResult: Sendable {
+    let mask: EditorAIMask
+    let engineID: String
+    let modelVersion: String?
+    let inferenceMS: Double
+    let usedFallback: Bool
+}
+
+protocol EditorAISegmentationEngine: Sendable {
+    var id: String { get }
+    var requiresDownload: Bool { get }
+    func isAvailable() async -> Bool
+    func prepare() async throws
+    func segment(_ request: EditorAISegmentationRequest) async throws
+        -> EditorAISegmentationResult
+    func unload() async
+}
+```
+
+The result records the engine and version so the UI, the benchmark CSV and
+support reports can state what actually ran. The current code already reports
+progress strings; the protocol keeps that callback.
+
+### 5.3 Preprocessing and output contract
+
+All models use an `MLMultiArray` input in NCHW float32. Core ML image inputs
+with scale/bias cannot express ImageNet per-channel mean/std without an extra
+layer, so preprocessing stays explicit and reviewable.
+
+| Engine | Input | Normalisation | Output |
+|---|---|---|---|
+| Vision | source CIImage | none | soft mask; `noSubject` if no instances |
+| MODNet | shortest edge 512, H/W multiple of 32 | RGB/255, mean=std=0.5 | alpha `[0,1]` direct |
+| BiRefNet Lite | 512×512 | RGB/255, ImageNet mean/std | logits; sigmoid baked into the converted graph, alpha `[0,1]` |
+| BEN2 | 1024×1024 | RGB/255, ImageNet mean/std | alpha `[0,1]` direct |
+| ISNet | 1024×1024 | `(x-128)/256` | alpha `[0,1]` direct; no sigmoid |
+| BiSeNet | 512×512 face crop | RGB/255, ImageNet mean/std | 19 logits; class 17 hair |
+
+The ISNet output range was verified locally: min 0.0, max ~1.0, mean 0.265.
+Applying a sigmoid would collapse it to 0.5–0.73 and destroy the matte; this
+is a required regression test.
+
+Mask post-processing mirrors the web: bilinear resize to the source, optional
+1 px feather when `preserveHair`, no threshold. The native brush still receives
+a mask capped at 1024 px on the long side, which is the existing memory
+contract. Do not tile global models; their receptive field and pyramid blending
+produce seams. Tiling is reserved for a future LaMa/inpainting model.
+
+### 5.4 Orientation and row order
+
+`EditorSourceSnapshot` is top-down RGBA. Build the Core ML input from that
+buffer directly (or from a CGImage created with a top-down provider), never
+from a CIImage whose origin is bottom-left, unless the coordinate transform is
+explicit. The output `MLMultiArray` is row-major top-down; copy it into
+`EditorAIMask.bytes` without flipping.
+
+Required unit test: a mask with a white rectangle in the **top-left** must
+remain top-left through preprocessing, inference-output conversion,
+`EditorAIMask`, and `maskImage`. The existing `EditorBitmap.topDownRGBA` fixed
+the earlier flip; the Core ML path needs the same guard.
+
+### 5.5 Concurrency and cancellation
+
+- One inference at a time via an `actor EditorAIInferenceQueue`, matching the
+  web's serial queue and the A14 memory budget.
+- `MLModel.prediction` is synchronous and not cancellable mid-run. Run it off
+  the main actor, check `Task.isCancelled` before and after, and discard the
+  result if the user cancelled. Never leave a stale mask in the brush.
+- Keep at most one `MLModel` loaded. Unload on memory warning, on leaving the
+  AI tab, and before loading a different tier. Keep the compiled `.mlmodelc`
+  on disk so reload is fast.
+- Model load is the cold-start cost; measure it separately from inference.
+
+## 6. Model store
+
+### 6.1 Catalog
+
+The catalog is embedded in the app (Swift structs), not fetched at runtime.
+This makes the SHA-256 pins trustworthy even if the CDN is compromised and
+avoids a remote-code path. Each descriptor carries:
+
+```swift
+struct EditorAIModelDescriptor: Identifiable, Equatable, Sendable {
+    let id: String                 // "modnet-fp16"
+    let version: String            // "1.0.0+<upstream-rev>"
+    let displayName: String
+    let tier: EditorAIModelTier    // balanced | quality | maximum | retouch
+    let kind: EditorAIModelKind    // segmentation | faceParsing
+    let archiveURL: URL            // HTTPS, pinned
+    let archiveSHA256: String
+    let archiveBytes: Int64
+    let installedBytes: Int64      // uncompressed budget
+    let license: String
+    let licenseURL: URL
+    let inputName: String
+    let outputName: String
+    let inputWidth: Int
+    let inputHeight: Int
+    let preprocess: EditorAIPreprocess
+    let outputSemantics: EditorAIAlphaSemantics
+    let estimatedPeakMB: Int
+    let minimumAvailableMB: Int
+    let requiresWiFi: Bool
+    let minRAMGB: Int
+    let webModelID: String?        // exact parity mapping when it exists
+}
+```
+
+Published entries (`ai-models-v1`, `ai-models-v2` and `ai-models-v3`, immutable
+releases):
+
+| id | release | version | tier | archive | license | parity |
+|---|---|---|---|---|---|---|
+| `modnet-fp16` | v1 | `1.0.0+28165a4` | balanced | 11,912,923 B (13,108,826 B installed) | Apache-2.0 | web Fast |
+| `bisenet-hair` | v1 | `1.0.0+4f0632b` | retouch | 24,368,691 B (26,350,885 B installed) | MIT | web hair |
+| `birefnet-lite-512-fp16` | v2 | `1.0.0+aa62cd87` | quality | 82,130,533 B (92,903,810 B installed) | MIT | web Balanced |
+| `isnet-fp16` | v3 | `1.0.0+b6764e20` | maximum | 81,796,242 B (88,257,802 B installed) | Apache-2.0 | web Quality (exact) |
+
+Archive pins:
+
+- `modnet-fp16`:
+  `d256da371068e6b57d2b7f6a8cd24b828b85fbf80a2e7f5a8edd6832d8401adb`
+- `bisenet-hair`:
+  `c72fec2b926e8913e027476734c4f6911d276201ff75b538116baefb3fe1b0f1`
+- `birefnet-lite-512-fp16`:
+  `34383a43ee5dc63f254229e98d0fb442434f63995530f159244779555a1103d0`
+- `isnet-fp16`:
+  `7523bfe2d761a9742ac2115994611951261c2173624696d1cd00f7e21d1f0027`
+
+`ai-models-v2` and `ai-models-v3` rebuilt every model, so their MODNet,
+BiSeNet and BiRefNet archives differ in bytes from the earlier releases. The
+catalog keeps each existing id on its first publication: MODNet and BiSeNet on
+v1, BiRefNet on v2, ISNet on v3. Repinning an existing id would give fresh
+installs different weights under the same declared version as devices that
+already have it installed, and the store treats a matching version as
+installed. `ben2-fp16` stays disabled and is not in the catalog; the download
+button only appears for a published archive.
+
+### 6.2 Download, verify, install
+
+1. Check free disk: `archiveBytes * 2.5 + 200 MB`.
+2. Download to
+   `Application Support/AIModels/<id>/<version>.staging-<uuid>/` with the
+   async `URLSession` API, a `URLSessionDownloadDelegate` for progress and a
+   120 s request timeout. Cancellation deletes the staging directory.
+3. Compare the file size to the descriptor, then stream the bytes through
+   `CryptoKit.SHA256`; compare to the embedded hash before accepting anything.
+   A mismatch deletes the staging directory and surfaces `checksumMismatch`.
+4. Unpack with ZIPFoundation, require `<id>.mlpackage/Manifest.json`, and check
+   `metadata.json` `id` and `version` against the descriptor.
+5. Compile with `MLModel.compileModel(at:)` before committing; a failed compile
+   leaves the installed version untouched. The `.mlpackage` is kept beside the
+   `.mlmodelc` so the model can be recompiled after an OS update.
+6. Move the staging directory into
+   `Application Support/AIModels/<id>/<version>/`, write `installed.json` as
+   the commit marker, set `isExcludedFromBackup = true`, and prune other
+   versions of the same id.
+7. The download sheet loads the model once after install, so a broken archive
+   cannot silently replace Vision. Any failure falls back to Vision for that
+   pass.
+
+Wi-Fi policy: models over 50 MB require Wi-Fi. BiRefNet is 82 MB and ISNet is
+82 MB, so both descriptors set `requiresWiFi` and their sheets say so; a
+blocked cellular attempt reports a Wi-Fi-specific error instead of a generic
+network one. MODNet and BiSeNet stay under the threshold. Downloading is always
+user-initiated, shows the size and license, and is cancellable. No pixels
+leave the device.
+
+### 6.3 Cache, versioning, eviction
+
+- Directory per model id, subdirectory per version, with `installed.json` as
+  the commit marker. Only the catalog version is installed; older sibling
+  directories are pruned after a successful commit.
+- A catalog version bump simply points at a new directory; if its download,
+  hash or compile fails, the old version is left alone.
+- The store is excluded from iCloud backup and the app has no LRU eviction yet:
+  the four shipped models total ~220 MB installed (13 + 26 + 93 + 88 MB). A
+  size budget becomes necessary before a larger model ships.
+- Recompile is automatic if the `.mlmodelc` is missing (for example after an
+  OS update), with a progress state.
+
+### 6.4 Security, privacy, App Review
+
+- HTTPS only; ATS default. SHA-256 is verified on the exact archive bytes.
+- The catalog is embedded, so there is no remote manifest to tamper with. If a
+  remote catalog is added later, sign it with an Ed25519 key and keep the
+  public key in the app.
+- Model weights are data, but review guideline 2.5.2 still applies to
+  executable code. Keep conversion in our CI, download only model artifacts,
+  and do not download or evaluate scripts. Document this in the review notes.
+- No analytics, no mask upload, no remote inference. The existing
+  "AI chạy trên máy, ảnh không rời thiết bị" promise stays true.
+- Show model name, upstream license and attribution in Settings → AI models,
+  and store `LICENSE.txt` beside the weights.
+
+## 7. Memory, thermal and battery
+
+- **Memory gate.** Before loading a model, read `os_proc_available_memory()`.
+  Require `available >= estimatedPeakMB * 1.5`; otherwise fall through to the
+  next engine and tell the user which engine ran. Initial budgets (to be
+  replaced by device measurements): MODNet 250 MB (400 MB minimum), BiSeNet
+  450 MB (700 MB), BiRefNet 800 MB (1,200 MB), ISNet 900 MB (1,350 MB). BEN2
+  stays at 2,000 MB if it is ever converted.
+- **Thermal gate.** `ProcessInfo.processInfo.thermalState`:
+  - `.nominal` → allow the selected tier;
+  - `.fair` → allow Quality, skip Maximum;
+  - `.serious` → Balanced/Vision only;
+  - `.critical` → Vision only.
+  Observe `thermalStateDidChangeNotification` and show a non-blocking hint
+  instead of failing silently.
+- **Low Power Mode.** `ProcessInfo.isLowPowerModeEnabled` → Vision only unless
+  the user explicitly keeps the selected tier.
+- **Memory warning.** `UIApplication.didReceiveMemoryWarningNotification`
+  unloads the `MLModel`; the next pass reloads from the compiled cache.
+- **Battery.** No background inference. A single editor pass is short; the
+  benchmark records battery delta and Instruments energy for 30 consecutive
+  Quality/Maximum runs. Do not promise a battery number before measuring.
+- **Device tiers.** iPhone 12 Pro Max (6 GB) is the reference. ISNet needs
+  about 1.35 GB available; when that is denied, Maximum resolves to BiRefNet,
+  then Vision. BEN2 would require 6 GB if it is ever converted. The UI states
+  the resolved engine, so "Tối đa" never silently becomes Vision on a device
+  that cannot run it.
+
+## 8. Hair retouch parity (BiSeNet)
+
+The web path in `src/ai-retouch/engine.ts`:
+
+1. BlazeFace detects the face; crop side =
+   `min(max(faceWidth * 1.9, faceHeight * 2.5), imageWidth, imageHeight)`.
+2. Crop centre x = face centre x; crop y =
+   `clamp(faceCentreY - faceHeight * 0.32 - side / 2, 0, imageHeight - side)`.
+3. Resize the crop to 512×512, RGB/255, ImageNet mean/std, NCHW.
+4. BiSeNet returns 19 class logits. Hair probability is
+   `sigmoid(hairLogit - max(otherLogits))`, clamped to 0 below the decision
+   boundary. Class 18 (hat) is deliberately ignored.
+5. Resize the hair map back into the crop rectangle on the full source.
+
+Native implementation uses **Vision face detection instead of BlazeFace**:
+the mirror's BlazeFace license is unknown, and Vision is already running for
+skin masks, so the two masks stay aligned. Use the same 1.9×/2.5×/0.32 crop
+ratios and the same one-vs-best sigmoid. The model's input is a top-down crop,
+so the mask maps straight back into `EditorAIMask` without a flip.
+
+Fallback: if BiSeNet is not installed or Vision finds no face, keep the
+current ellipse for hair and the face-box heuristic for skin. The retouch
+sliders and bake path do not change. A future "hair quality" pass can expand
+the crop to 2.2× for long hair, but only after the device benchmark shows it
+does not pull in clothing; parity first.
+
+Skin/whiten/smooth/tone stay heuristic. The web does not use a neural skin
+segmenter for them, so there is no model-parity gap to close here.
+
+## 9. Core ML conversion pipeline
+
+Conversion runs on macOS in CI, never on the phone and never on Windows. The
+Windows workstation can audit ONNX graphs and quality, but `coremltools`
+requires macOS.
+
+1. **Job:** GitHub Actions `macos-15`, Python 3.11, `coremltools` 9.0 and
+   `torch` 2.7. coremltools 9 removed the ONNX importer, so the job rebuilds
+   each model in PyTorch from its official checkpoint, proves it against the
+   pinned ONNX parity reference, and converts the traced graph. Branch runs
+   upload 30-day Actions artifacts only; pushing an `ai-models-v*` tag runs the
+   release workflow, which publishes the archives and `summary.json` as
+   immutable release assets. Never reuse a release tag: archive bytes are not
+   reproducible.
+2. **Format:** `mlprogram`, Float16 weights, fixed 512×512 for MODNet, BiRefNet
+   and BiSeNet, and fixed 1024×1024 for ISNet. The app letterboxes non-square
+   images, runs the model and crops the alpha back. `EnumeratedShapes` can come
+   after the device benchmark if the letterbox costs measurable quality.
+3. **Validation:** two gates. The PyTorch graph must match ONNX almost
+   exactly (max abs diff ≤ 2e-3, mean ≤ 5e-5; BiSeNet hair max 3e-7 on the
+   golden portrait). The converted Core ML model is fp16, so it is checked for
+   structure rather than bit equality. The portrait fixture holds the shipping
+   limits (mean ≤ 0.008, p99 ≤ 0.10, p99.9 ≤ 0.15, 8-bit mean ≤ 2.0, IoU ≥ 0.98
+   and max ≤ 0.6 when the reference has at least 0.5% foreground); the synthetic
+   geometric probe gets wider fp16 limits (p99 ≤ 0.12, p99.9 ≤ 0.20, 8-bit
+   mean ≤ 3.0, IoU ≥ 0.97). Every run uses the synthetic tensor plus the
+   MediaPipe portrait fixture in `tools/ai/test-assets`.
+4. **Pin:** record the archive SHA-256, uncompressed size, Core ML
+   specification version, compute-unit results and conversion notes in the
+   catalog. The app catalog is only updated after a successful CI run; the
+   device benchmark can still veto the tier or its budgets.
+5. **Compute units:** try `.all` first; measure ANE vs GPU. ISNet is the most
+   ANE-friendly graph in the set (425 simple ops), though `Resize`/`Cast` may
+   force partitions, so measure rather than assume. Its fp16 conversion passes
+   with portrait mean alpha drift 3.84e-5, p99 4.66e-4 and IoU 0.99998 against
+   the web fp16 ONNX. BiRefNet's 17,490-node graph with
+   `GatherND`/`ScatterND` needed two vendored coremltools changes: the
+   unreleased deform-conv2d lowering (PR #2752) and the NumPy 2.4 constant cast
+   fix (PR #2632). It converts and passes the fp16 gates, but CI validates on
+   CPU only; the device benchmark must record which partitions run on ANE, GPU
+   and CPU. BEN2's transformer ops (`MultiHeadAttention`,
+   `LayerNormalization`, `Erf`) need `mlprogram`; it remains unconverted. Core
+   ML uses Metal for its GPU partitions; do not write custom Metal kernels in
+   v1. Add a custom Metal path only if the benchmark shows a model stuck on CPU
+   and missing its budget.
+6. **Fallbacks:** ONNX Runtime Mobile with the Core ML execution provider is a
+   contingency only for a model that Core ML cannot convert. It adds app size
+   and a second runtime; do not ship it for models that convert cleanly.
+
+Conversion feasibility from the graph audit:
+
+| Model | Nodes | Op types | Risk | Notes |
+|---|---|---|---|---|
+| ISNet | 425 | 8 | Resolved | 81.8 MB archive; 1024; fp16 gates pass with IoU 0.99998; ANE partition pending |
+| MODNet | 525 | 20 | Low–medium | Dynamic H/W; InstanceNorm; use fixed/enumerated shapes |
+| BiSeNet | — | — | Low | Fixed 512; standard conv net |
+| BiRefNet Lite | 17,490 | 38 | Resolved | Converted to 92.9 MB with vendored deform-conv and cast fixes; CPU-only CI validation |
+| BEN2 | 2,651 | 28 | Not converted | Transformer ops; 1024; disabled until a checkpoint and device need exist |
+| InSPyReNet | 2,267 | 31 | High | `GatherND`/`ScatterND`; rejected on quality anyway |
+
+## 10. Phases and acceptance
+
+| Phase | Work | Acceptance |
+|---|---|---|
+| 0 | This audit and design | Numbers reproducible from `ai-audit/`; decisions reviewed |
+| 1 | Extract Vision behind the protocol; add `maximum` case and strings; no behavior change | Existing AI flows produce the same masks; all tests pass; CI green |
+| 2 | Model store + catalog + download sheet + SHA/compile/cache; MODNet; BiSeNet hair | SHA mismatch rejected; offline fallback works; hair mask follows a ponytail on device; no-face fallback unchanged |
+| 3 | Balanced person path + Vision gates | Person mode uses MODNet when installed; no-subject returns `noSubject`; warm time < 700 ms |
+| 4 | Quality BiRefNet | Halo not worse than Vision; hair not worse than Vision; < 2.5 s and < 1.2 GB on iPhone 12 Pro Max; fallback works |
+| 5 | Maximum ISNet (web Quality parity) | Hair at least BiRefNet quality; exact web ISNet checkpoint and preprocessing; < 5 s and < 1.8 GB; 20 consecutive runs without jetsam; thermal downgrade works |
+| 6 | Device benchmark and parity report | `AI_BENCHMARK.md` protocol run; results appended; PARITY/DEVICE_CHECKS updated |
+| 7 | Optional BEN2 alternative | Only if ISNet misses a device budget or a future need appears; no catalog entry until converted and validated |
+
+Phase 2 was the highest-value first ship: BiSeNet closes the visible
+hair-retouch gap, and MODNet is small enough to validate the whole
+download/compile/cache path without a 200 MB artifact.
+
+Phases 1, 2, 4 and 5 are implemented on `feature/native-ai-models`. Device
+runs are still pending for download/verify/cancel, top-down masks, ponytail
+hair, and the BiRefNet/ISNet timing, memory, thermal and quality gates on an
+iPhone 12 Pro Max. CI only compiles the app and cannot run Vision or Core ML
+features.
+
+## 11. Risks and open questions
+
+1. **ISNet checkpoint provenance.** The shipping weights are rebuilt from the
+   official DIS general-use checkpoint (Apache-2.0 repository and mirror). The
+   web's fp16 ONNX is the parity reference; its model card declares AGPL-3.0,
+   but that file is never distributed. Keep the DIS `LICENSE` and the
+   attribution in every archive and review this mapping before any commercial
+   distribution.
+2. **BiRefNet on device.** Conversion passes the fp16 gates, but CI runs on CPU
+   with a fixed 512×512 input. The 17,490-node graph may partition onto GPU/CPU
+   and miss the 2.5 s / 1.2 GB gate on A14; if it does, Quality falls back to
+   Vision and the benchmark decides whether to retune compute units or demote
+   the tier.
+3. **ISNet on A14.** A 1024 graph with 44 M parameters has a 900 MB budget and
+   a 5 s target. If it misses either on the reference device, Maximum falls to
+   BiRefNet and the benchmark records the gap. BEN2 (219 MB, transformer) is
+   not converted and would face a stricter memory gate.
+4. **Core ML packaging.** `.mlpackage` is a directory, shipped as a zip and
+   unpacked with ZIPFoundation. Compile failures leave the previous version
+   untouched.
+5. **App Review.** Downloaded model weights are data, but keep conversion in
+   CI and document that no executable code is downloaded. Do not fetch scripts
+   or manifests that can change behavior.
+6. **Label semantics.** Native Quality = BiRefNet (web Balanced) and native
+   Maximum = ISNet (web Quality). Detail strings name the engine so users do
+   not compare labels across platforms. Consider aligning the web labels in a
+   later round.
+7. **BlazeFace license.** Avoid the unknown mirror; Vision face detection is
+   the native face source. If Vision's box differs from BlazeFace enough to
+   change the hair crop, tune the crop ratios against the web output on device.
+8. **JPEG alpha.** Existing limitation: `POST /items/{id}/edit` cannot store a
+   transparent cut-out for JPEG items. The export sheet already warns; not
+   changed by this design.
+9. **Simulator.** Vision subject lifting and ANE do not run in the Simulator.
+   All quality and performance gates are device-only.
+
+## 12. References
+
+- Web background registry: `aurum-repo/src/ai-engine/registry.ts`
+- Web background runtime: `aurum-repo/src/ai-engine/engine.ts`,
+  `models.ts`, `memory.ts`, `mask.ts`
+- Web retouch registry/runtime: `aurum-repo/src/ai-retouch/registry.ts`,
+  `engine.ts`, `models.ts`
+- Web UI labels: `aurum-repo/src/ui/ui.ts`
+- Web DIS benchmarks: `aurum-repo/docs/ai-engine/benchmark/results/`
+- Native service: `mng-cloud-sw/App/Features/Editor/EditorAIService.swift`
+- Native state/UI: `EditorModel.swift`, `EditorView.swift`
+- Native bitmap contract: `Packages/MNGEdit/Sources/MNGEdit/EditorBitmap.swift`
+- Audit scripts and output: `D:\rk3229\ai-audit\`
+- Device protocol: [`AI_BENCHMARK.md`](AI_BENCHMARK.md)

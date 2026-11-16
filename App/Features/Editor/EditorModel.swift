@@ -4,6 +4,12 @@ import MNGKit
 import Observation
 import UIKit
 
+/// A model download the user has been asked to approve.
+struct EditorAIModelDownload: Identifiable, Equatable {
+    let descriptor: EditorAIModelDescriptor
+    var id: String { descriptor.id }
+}
+
 /// The live mask of the AI brush. It is kept out of the observation graph so
 /// a brush dab does not publish a megabyte-sized array on every touch event.
 private final class EditorAIRefineSession: @unchecked Sendable {
@@ -382,6 +388,12 @@ final class EditorModel {
     private(set) var aiCanUndoBrush = false
     private(set) var aiMaskWidth = 1
     private(set) var aiMaskHeight = 1
+    /// The pending model download sheet and the ids installed on this device.
+    private(set) var aiModelDownload: EditorAIModelDownload?
+    private(set) var aiModelDownloadProgress: Double = 0
+    private(set) var aiModelDownloadBusy = false
+    private(set) var aiModelDownloadError: String?
+    private(set) var aiInstalledModels: Set<String> = []
 
     var onToast: ((String) -> Void)?
     var onSaved: (() -> Void)?
@@ -400,6 +412,8 @@ final class EditorModel {
     /// result from a cancelled pass harmless.
     @ObservationIgnored private var aiTask: Task<Void, Never>?
     @ObservationIgnored private var aiSeq = 0
+    /// The model download in flight, cancelled with the editor.
+    @ObservationIgnored private var aiDownloadTask: Task<Void, Never>?
     /// The source from before the latest AI pass, for the AI-only undo.
     @ObservationIgnored private var aiPreviousSource: EditorSourceSnapshot?
     /// The live brush session, if the AI tab is refining a mask.
@@ -491,6 +505,7 @@ final class EditorModel {
             filterThumbnails = [:]
             state = .ready
             renderPreview()
+            detectFaceAnchors(for: editor, seq: seq)
         } catch let error as APIError {
             guard seq == loadSeq else { return }
             if error.status == 401 {
@@ -514,7 +529,15 @@ final class EditorModel {
         aiCutout = false
         aiPreviousSource = nil
         canRevertAI = false
+        aiDownloadTask?.cancel()
+        aiDownloadTask = nil
+        aiModelDownload = nil
+        aiModelDownloadBusy = false
+        aiModelDownloadError = nil
         clearAIRefine()
+        // The compiled model is several hundred megabytes of resident
+        // weights; leaving the editor is the right time to give them back.
+        Task { await EditorAIModelRuntime.shared.unload() }
         renderTask?.cancel()
         renderTask = nil
         thumbnailTask?.cancel()
@@ -600,6 +623,123 @@ final class EditorModel {
     func selectAIModel(_ model: EditorAIModel) {
         guard !aiBusy, !aiRefining else { return }
         aiModel = model
+        proposeAIModelDownload(for: model)
+    }
+
+    // MARK: - Model downloads
+
+    /// Cache the installed ids once per editor session. The store itself is
+    /// the source of truth; this is only what the picker badges.
+    func refreshAIModels() async {
+        var installed: Set<String> = []
+        for descriptor in EditorAIModelCatalog.all {
+            if await EditorAIModelStore.shared.isInstalled(descriptor) {
+                installed.insert(descriptor.id)
+            }
+        }
+        aiInstalledModels = installed
+    }
+
+    /// The background model a tier would use, if its archive is published.
+    func aiDescriptor(for model: EditorAIModel) -> EditorAIModelDescriptor? {
+        model.modelTier.flatMap(EditorAIModelCatalog.segmentationModel(for:))
+    }
+
+    /// Show the download sheet when the picked tier's best model is not on
+    /// this device. Fast stays on Vision without a prompt, and cancelling a
+    /// Maximum prompt still leaves BiRefNet (when installed) as the engine.
+    private func proposeAIModelDownload(for model: EditorAIModel) {
+        guard let descriptor = aiDescriptor(for: model) else { return }
+        proposeAIModelDownload(descriptor)
+    }
+
+    /// The same sheet for the hair parser, which upgrades retouch in every
+    /// tier and is offered after the first hair pass rather than on launch.
+    private func proposeAIModelDownload(
+        _ descriptor: EditorAIModelDescriptor
+    ) {
+        guard aiModelDownload == nil,
+              !aiInstalledModels.contains(descriptor.id) else {
+            return
+        }
+        aiModelDownloadError = nil
+        aiModelDownloadProgress = 0
+        aiModelDownload = EditorAIModelDownload(descriptor: descriptor)
+    }
+
+    func dismissAIModelDownload() {
+        guard !aiModelDownloadBusy else { return }
+        aiModelDownload = nil
+        aiModelDownloadError = nil
+    }
+
+    func downloadAIModel() {
+        guard let download = aiModelDownload, !aiModelDownloadBusy else {
+            return
+        }
+        let descriptor = download.descriptor
+        aiModelDownloadBusy = true
+        aiModelDownloadProgress = 0
+        aiModelDownloadError = nil
+        aiDownloadTask = Task { [weak self] in
+            do {
+                try await EditorAIModelStore.shared.install(
+                    descriptor
+                ) { [weak self] value in
+                    Task { @MainActor in
+                        guard let self,
+                              self.aiModelDownload?.descriptor.id
+                                == descriptor.id else {
+                            return
+                        }
+                        self.aiModelDownloadProgress = value
+                    }
+                }
+                try Task.checkCancellation()
+                // Loading proves the compiled model works before the sheet
+                // reports success; a broken artifact must not replace Vision.
+                try await EditorAIModelRuntime.shared.prepare(descriptor)
+                try Task.checkCancellation()
+                guard let self else { return }
+                self.aiInstalledModels.insert(descriptor.id)
+                self.aiModelDownloadBusy = false
+                self.aiDownloadTask = nil
+                self.aiModelDownload = nil
+                self.aiModelDownloadProgress = 1
+                self.onToast?(
+                    Strings.editorAIModelReady(descriptor.displayName)
+                )
+            } catch is CancellationError {
+                guard let self else { return }
+                self.aiModelDownloadBusy = false
+                self.aiDownloadTask = nil
+                self.aiModelDownloadProgress = 0
+                self.aiModelDownloadError =
+                    Strings.editorAIModelDownloadCancelled
+            } catch {
+                guard let self else { return }
+                self.aiModelDownloadBusy = false
+                self.aiDownloadTask = nil
+                // `install` commits before the load check. If the load was
+                // what failed, the artifact is still on disk, so the picker
+                // must not offer the download again on the next tap.
+                await self.refreshAIModels()
+                if let localized = error as? LocalizedError,
+                   let message = localized.errorDescription {
+                    self.aiModelDownloadError = message
+                } else {
+                    self.aiModelDownloadError = Strings.editorAIDownloadFailed
+                }
+            }
+        }
+    }
+
+    func cancelAIModelDownload() {
+        aiDownloadTask?.cancel()
+        aiDownloadTask = nil
+        aiModelDownloadBusy = false
+        aiModelDownloadProgress = 0
+        aiModelDownloadError = Strings.editorAIModelDownloadCancelled
     }
 
     func selectAIRetouchMode(_ mode: EditorAIRetouchMode) {
@@ -721,6 +861,14 @@ final class EditorModel {
                     source: source,
                     mask: mask
                 )
+                // The first hair pass used the Vision ellipse. Offer the
+                // parser now, while the result is on screen; the download
+                // upgrades the next pass and never blocks this one.
+                if mode == .hair {
+                    self.proposeAIModelDownload(
+                        EditorAIModelCatalog.bisenetHair
+                    )
+                }
             } catch {
                 guard let self, self.aiSeq == seq else { return }
                 self.failAI(error)
@@ -812,6 +960,15 @@ final class EditorModel {
         aiBusy = false
         aiDetail = nil
         onToast?(Strings.editorAICancelled)
+    }
+
+    /// iOS is asking for memory back. Stop the pass and release the resident
+    /// Core ML weights; the next run reloads them from the compiled cache.
+    func handleMemoryWarning() {
+        if aiBusy {
+            cancelAI()
+        }
+        Task { await EditorAIModelRuntime.shared.unload() }
     }
 
     /// Put the source from before the latest AI pass back, keeping the crop,
@@ -2003,6 +2160,26 @@ final class EditorModel {
     }
 
     // MARK: - Preview
+
+    /// Detect the face anchors once per source and attach them to the editor.
+    ///
+    /// Vision runs off the main actor; the preview is re-rendered when the
+    /// anchors arrive. Until then the shape sliders simply have no face to
+    /// warp, which is the same honest degradation as the web editor before
+    /// its landmark pass has run.
+    private func detectFaceAnchors(for editor: Editor, seq: Int) {
+        guard let image = editor.sourceCGImage() else { return }
+        Task.detached(priority: .utility) { [weak self] in
+            let anchors = (try? FaceAnchorDetector.anchors(in: image)) ?? []
+            await MainActor.run {
+                guard let self, self.loadSeq == seq, self.editor != nil else {
+                    return
+                }
+                self.editor?.setFaceAnchors(anchors)
+                self.renderPreview()
+            }
+        }
+    }
 
     /// Re-render the preview off the main actor.
     private func renderPreview() {

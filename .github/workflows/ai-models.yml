@@ -1,0 +1,30 @@
+name: ai-models
+
+# Branch/manual validation. This workflow only uploads the 30-day Actions
+# artifact; publishing happens in ai-models-release.yml from an ai-models-v*
+# tag. The `branches` filter is required: without it a tag push also matches
+# this workflow, and its cancel-in-progress concurrency group would cancel the
+# release job that is publishing the tag's archives.
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "**"
+    paths:
+      - "tools/ai/**"
+      - ".github/workflows/ai-models*.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-models-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  convert:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ai-models-convert.yml
+    with:
+      publish: false

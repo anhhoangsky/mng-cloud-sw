@@ -21,7 +21,7 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 | Settings | Kết nối / iCloud / Thư viện / Tài khoản / Giới thiệu; test, rescan, retry thumbs, clear temp | 🟡 ported: cloud probe rows, iCloud status, scan/thumbs/tmp actions, storage, duplicates entry, account/about; device check pending |
 | Duplicates | legacy summary, 30 groups per page, open group in viewer | 🟡 ported: summary + pending-thumbnail note, 30 groups per page, 128 pt grid, group-seeded viewer; device check pending |
 | Vault | native list/unlock/browse/upload/folder/delete/auto-lock (the Seafile E2EE reader was removed from the web app) | 🟡 ported: vault list, unlock, browser with folders/search, 4 MiB chunked upload, encrypted preview, rename, delete, library → vault move, 15-minute auto-lock; device check pending |
-| Editor | rotate → flip → crop, adjustments, filters, text, AI, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, five native tabs (Tinh chỉnh / Bộ lọc / Chữ / AI / Cắt), thirteen sliders, twenty-nine Aurum presets with six categories and the seven-slider tone tune, saved personal presets, text layers with CoreText export burn and an on-photo frame, continuous ±180° crop rotation with cover fill, ratio + screen presets, crop scrim/grid/bevel handles, perspective correction, an on-device Vision AI tab (background remove/person/blur/white, five retouch passes, model picker, mask brush with live blur/retouch preview, progress/cancel and AI-only undo), hold-to-compare, export sheet with quality and the two save modes, multipart upload; beauty/liquify not ported; device check pending |
+| Editor | rotate → flip → crop, adjustments, filters, text, AI, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, five native tabs (Tinh chỉnh / Bộ lọc / Chữ / AI / Cắt), thirteen sliders, twenty-nine Aurum presets with six categories and the seven-slider tone tune, saved personal presets, text layers with CoreText export burn and an on-photo frame, continuous ±180° crop rotation with cover fill, ratio + screen presets, crop scrim/grid/bevel handles, perspective correction, an on-device Vision AI tab (background remove/person/blur/white, five retouch passes, model picker, mask brush with live blur/retouch preview, progress/cancel and AI-only undo), hold-to-compare, export sheet with quality and the two save modes, multipart upload; the six portrait reshape sliders are wired through the shared warp engine (Vision landmarks, preview/export identical) but the native portrait pane, beauty and liquify are not ported yet; device check pending |
 | Admin | lazy mount, users, password, activate, admin, delete, scan | 🟡 ported: Settings row for admins only, lazy list, create/reset/reprovision/update/delete/scan; device check pending |
 | iCloud | honest status, 2.2 s job poll, login/2FA/start/save/pause/cancel/logout | 🟡 ported: full importer sheet with the 2.2 s poll that stops with the sheet; device check pending |
 | PWA-only surfaces | service worker, Trusted Types, extension | ➖ |
@@ -205,13 +205,19 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - The source is decoded locally with ImageIO and the EXIF orientation applied,
   so HEIC works without the server's HEIC-only `edit-source` route.
 - Difference: the web's AI runs downloaded ONNX models (ISNet/BiRefNet/
-  MODNet, Real-ESRGAN, AI Retouch). The native AI tab is on-device instead:
-  Vision subject and person segmentation, face landmarks, and Core Image
-  compositing for the same background and retouch actions. Like the web, a
-  pass first returns a soft mask to a brush step (add/erase, size, stroke undo,
-  invert, transparent background) and the blur/retouch sliders stay live until
-  "Hoàn tất"; the mask is then baked into the source. Beauty and liquify are not
-  ported.
+  MODNet, Real-ESRGAN, AI Retouch). The native AI tab runs Apple Vision
+  on-device by default: subject and person segmentation, face landmarks, and
+  Core Image compositing for the same background and retouch actions. Four
+  paths can download a pinned Core ML model instead: Balanced offers MODNet 512
+  when the Vision probe finds a person, Quality offers BiRefNet Lite 512 for
+  general subjects, Maximum offers ISNet 1024 (the exact web Quality model)
+  and falls back to BiRefNet, and the hair retouch offers BiSeNet face parsing
+  for every tier. Vision stays the fallback, so no tier requires a download.
+  Like the web, a pass first returns a soft mask to a brush step (add/erase,
+  size, stroke undo, invert, transparent background) and the blur/retouch
+  sliders stay live until "Hoàn tất"; the mask is then baked into the source.
+  Beauty and liquify are not ported. Details are in
+  [`AI_NATIVE_ENGINE.md`](AI_NATIVE_ENGINE.md).
 
 ## Round 4 notes
 
@@ -300,13 +306,16 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 - The timeline warms the thumbnails of the next rows (eight at a time, one
   after another) so a long library scrolls without a flash of empty tiles.
 - The AI tab uses the same actions as `ui.ts` ("Xoá phông", "Tách người", "Mờ
-  phông", "Nền trắng", then the five retouch passes) but runs Apple Vision on
-  the device instead of downloading ONNX models. Vision only produces the soft
-  mask; the full-source brush step then refines it and previews the live blur
-  and retouch settings. "Hoàn tất" bakes the result into a new source bitmap
-  while the crop, geometry, colour stack and text stay in place; the rows are
-  kept top-down through `EditorBitmap`, so the photo does not flip. The history
-  restarts and "Hoàn tác AI" restores the previous source.
+  phông", "Nền trắng", then the five retouch passes) but currently runs Apple
+  Vision on the device instead of downloading ONNX models. Vision only
+  produces the soft mask; the full-source brush step then refines it and
+  previews the live blur and retouch settings. "Hoàn tất" bakes the result into
+  a new source bitmap while the crop, geometry, colour stack and text stay in
+  place; the rows are kept top-down through `EditorBitmap`, so the photo does
+  not flip. The history restarts and "Hoàn tác AI" restores the previous
+  source. The native model plan and its measured quality audit are in
+  [`AI_NATIVE_ENGINE.md`](AI_NATIVE_ENGINE.md); the device protocol is in
+  [`AI_BENCHMARK.md`](AI_BENCHMARK.md).
 
 ## Round 5 notes
 
@@ -351,6 +360,34 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   are on screen, and a failed tile is not pinned to its path, so scrolling it
   away and back asks again. This covers the server's 404 placeholder window
   while a thumbnail is still being written.
+
+## Round 7 notes
+
+- The six portrait reshape sliders (`faceSlim`, `jawline`, `chin`, `eyeSize`,
+  `noseSize`, `mouthSize`) now decode into `EditorAdjustments` and reach the
+  pixels through `FaceWarp`, a line-by-line port of `warpFace()` from the web
+  shader. The preview and the full-resolution export call the same
+  `renderRGBA` with the same frozen `FaceWarpSampler`, so a reshape is identical
+  at every zoom; a neutral slider stays byte-identical, and a pixel outside
+  every face ellipse is never resampled.
+- `FaceAnchorDetector` turns Vision face landmarks into the web's anchor
+  contract: top-down boxes, face-local eye/nose/mouth positions clamped to
+  ±0.92, radii 0.02–0.6, strongest four. It runs off the main actor once per
+  loaded photo, and the preview rerenders when the anchors arrive. Without a
+  detectable face the warp uses the web's default feature positions; nothing
+  is fabricated.
+- Vision's box is not MediaPipe's mesh box, so the exact ellipse can differ
+  from the web for the same photo. The packing rule, the falloffs and the
+  clamp/limit behaviour are shared, which is what the cross-client contract
+  promises; a pixel-parity pass on device is still pending.
+- The reshape stays a CPU sampler inside `MNGEdit`'s one renderer instead of a
+  second Metal pipeline. The app renderer is CPU-based; adding a GPU kernel now
+  would create a path that cannot be checked on the Windows workstation and
+  would only be used once the renderer itself moves to the GPU. The sampler is
+  the reference the future kernel will be tested against.
+- `MNGEdit` on macOS now runs 16 warp/render tests: identity bytes, cheek and
+  eye direction, outside-the-face zero diff, anchor sorting/cap, JSON
+  round-trip and clamp, and the frozen sampler matching `FaceWarp.warp`.
 
 ## Visual checks per UI phase
 
