@@ -21,7 +21,7 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
 | Settings | Kết nối / iCloud / Thư viện / Tài khoản / Giới thiệu; test, rescan, retry thumbs, clear temp | 🟡 ported: cloud probe rows, iCloud status, scan/thumbs/tmp actions, storage, duplicates entry, account/about; device check pending |
 | Duplicates | legacy summary, 30 groups per page, open group in viewer | 🟡 ported: summary + pending-thumbnail note, 30 groups per page, 128 pt grid, group-seeded viewer; device check pending |
 | Vault | native list/unlock/browse/upload/folder/delete/auto-lock (the Seafile E2EE reader was removed from the web app) | 🟡 ported: vault list, unlock, browser with folders/search, 4 MiB chunked upload, encrypted preview, rename, delete, library → vault move, 15-minute auto-lock; device check pending |
-| Editor | rotate → flip → crop, adjustments, filters, text, AI, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, six native tabs (Tinh chỉnh / Chân dung / Bộ lọc / Chữ / AI / Cắt), twenty-six sliders across the two parameter decks, twenty-nine Aurum presets with six categories and the seven-slider tone tune, saved personal presets, text layers with CoreText export burn and an on-photo frame, continuous ±180° crop rotation with cover fill, ratio + screen presets, crop scrim/grid/bevel handles, perspective correction, an on-device Vision AI tab (background remove/person/blur/white, five retouch passes, model picker, mask brush with live blur/retouch preview, progress/cancel and AI-only undo), hold-to-compare, export sheet with quality and the two save modes, multipart upload; the six portrait reshape sliders are wired through the shared warp engine (Vision landmarks, preview/export identical), the four beauty sliders run through a line-by-line port of the web's R/G/B mask builder and `main.glsl` portrait pass (the mask builds in the same Vision task as the anchors), the Chân dung tab applies the three chain presets decoded from the shared `presets.json` spec, the free-liquify field plus its 640-dab history are ported (`LiquifyField`, RG = drag in source UV, preview/export identical) with a native source-space brush (1–20 % size, gold ring, one undo step per stroke, clear), and clarity/sharpen/denoise run through `DetailKernel` (sections 1–3 of `main.glsl`); device check pending |
+| Editor | rotate → flip → crop, adjustments, filters, text, AI, JPEG/PNG/WebP export | 🟡 ported: `mng-edit` pixel pipeline, six native tabs (Tinh chỉnh / Chân dung / Bộ lọc / Chữ / AI / Cắt), twenty-six sliders across the two parameter decks, twenty-nine Aurum presets decoded from the shared `filters.json` spec with six categories and the seven-slider tone tune, saved personal presets, text layers with CoreText export burn and an on-photo frame, continuous ±180° crop rotation with cover fill, ratio + screen presets, crop scrim/grid/bevel handles, perspective correction, an on-device Vision AI tab (background remove/person/blur/white, five retouch passes, model picker, mask brush with live blur/retouch preview, progress/cancel and AI-only undo), hold-to-compare, export sheet with quality and the two save modes, multipart upload; the six portrait reshape sliders are wired through the shared warp engine (Vision landmarks, preview/export identical), the four beauty sliders run through a line-by-line port of the web's R/G/B mask builder and `main.glsl` portrait pass (the mask builds in the same Vision task as the anchors), the Chân dung tab applies the three chain presets decoded from the shared `presets.json` spec, the free-liquify field plus its 640-dab history are ported (`LiquifyField`, RG = drag in source UV, preview/export identical) with a native source-space brush (1–20 % size, gold ring, one undo step per stroke, clear), and clarity/sharpen/denoise run through `DetailKernel` (sections 1–3 of `main.glsl`); device check pending |
 | Admin | lazy mount, users, password, activate, admin, delete, scan | 🟡 ported: Settings row for admins only, lazy list, create/reset/reprovision/update/delete/scan; device check pending |
 | iCloud | honest status, 2.2 s job poll, login/2FA/start/save/pause/cancel/logout | 🟡 ported: full importer sheet with the 2.2 s poll that stops with the sheet; device check pending |
 | PWA-only surfaces | service worker, Trusted Types, extension | ➖ |
@@ -515,6 +515,38 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   the simulator build, the unsigned device build, the simulator test and both
   upload steps. The device check still has to measure the export-quality
   `DetailKernel` taps and the beauty mask build on a real phone.
+
+## Round 12 notes
+
+- `specs/filters.json` v1 is now the shared filter catalog: 29 tones in the
+  existing order, each with its Vietnamese and English name, category, final
+  row-major 3×3 matrix, per-channel offset, Canvas2D fallback and hint. The
+  matrices were extracted from the release `PRESETS` and the extracted file was
+  checked against a six-swatch palette captured before the move, so no tone
+  changed.
+- The web reads the JSON in `src/core/color.ts` instead of rebuilding 29
+  recipes from helper functions. `PRESETS`, `presetById` and
+  `buildColorTransform` keep their public shape, so the filter rail,
+  thumbnails, saved presets and the shader uniform path did not change.
+  `test-filters.html` runs 17 checks: count and order, unique ids, category
+  counts, matrix/offset shape and finiteness, identity original, CSS presence,
+  hint placement, zero-adjustment matrix equality, the mandatory 8-bit palette
+  for every tone on six swatches, alpha preservation, unknown-filter fallback
+  and object lookup — ALL PASS.
+- `MNGEdit` bundles a byte-for-byte copy under
+  `Packages/MNGEdit/Sources/MNGEdit/Resources/filters.json`, and
+  `EditorFilterSpec` decodes it with `Bundle.module`: version 1, nine matrix
+  values, three offsets, finite numbers, unique ids. `Editor.presetTransform`
+  now looks up the spec and the 170 lines of recipe helpers are gone, so the app
+  and the browser cannot drift. The localized filter names and hints stay in
+  `Strings.swift`; only the numbers and the catalog order come from the JSON.
+- Four new tests in `FilterSpecTests` cover the decoded catalog (29 filters,
+  enum/spec order, category counts, shape and finite checks), every
+  `EditorFilter` resolving to its matrix, the six-swatch golden palette
+  (accepting one LSB because Swift keeps Float while the browser evaluates
+  Double) and the five legacy aliases. `MNGEdit` runs 69 test methods; CI run
+  `43852777832` is green at `b90fd85`, including both builds, the simulator test
+  and both uploads.
 
 ## Visual checks per UI phase
 
