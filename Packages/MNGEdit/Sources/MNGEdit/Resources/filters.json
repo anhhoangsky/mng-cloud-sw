@@ -1,0 +1,695 @@
+{
+  "version": 1,
+  "filters": [
+    {
+      "id": "original",
+      "name": "Nguyên bản",
+      "nameEn": "Original",
+      "category": "root",
+      "matrix": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1
+      ],
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "css": "",
+      "hint": "Không đổi màu"
+    },
+    {
+      "id": "vivid",
+      "name": "Sống động",
+      "nameEn": "Vivid",
+      "category": "root",
+      "matrix": [
+        1.40314896,
+        -0.29351808,
+        -0.02963088,
+        -0.08725104,
+        1.19688192,
+        -0.02963088,
+        -0.08725104,
+        -0.29351808,
+        1.46076912
+      ],
+      "offset": [
+        -0.04,
+        -0.04,
+        -0.04
+      ],
+      "css": "saturate(1.38) contrast(1.08)"
+    },
+    {
+      "id": "dramatic",
+      "name": "Kịch tính",
+      "nameEn": "Dramatic",
+      "category": "root",
+      "matrix": [
+        1.144500378,
+        0.171669456,
+        0.017330166,
+        0.049572367,
+        1.228992614,
+        0.016835018,
+        0.052488389,
+        0.176574298,
+        1.142537314
+      ],
+      "offset": [
+        -0.15375,
+        -0.1457,
+        -0.1338
+      ],
+      "css": "contrast(1.27) saturate(0.82)"
+    },
+    {
+      "id": "mono",
+      "name": "Đen trắng",
+      "nameEn": "Mono",
+      "category": "mono",
+      "matrix": [
+        0.23386,
+        0.78672,
+        0.07942,
+        0.23386,
+        0.78672,
+        0.07942,
+        0.23386,
+        0.78672,
+        0.07942
+      ],
+      "offset": [
+        -0.05,
+        -0.05,
+        -0.05
+      ],
+      "css": "grayscale(1) contrast(1.1)"
+    },
+    {
+      "id": "vintage",
+      "name": "Cổ điển",
+      "nameEn": "Vintage",
+      "category": "root",
+      "matrix": [
+        0.92,
+        0.32,
+        0.08,
+        0.14,
+        0.86,
+        0.11,
+        0.06,
+        0.19,
+        0.72
+      ],
+      "offset": [
+        0.035,
+        0.02,
+        0
+      ],
+      "css": "sepia(0.42) saturate(0.86) contrast(0.95)"
+    },
+    {
+      "id": "warm",
+      "name": "Ấm",
+      "nameEn": "Warm",
+      "category": "root",
+      "matrix": [
+        1.12,
+        0,
+        0,
+        0,
+        1.02,
+        0,
+        0,
+        0,
+        0.88
+      ],
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "css": "sepia(0.18) saturate(1.06) brightness(1.02)"
+    },
+    {
+      "id": "cool",
+      "name": "Lạnh",
+      "nameEn": "Cool",
+      "category": "root",
+      "matrix": [
+        0.9,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        1.16
+      ],
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "css": "saturate(0.96) hue-rotate(-8deg) brightness(1.01)"
+    },
+    {
+      "id": "meitu-natural",
+      "name": "Tự nhiên",
+      "nameEn": "Natural",
+      "category": "meitu",
+      "matrix": [
+        1.13826752,
+        -0.08925696,
+        -0.00901056,
+        -0.02602224,
+        1.05485952,
+        -0.00883728,
+        -0.02500176,
+        -0.08410752,
+        1.08910928
+      ],
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "css": "brightness(1.03) saturate(1.12) sepia(0.08)",
+      "hint": "Meitu · Sáng nhẹ, giữ tông da tự nhiên"
+    },
+    {
+      "id": "meitu-korea",
+      "name": "Hàn Quốc",
+      "nameEn": "Korea",
+      "category": "meitu",
+      "matrix": [
+        1.1851966,
+        -0.1137168,
+        -0.0114798,
+        -0.03189,
+        1.04272,
+        -0.01083,
+        -0.0312522,
+        -0.1051344,
+        1.1163866
+      ],
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "css": "brightness(1.06) saturate(1.15) contrast(0.97)",
+      "hint": "Meitu · Da hồng sáng, tương phản mềm"
+    },
+    {
+      "id": "meitu-japan",
+      "name": "Nhật Bản",
+      "nameEn": "Japan",
+      "category": "meitu",
+      "matrix": [
+        0.9476,
+        0,
+        0,
+        0,
+        0.9292,
+        0,
+        0,
+        0,
+        0.9384
+      ],
+      "offset": [
+        0.0412,
+        0.0404,
+        0.0408
+      ],
+      "css": "brightness(1.03) saturate(1.06) contrast(0.92)",
+      "hint": "Meitu · Trong vắt, đỡ gắt"
+    },
+    {
+      "id": "meitu-skin",
+      "name": "Sáng da",
+      "nameEn": "Bright Skin",
+      "category": "meitu",
+      "matrix": [
+        1.05,
+        0,
+        0,
+        0,
+        1.03,
+        0,
+        0,
+        0,
+        0.99
+      ],
+      "offset": [
+        0.03234,
+        0.031724,
+        0.030492
+      ],
+      "css": "brightness(1.07) saturate(1.05)",
+      "hint": "Meitu · Nâng sáng vùng da, giữ chi tiết"
+    },
+    {
+      "id": "meitu-pink",
+      "name": "Hồng đào",
+      "nameEn": "Peach Pink",
+      "category": "meitu",
+      "matrix": [
+        1.2385036,
+        -0.1530528,
+        -0.0154508,
+        -0.0420948,
+        1.0463904,
+        -0.0142956,
+        -0.0412444,
+        -0.1387488,
+        1.1499932
+      ],
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "css": "saturate(1.2) brightness(1.04)",
+      "hint": "Meitu · Hồng ấm, hợp chân dung"
+    },
+    {
+      "id": "meitu-white",
+      "name": "Trắng sáng",
+      "nameEn": "Bright White",
+      "category": "meitu",
+      "matrix": [
+        1.0374804,
+        0.0386208,
+        0.0038988,
+        0.0114804,
+        1.0646208,
+        0.0038988,
+        0.0114804,
+        0.0386208,
+        1.0298988
+      ],
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "css": "brightness(1.08) saturate(0.95)",
+      "hint": "Meitu · Sáng tinh khôi, giảm bão hoà nhẹ"
+    },
+    {
+      "id": "xingtu-film",
+      "name": "Điện ảnh",
+      "nameEn": "Cinematic",
+      "category": "xingtu",
+      "matrix": [
+        1.129171568,
+        -0.038849664,
+        -0.003921904,
+        -0.012143712,
+        1.158667776,
+        -0.004124064,
+        -0.012738992,
+        -0.042854784,
+        1.253993776
+      ],
+      "offset": [
+        -0.0582,
+        -0.0612,
+        -0.0642
+      ],
+      "css": "contrast(1.12) saturate(1.05) hue-rotate(-6deg)",
+      "hint": "Xingtu · Teal–orange mềm, hợp đường phố"
+    },
+    {
+      "id": "xingtu-hk",
+      "name": "Hồng Kông",
+      "nameEn": "Hong Kong",
+      "category": "xingtu",
+      "matrix": [
+        1.051322976,
+        0.064196352,
+        0.006480672,
+        0.0187088,
+        1.0749376,
+        0.0063536,
+        0.019457152,
+        0.065455104,
+        1.059087744
+      ],
+      "offset": [
+        -0.051,
+        -0.05,
+        -0.052
+      ],
+      "css": "contrast(1.1) saturate(0.92) hue-rotate(4deg)",
+      "hint": "Xingtu · Đêm đô thị, xanh lạnh"
+    },
+    {
+      "id": "xingtu-showa",
+      "name": "Chiêu Hoà",
+      "nameEn": "Showa",
+      "category": "xingtu",
+      "matrix": [
+        0.87130732,
+        0.10599264,
+        0.01070004,
+        0.0302955,
+        0.909416,
+        0.0102885,
+        0.028174815,
+        0.09478188,
+        0.760543305
+      ],
+      "offset": [
+        0.026,
+        0.025,
+        0.02325
+      ],
+      "css": "sepia(0.22) saturate(0.85) contrast(0.95)",
+      "hint": "Xingtu · Hoài cổ, phai màu nhẹ"
+    },
+    {
+      "id": "xingtu-kama",
+      "name": "Kamakura",
+      "nameEn": "Kamakura",
+      "category": "xingtu",
+      "matrix": [
+        1.1434644,
+        -0.0758112,
+        -0.0076532,
+        -0.0216852,
+        1.0490496,
+        -0.0073644,
+        -0.019134,
+        -0.064368,
+        0.983502
+      ],
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "css": "brightness(1.05) sepia(0.2) saturate(1.1)",
+      "hint": "Xingtu · Bình minh biển, ấm sáng"
+    },
+    {
+      "id": "xingtu-night",
+      "name": "Ban đêm",
+      "nameEn": "Night",
+      "category": "xingtu",
+      "matrix": [
+        0.975231576,
+        0.036303552,
+        0.003664872,
+        0.011250792,
+        1.043328384,
+        0.003820824,
+        0.012398832,
+        0.041710464,
+        1.112290704
+      ],
+      "offset": [
+        -0.0376,
+        -0.0392,
+        -0.0432
+      ],
+      "css": "brightness(0.96) contrast(1.08) hue-rotate(-10deg)",
+      "hint": "Xingtu · Đêm sâu, giữ bóng tối"
+    },
+    {
+      "id": "xingtu-morning",
+      "name": "Buổi sáng",
+      "nameEn": "Morning",
+      "category": "xingtu",
+      "matrix": [
+        1.13740144,
+        -0.06122112,
+        -0.00618032,
+        -0.01768832,
+        1.06369536,
+        -0.00600704,
+        -0.01581744,
+        -0.05321088,
+        0.99902832
+      ],
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "css": "brightness(1.05) sepia(0.14) saturate(1.08)",
+      "hint": "Xingtu · Nắng sớm, ấm và trong"
+    },
+    {
+      "id": "lr-cinema",
+      "name": "Cinematic",
+      "nameEn": "Cinematic",
+      "category": "lr",
+      "matrix": [
+        1.17136999,
+        -0.04030152,
+        -0.00406847,
+        -0.01246899,
+        1.18970352,
+        -0.00423453,
+        -0.01295797,
+        -0.04359144,
+        1.27554941
+      ],
+      "offset": [
+        -0.0735,
+        -0.0765,
+        -0.0795
+      ],
+      "css": "contrast(1.15) saturate(1.05) hue-rotate(-8deg)",
+      "hint": "Lightroom · Điện ảnh tương phản mạnh"
+    },
+    {
+      "id": "lr-moody",
+      "name": "Moody",
+      "nameEn": "Moody",
+      "category": "lr",
+      "matrix": [
+        1.009411294,
+        0.122792688,
+        0.012396018,
+        0.036877596,
+        1.106998592,
+        0.012523812,
+        0.038382804,
+        0.129122208,
+        1.036094988
+      ],
+      "offset": [
+        -0.0873,
+        -0.0882,
+        -0.0918
+      ],
+      "css": "contrast(1.18) saturate(0.85) brightness(0.97)",
+      "hint": "Lightroom · Ẩm ướt, bóng gắt"
+    },
+    {
+      "id": "lr-vibrant",
+      "name": "Vibrant",
+      "nameEn": "Vibrant",
+      "category": "lr",
+      "matrix": [
+        1.3393695,
+        -0.262836,
+        -0.0265335,
+        -0.0781305,
+        1.154664,
+        -0.0265335,
+        -0.0781305,
+        -0.262836,
+        1.3909665
+      ],
+      "offset": [
+        -0.025,
+        -0.025,
+        -0.025
+      ],
+      "css": "saturate(1.35) contrast(1.05)",
+      "hint": "Lightroom · Màu rực, hợp phong cảnh"
+    },
+    {
+      "id": "lr-pastel",
+      "name": "Pastel",
+      "nameEn": "Pastel",
+      "category": "lr",
+      "matrix": [
+        0.99999198,
+        -0.06629904,
+        -0.00669294,
+        -0.01970802,
+        0.95340096,
+        -0.00669294,
+        -0.01970802,
+        -0.06629904,
+        1.01300706
+      ],
+      "offset": [
+        0.0515,
+        0.0515,
+        0.0515
+      ],
+      "css": "brightness(1.04) contrast(0.9) saturate(1.1)",
+      "hint": "Lightroom · Nhẹ, trong, chữ chụp đồ"
+    },
+    {
+      "id": "lr-desert",
+      "name": "Sa mạc",
+      "nameEn": "Desert",
+      "category": "lr",
+      "matrix": [
+        1.2075588,
+        -0.1158624,
+        -0.0116964,
+        -0.03189,
+        1.04272,
+        -0.01083,
+        -0.0280632,
+        -0.0944064,
+        1.0024696
+      ],
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "css": "sepia(0.28) saturate(1.15) contrast(1.04)",
+      "hint": "Lightroom · Vàng cát ấm"
+    },
+    {
+      "id": "lr-street",
+      "name": "Đường phố",
+      "nameEn": "Street",
+      "category": "lr",
+      "matrix": [
+        1.105512,
+        0.085824,
+        0.008664,
+        0.025512,
+        1.165824,
+        0.008664,
+        0.025512,
+        0.085824,
+        1.088664
+      ],
+      "offset": [
+        -0.1,
+        -0.1,
+        -0.1
+      ],
+      "css": "contrast(1.2) saturate(0.9)",
+      "hint": "Lightroom · Grit, hợp street life"
+    },
+    {
+      "id": "lr-faded",
+      "name": "Mờ phai",
+      "nameEn": "Faded",
+      "category": "lr",
+      "matrix": [
+        0.791584464,
+        0.096294528,
+        0.009721008,
+        0.028624464,
+        0.859254528,
+        0.009721008,
+        0.028624464,
+        0.096294528,
+        0.772681008
+      ],
+      "offset": [
+        0.0612,
+        0.0612,
+        0.0612
+      ],
+      "css": "brightness(1.03) contrast(0.88) saturate(0.85)",
+      "hint": "Lightroom · Film phai, giảm tương phản"
+    },
+    {
+      "id": "lr-teal",
+      "name": "Teal",
+      "nameEn": "Teal",
+      "category": "lr",
+      "matrix": [
+        1.0032282,
+        -0.0665136,
+        -0.0067146,
+        -0.0221104,
+        1.0696192,
+        -0.0075088,
+        -0.0227482,
+        -0.0765264,
+        1.1692746
+      ],
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "css": "hue-rotate(-14deg) saturate(1.1) contrast(1.05)",
+      "hint": "Lightroom · Xanh teal mát"
+    },
+    {
+      "id": "mono-warm",
+      "name": "Đen trắng ấm",
+      "nameEn": "Mono Warm",
+      "category": "mono",
+      "matrix": [
+        0.225356,
+        0.758112,
+        0.076532,
+        0.216852,
+        0.729504,
+        0.073644,
+        0.199844,
+        0.672288,
+        0.067868
+      ],
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "css": "grayscale(1) sepia(0.18) contrast(1.06)",
+      "hint": "Đen trắng · Ấm hạt"
+    },
+    {
+      "id": "mono-cool",
+      "name": "Đen trắng lạnh",
+      "nameEn": "Mono Cool",
+      "category": "mono",
+      "matrix": [
+        0.199844,
+        0.672288,
+        0.067868,
+        0.208348,
+        0.700896,
+        0.070756,
+        0.225356,
+        0.758112,
+        0.076532
+      ],
+      "offset": [
+        0,
+        0,
+        0
+      ],
+      "css": "grayscale(1) hue-rotate(-10deg) contrast(1.06)",
+      "hint": "Đen trắng · Lạnh, gắt"
+    }
+  ]
+}

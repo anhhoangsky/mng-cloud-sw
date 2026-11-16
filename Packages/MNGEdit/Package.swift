@@ -11,7 +11,10 @@ let package = Package(
         .library(name: "MNGEdit", targets: ["MNGEdit"])
     ],
     targets: [
-        .target(name: "MNGEdit"),
+        .target(
+            name: "MNGEdit",
+            resources: [.copy("Resources")]
+        ),
         .testTarget(
             name: "MNGEditTests",
             dependencies: ["MNGEdit"],

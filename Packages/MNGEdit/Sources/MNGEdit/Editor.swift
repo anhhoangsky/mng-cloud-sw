@@ -570,7 +570,7 @@ public enum EditorFilter: String, Equatable, CaseIterable, Sendable {
 }
 
 /// The tone families of the filter rail.
-public enum EditorFilterCategory: String, Equatable, CaseIterable, Sendable {
+public enum EditorFilterCategory: String, Codable, Equatable, Hashable, CaseIterable, Sendable {
     case root
     case meitu
     case xingtu
@@ -1563,182 +1563,16 @@ public struct Editor: Sendable {
         var offset: [Float]
     }
 
-    static func identityTransform() -> PresetTransform {
-        PresetTransform(
-            matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-            offset: [0, 0, 0]
-        )
-    }
-
-    /// The diagonal gains of the web `gains()` helper.
-    static func gains(_ r: Float, _ g: Float, _ b: Float) -> PresetTransform {
-        PresetTransform(
-            matrix: [r, 0, 0, 0, g, 0, 0, 0, b],
-            offset: [0, 0, 0]
-        )
-    }
-
-    static func saturationTransform(_ value: Float) -> PresetTransform {
-        let s = max(0, 1 + value)
-        let lr: Float = 0.2126
-        let lg: Float = 0.7152
-        let lb: Float = 0.0722
-        let inv = 1 - s
-        return PresetTransform(
-            matrix: [
-                lr * inv + s, lg * inv, lb * inv,
-                lr * inv, lg * inv + s, lb * inv,
-                lr * inv, lg * inv, lb * inv + s,
-            ],
-            offset: [0, 0, 0]
-        )
-    }
-
-    static func contrastTransform(_ value: Float) -> PresetTransform {
-        let c = max(0.05, 1 + value)
-        let shift = 0.5 * (1 - c)
-        return PresetTransform(
-            matrix: [c, 0, 0, 0, c, 0, 0, 0, c],
-            offset: [shift, shift, shift]
-        )
-    }
-
-    static func brightnessTransform(_ value: Float) -> PresetTransform {
-        let add = value * 0.22
-        return PresetTransform(
-            matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1],
-            offset: [add, add, add]
-        )
-    }
-
-    /// Apply `before` first, then `after`, like the web `compose()`.
-    static func compose(
-        _ after: PresetTransform,
-        _ before: PresetTransform
-    ) -> PresetTransform {
-        var matrix = [Float](repeating: 0, count: 9)
-        for row in 0..<3 {
-            let r = row * 3
-            for column in 0..<3 {
-                matrix[r + column] =
-                    after.matrix[r] * before.matrix[column]
-                    + after.matrix[r + 1] * before.matrix[3 + column]
-                    + after.matrix[r + 2] * before.matrix[6 + column]
-            }
-        }
-        var offset = [Float](repeating: 0, count: 3)
-        for row in 0..<3 {
-            offset[row] =
-                after.matrix[row * 3] * before.offset[0]
-                + after.matrix[row * 3 + 1] * before.offset[1]
-                + after.matrix[row * 3 + 2] * before.offset[2]
-                + after.offset[row]
-        }
-        return PresetTransform(matrix: matrix, offset: offset)
-    }
-
-    /// The colour transform of one preset, the same recipe as
-    /// `PRESETS` in the Aurum release's `src/core/color.ts`.
+    /// The colour transform of one preset, decoded from the shared
+    /// `filters.json` spec. The web and the app read the same final matrix, so
+    /// a tone cannot drift between the two clients.
     static func presetTransform(_ filter: EditorFilter) -> PresetTransform? {
-        switch filter {
-        case .original:
+        guard let spec = EditorFilterSpec.filter(id: filter.rawValue) else {
+            assertionFailure("missing filter spec for \(filter.rawValue)")
             return nil
-        case .vivid:
-            return compose(contrastTransform(0.08), saturationTransform(0.38))
-        case .dramatic:
-            let grade = compose(
-                contrastTransform(0.27),
-                saturationTransform(-0.18)
-            )
-            let split = PresetTransform(
-                matrix: [1.05, 0, 0, 0, 1.02, 0, 0, 0, 1.08],
-                offset: [-0.012, -0.008, 0.012]
-            )
-            return compose(split, grade)
-        case .mono:
-            return compose(contrastTransform(0.1), saturationTransform(-1))
-        case .vintage:
-            return PresetTransform(
-                matrix: [
-                    0.92, 0.32, 0.08,
-                    0.14, 0.86, 0.11,
-                    0.06, 0.19, 0.72,
-                ],
-                offset: [0.035, 0.02, 0]
-            )
-        case .warm:
-            return gains(1.12, 1.02, 0.88)
-        case .cool:
-            return gains(0.9, 1, 1.16)
-        case .meituNatural:
-            return compose(gains(1.04, 1.02, 0.98), saturationTransform(0.12))
-        case .meituKorea:
-            return compose(gains(1.06, 1.0, 0.98), saturationTransform(0.15))
-        case .meituJapan:
-            return compose(gains(1.03, 1.01, 1.02), contrastTransform(-0.08))
-        case .meituSkin:
-            return compose(gains(1.05, 1.03, 0.99), brightnessTransform(0.14))
-        case .meituPink:
-            return compose(gains(1.07, 0.99, 0.97), saturationTransform(0.2))
-        case .meituWhite:
-            return compose(gains(1.08, 1.08, 1.08), saturationTransform(-0.05))
-        case .xingtuFilm:
-            return compose(
-                gains(0.97, 1.02, 1.07),
-                compose(contrastTransform(0.12), saturationTransform(0.05))
-            )
-        case .xingtuHK:
-            return compose(
-                gains(1.02, 1.0, 1.04),
-                compose(contrastTransform(0.1), saturationTransform(-0.08))
-            )
-        case .xingtuShowa:
-            return compose(
-                gains(1.04, 1.0, 0.93),
-                compose(contrastTransform(-0.05), saturationTransform(-0.15))
-            )
-        case .xingtuKama:
-            return compose(gains(1.06, 1.02, 0.9), saturationTransform(0.1))
-        case .xingtuNight:
-            return compose(
-                gains(0.94, 0.98, 1.08),
-                compose(contrastTransform(0.08), saturationTransform(-0.05))
-            )
-        case .xingtuMorning:
-            return compose(gains(1.07, 1.04, 0.93), saturationTransform(0.08))
-        case .lrCinema:
-            return compose(
-                gains(0.98, 1.02, 1.06),
-                compose(contrastTransform(0.15), saturationTransform(0.05))
-            )
-        case .lrMoody:
-            return compose(
-                gains(0.97, 0.98, 1.02),
-                compose(contrastTransform(0.18), saturationTransform(-0.15))
-            )
-        case .lrVibrant:
-            return compose(contrastTransform(0.05), saturationTransform(0.35))
-        case .lrPastel:
-            return compose(
-                gains(1.03, 1.03, 1.03),
-                compose(contrastTransform(-0.1), saturationTransform(0.1))
-            )
-        case .lrDesert:
-            return compose(gains(1.08, 1.0, 0.88), saturationTransform(0.15))
-        case .lrStreet:
-            return compose(contrastTransform(0.2), saturationTransform(-0.1))
-        case .lrFaded:
-            return compose(
-                gains(1.02, 1.02, 1.02),
-                compose(contrastTransform(-0.12), saturationTransform(-0.15))
-            )
-        case .lrTeal:
-            return compose(gains(0.93, 1.04, 1.07), saturationTransform(0.1))
-        case .monoWarm:
-            return compose(gains(1.06, 1.02, 0.94), saturationTransform(-1))
-        case .monoCool:
-            return compose(gains(0.94, 0.98, 1.06), saturationTransform(-1))
         }
+        guard !spec.isIdentity else { return nil }
+        return PresetTransform(matrix: spec.matrix, offset: spec.offset)
     }
 
     struct Effective {
