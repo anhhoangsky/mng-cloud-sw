@@ -128,24 +128,35 @@
     {
       "id": "isnet-fp16",
       "displayName": "ISNet 1024 (background removal, fp16)",
-      "enabled": false,
+      "enabled": true,
       "tier": "maximum",
       "kind": "segmentation",
-      "sourceFormat": "onnx",
-      "source": "https://huggingface.co/onnx-community/ISNet-ONNX/resolve/main/onnx/model_fp16.onnx",
-      "sourceSha256": "dffe20331551dcc5d7601563e472448424821f2df41f5bad395848826c5b5be5",
-      "sourceBytes": 88116798,
+      "sourceFormat": "pytorch",
+      "architecture": "isnet",
+      "stateDictPrefix": "",
+      "source": "https://huggingface.co/NimaBoscarino/IS-Net_DIS-general-use/resolve/608a843548f1f32716542d57dc59dcbb773294d4/isnet-general-use.pth",
+      "sourceSha256": "9e1aafea58f0b55d0c35077e0ceade6ba1ba2bce372fd4f8f77215391f3fac13",
+      "sourceBytes": 176579397,
       "inputName": "input",
       "outputName": "output",
       "inputShape": [1, 3, 1024, 1024],
       "preprocess": "isnet",
       "outputSemantics": "alpha01",
       "outputClasses": 1,
-      "license": "AGPL-3.0 (model card); weights not explicitly licensed upstream",
-      "licenseURL": "https://huggingface.co/onnx-community/ISNet-ONNX",
-      "attribution": "IS-Net, Xuebin Qin et al. ONNX mirror: onnx-community/ISNet-ONNX",
-      "version": "1.0.0",
-      "notes": "Exact web Quality model. BLOCKED for shipping until written license clearance. Keep the exact bytes and hash so enabling it is a one-line catalog change."
+      "license": "Apache-2.0",
+      "licenseURL": "https://github.com/xuebinqin/DIS",
+      "attribution": "IS-Net (DIS), Xuebin Qin et al. (Apache-2.0). Official general-use checkpoint via NimaBoscarino/IS-Net_DIS-general-use; fp16 ONNX parity reference from onnx-community/ISNet-ONNX.",
+      "version": "1.0.0+b6764e20",
+      "reference": {
+        "format": "onnx",
+        "url": "https://huggingface.co/onnx-community/ISNet-ONNX/resolve/3fe6e3db3e32c69aadde61fe388ddb1a0574440c/onnx/model_fp16.onnx",
+        "sha256": "dffe20331551dcc5d7601563e472448424821f2df41f5bad395848826c5b5be5",
+        "bytes": 88116798,
+        "inputName": "input",
+        "outputName": "output",
+        "precision": "float16"
+      },
+      "notes": "Maximum tier, the exact web Quality model. The official DIS checkpoint is rebuilt from the vendored Apache-2.0 code at the same commit and proven against the fp16 ONNX bytes the web installs. The graph emits alpha directly, so no sigmoid. Full-frame 1024 inference, no tiling. The reference model card declares AGPL-3.0, but it is used only for validation and is never shipped."
     }
   ]
 }

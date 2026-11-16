@@ -111,7 +111,7 @@ def load_manifest(path: Path = MANIFEST) -> dict[str, Any]:
             raise SystemExit(f"{model_id}: unknown sourceFormat {model['sourceFormat']!r}")
 
         if model["sourceFormat"] == "pytorch":
-            if model.get("architecture") not in ("modnet", "bisenet", "birefnet"):
+            if model.get("architecture") not in ("modnet", "bisenet", "birefnet", "isnet"):
                 raise SystemExit(f"{model_id}: unsupported architecture {model.get('architecture')!r}")
             if model["architecture"] == "bisenet":
                 if int(model.get("numClasses", 0)) != 19:
@@ -320,6 +320,10 @@ def build_model(spec: dict[str, Any], checkpoint: Path) -> "Any":
         # bb_pretrained=False: the checkpoint has the fine-tuned Swin weights,
         # so the backbone must not try to fetch ImageNet weights.
         inner = BiRefNet(config=BiRefNetConfig(bb_pretrained=False))
+    elif architecture == "isnet":
+        from vendor.isnet import ISNetDIS
+
+        inner = ISNetDIS()
     else:
         raise SystemExit(f"{spec['id']}: unsupported architecture {architecture}")
 
@@ -356,6 +360,20 @@ def build_model(spec: dict[str, Any], checkpoint: Path) -> "Any":
 
             def forward(self, image):
                 return torch.sigmoid(self.inner(image)[-1])
+
+        return Alpha(inner).eval()
+
+    if architecture == "isnet":
+
+        class Alpha(nn.Module):
+            """ISNet already emits sigmoid alpha; keep only the first side."""
+
+            def __init__(self, inner: nn.Module) -> None:
+                super().__init__()
+                self.inner = inner
+
+            def forward(self, image):
+                return self.inner(image)[0][0]
 
         return Alpha(inner).eval()
 
