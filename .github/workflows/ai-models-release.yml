@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: ai-models-${{ github.ref }}
+  group: ai-models-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
