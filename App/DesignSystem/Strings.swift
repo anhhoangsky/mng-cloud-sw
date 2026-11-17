@@ -512,6 +512,8 @@ enum Strings {
     static let editorTextFrame = "Khung chữ"
     static let editorTextEmpty = "Chưa có chữ. Bấm Chạm đặt để bắt đầu."
     static let editorTextHint = "Chạm đúp vào chữ để sửa • Kéo để di chuyển • Chụm 2 ngón để co giãn"
+    static let editorStickerTitle = "Nhãn dán"
+    static let editorStickerHint = "Chạm để thêm — chạm nhãn khác để thay"
     // AI
     static let editorAITab = "AI"
     static let editorAIModel = "Mô hình"

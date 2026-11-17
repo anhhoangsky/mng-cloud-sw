@@ -4,22 +4,26 @@ import CoreText
 import Foundation
 
 extension Editor {
-    /// Burn the text layers into the exported RGBA buffer.
+    /// Burn the text and sticker layers into the exported RGBA buffer.
     ///
     /// The web editor draws the layers onto the encoded bitmap with
-    /// `CanvasRenderingContext2D` (`compositeTexts()` in `ui.ts`). This is the
+    /// `CanvasRenderingContext2D` (`compositeLayers()` in `ui.ts`). This is the
     /// CoreGraphics version of that pass: the same centre position, fraction of
-    /// the export height, rotation, alignment, outline and shadow. The pixels
-    /// are drawn into a bottom-up bitmap context whose first row is the top of
-    /// the image, so the buffer keeps the row order of `renderRGBA`.
-    func compositeTextLayers(
+    /// the export height, rotation, alignment, outline and shadow. Stickers use
+    /// the colour-emoji face so the exported glyph matches the preview.
+    func compositeLayers(
         _ rgba: [UInt8],
         width: UInt32,
         height: UInt32
     ) -> [UInt8] {
-        let layers = textLayers.filter {
-            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && $0.opacity > 0
+        let layers = allLayers.filter { layer in
+            switch layer {
+            case .text(let text):
+                return !text.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && text.opacity > 0
+            case .sticker(let sticker):
+                return !sticker.glyph.isEmpty && sticker.opacity > 0
+            }
         }
         guard !layers.isEmpty,
               width > 0,
@@ -53,7 +57,12 @@ extension Editor {
             in: CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight)
         )
         for layer in layers {
-            draw(layer, in: context, width: pixelWidth, height: pixelHeight)
+            switch layer {
+            case .text(let text):
+                draw(text, in: context, width: pixelWidth, height: pixelHeight)
+            case .sticker(let sticker):
+                draw(sticker, in: context, width: pixelWidth, height: pixelHeight)
+            }
         }
 
         guard let data = context.data else { return rgba }
@@ -152,6 +161,64 @@ extension Editor {
         }
 
         context.restoreGState()
+    }
+
+    /// Draw one sticker at its normalized centre with the colour-emoji face.
+    ///
+    /// The web canvas sets `textBaseline = "middle"`; Core Text anchors at the
+    /// baseline, so the line is shifted by half of its ascent/descent box to
+    /// land on the same centre.
+    private func draw(
+        _ layer: EditorStickerLayer,
+        in context: CGContext,
+        width: Int,
+        height: Int
+    ) {
+        guard !layer.glyph.isEmpty else { return }
+        let size = max(8, CGFloat(layer.size) * CGFloat(height))
+        let font = Editor.stickerFont(size: size)
+        let attributed = NSAttributedString(
+            string: layer.glyph,
+            attributes: [
+                NSAttributedString.Key(kCTFontAttributeName as String): font,
+            ]
+        )
+        let line = CTLineCreateWithAttributedString(attributed)
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        let lineWidth = CGFloat(
+            CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+        )
+
+        let centerX = CGFloat(layer.x) * CGFloat(width)
+        let centerY = (1 - CGFloat(layer.y)) * CGFloat(height)
+
+        context.saveGState()
+        context.translateBy(x: centerX, y: centerY)
+        context.rotate(by: -CGFloat(layer.rotation) * .pi / 180)
+        context.setAlpha(CGFloat(layer.opacity))
+        context.textMatrix = .identity
+        context.textPosition = CGPoint(
+            x: -lineWidth / 2,
+            y: (descent - ascent) / 2
+        )
+        CTLineDraw(line, context)
+        context.restoreGState()
+    }
+
+    static func stickerFont(size: CGFloat) -> CTFont {
+        let emoji = CTFontCreateWithName(
+            "Apple Color Emoji" as CFString,
+            size,
+            nil
+        )
+        // The named face exists on every Apple platform that ships the colour
+        // emoji font; the UI font is a safe fallback if a future OS renames it.
+        if CTFontGetGlyphCount(emoji) > 0 {
+            return emoji
+        }
+        return CTFontCreateUIFontForLanguage(.system, size, nil)
+            ?? CTFontCreateWithName("Helvetica" as CFString, size, nil)
     }
 
     static func textFont(

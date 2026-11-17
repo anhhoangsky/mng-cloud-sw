@@ -866,12 +866,8 @@ struct EditorView: View {
                     }
             }
 
-            ForEach(editor.texts) { layer in
-                if editingTextId == layer.id {
-                    inlineTextEditor(layer, fitted: fitted)
-                } else {
-                    textNode(layer, fitted: fitted)
-                }
+            ForEach(editor.layers) { layer in
+                layerNode(layer, fitted: fitted)
             }
 
             // "Chạm đặt" is a one-shot mode: the next tap on the photo adds
@@ -906,11 +902,25 @@ struct EditorView: View {
         .coordinateSpace(name: Self.textStageSpace)
     }
 
+    @ViewBuilder
+    private func layerNode(_ layer: EditorLayer, fitted: CGSize) -> some View {
+        switch layer {
+        case .text(let text):
+            if editingTextId == text.id {
+                inlineTextEditor(text, fitted: fitted)
+            } else {
+                textNode(text, fitted: fitted)
+            }
+        case .sticker(let sticker):
+            stickerNode(sticker, fitted: fitted)
+        }
+    }
+
     private func textNode(
         _ layer: EditorTextLayer,
         fitted: CGSize
     ) -> some View {
-        let selected = editor.tab == .text && editor.selectedTextId == layer.id
+        let selected = editor.tab == .text && editor.selectedLayerId == layer.id
         let fontSize = max(10, fitted.height * CGFloat(layer.size))
         let widthLimit = max(fitted.width * 0.7, 60)
         let measured = textNodeSize(
@@ -935,9 +945,9 @@ struct EditorView: View {
                 }
                 editor.selectText(layer.id)
             }
-            .gesture(moveTextGesture(layer, fitted: fitted))
-            .simultaneousGesture(scaleTextGesture(layer, fitted: fitted))
-            .simultaneousGesture(rotateTextGesture(layer, fitted: fitted))
+            .gesture(moveTextGesture(.text(layer), fitted: fitted))
+            .simultaneousGesture(scaleTextGesture(.text(layer), fitted: fitted))
+            .simultaneousGesture(rotateTextGesture(.text(layer), fitted: fitted))
             // Outside the text tab the stage owns the pan and the pinch, so
             // the layer is visible but transparent to the finger.
             .allowsHitTesting(editor.tab == .text)
@@ -970,12 +980,12 @@ struct EditorView: View {
         .padding(30)
         .overlay(alignment: .top) {
             if selected {
-                rotateHandle(layer, fitted: fitted)
+                rotateHandle(.text(layer), fitted: fitted)
             }
         }
         .overlay(alignment: .bottomTrailing) {
             if selected {
-                scaleHandle(layer, fitted: fitted)
+                scaleHandle(.text(layer), fitted: fitted)
             }
         }
         // Rotate the node around its own centre, then place that centre on
@@ -986,6 +996,89 @@ struct EditorView: View {
         .position(
             x: CGFloat(layer.x) * fitted.width,
             y: CGFloat(layer.y) * fitted.height
+        )
+    }
+
+    /// One emoji sticker. The same frame, handles, drag/pinch/rotate gestures
+    /// and selection as a text layer, but no inline editor: a sticker is one
+    /// glyph chosen from the rail.
+    private func stickerNode(
+        _ layer: EditorStickerLayer,
+        fitted: CGSize
+    ) -> some View {
+        let selected = editor.tab == .text && editor.selectedLayerId == layer.id
+        let fontSize = max(10, fitted.height * CGFloat(layer.size))
+        let measured = stickerNodeSize(layer, fontSize: fontSize)
+        let showFrame = selected && textFrameVisible
+        let glyph = Text(layer.glyph)
+            .font(.system(size: fontSize))
+            .opacity(Double(layer.opacity))
+            .frame(
+                width: measured.width,
+                height: measured.height
+            )
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if editingTextId != nil {
+                    commitTextEditing()
+                }
+                editor.selectLayer(layer.id)
+            }
+            .gesture(moveTextGesture(.sticker(layer), fitted: fitted))
+            .simultaneousGesture(scaleTextGesture(.sticker(layer), fitted: fitted))
+            .simultaneousGesture(rotateTextGesture(.sticker(layer), fitted: fitted))
+            .allowsHitTesting(editor.tab == .text)
+            .accessibilityLabel(layer.glyph)
+
+        return ZStack {
+            glyph
+
+            if showFrame {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(
+                        Aurum.gold.opacity(0.80),
+                        style: StrokeStyle(
+                            lineWidth: 1,
+                            dash: [4, 3]
+                        )
+                    )
+                    .frame(
+                        width: measured.width + 12,
+                        height: measured.height + 12
+                    )
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(width: measured.width, height: measured.height)
+        .padding(30)
+        .overlay(alignment: .top) {
+            if selected {
+                rotateHandle(.sticker(layer), fitted: fitted)
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if selected {
+                scaleHandle(.sticker(layer), fitted: fitted)
+            }
+        }
+        .rotationEffect(.degrees(Double(layer.rotation)))
+        .position(
+            x: CGFloat(layer.x) * fitted.width,
+            y: CGFloat(layer.y) * fitted.height
+        )
+    }
+
+    /// The box a colour-emoji glyph occupies at the export size.
+    private func stickerNodeSize(
+        _ layer: EditorStickerLayer,
+        fontSize: CGFloat
+    ) -> CGSize {
+        let bounds = (layer.glyph as NSString).size(
+            withAttributes: [.font: UIFont.systemFont(ofSize: fontSize)]
+        )
+        return CGSize(
+            width: max(ceil(bounds.width), fontSize),
+            height: max(ceil(bounds.height), fontSize)
         )
     }
 
@@ -1133,7 +1226,7 @@ struct EditorView: View {
     }
 
     private func rotateHandle(
-        _ layer: EditorTextLayer,
+        _ layer: EditorLayer,
         fitted: CGSize
     ) -> some View {
         Circle()
@@ -1157,7 +1250,7 @@ struct EditorView: View {
     }
 
     private func scaleHandle(
-        _ layer: EditorTextLayer,
+        _ layer: EditorLayer,
         fitted: CGSize
     ) -> some View {
         Circle()
@@ -1177,7 +1270,7 @@ struct EditorView: View {
     }
 
     private func moveTextGesture(
-        _ layer: EditorTextLayer,
+        _ layer: EditorLayer,
         fitted: CGSize
     ) -> some Gesture {
         DragGesture(
@@ -1194,7 +1287,7 @@ struct EditorView: View {
                 // A drag with a 3 pt threshold reports those 3 pt in the first
                 // event; keeping them out avoids the little jump at the start.
                 textDragStartTranslation = value.translation
-                editor.selectText(layer.id)
+                editor.selectLayer(layer.id)
                 editor.beginEdit()
             }
             let dx = Float(
@@ -1205,9 +1298,9 @@ struct EditorView: View {
                 (value.translation.height - textDragStartTranslation.height)
                     / max(fitted.height, 1)
             )
-            editor.updateText(layer.id) { text in
-                text.x = Float(textDragOrigin.x) + dx
-                text.y = Float(textDragOrigin.y) + dy
+            editor.updateLayer(layer.id) { target in
+                target.x = Float(textDragOrigin.x) + dx
+                target.y = Float(textDragOrigin.y) + dy
             }
         }
         .onEnded { _ in
@@ -1217,19 +1310,19 @@ struct EditorView: View {
     }
 
     private func scaleTextGesture(
-        _ layer: EditorTextLayer,
+        _ layer: EditorLayer,
         fitted: CGSize
     ) -> some Gesture {
         MagnificationGesture()
             .onChanged { value in
                 if textScaleOrigin == nil {
                     textScaleOrigin = layer.size
-                    editor.selectText(layer.id)
+                    editor.selectLayer(layer.id)
                     editor.beginEdit()
                 }
                 let origin = textScaleOrigin ?? layer.size
-                editor.updateText(layer.id) { text in
-                    text.size = origin * Float(value)
+                editor.updateLayer(layer.id) { target in
+                    target.size = origin * Float(value)
                 }
             }
             .onEnded { _ in
@@ -1239,19 +1332,19 @@ struct EditorView: View {
     }
 
     private func rotateTextGesture(
-        _ layer: EditorTextLayer,
+        _ layer: EditorLayer,
         fitted: CGSize
     ) -> some Gesture {
         RotationGesture()
             .onChanged { value in
                 if textRotateOrigin == nil {
                     textRotateOrigin = layer.rotation
-                    editor.selectText(layer.id)
+                    editor.selectLayer(layer.id)
                     editor.beginEdit()
                 }
                 let origin = textRotateOrigin ?? layer.rotation
-                editor.updateText(layer.id) { text in
-                    text.rotation = origin
+                editor.updateLayer(layer.id) { target in
+                    target.rotation = origin
                         + Float(value.degrees)
                 }
             }
@@ -1262,7 +1355,7 @@ struct EditorView: View {
     }
 
     private func rotateHandleGesture(
-        _ layer: EditorTextLayer,
+        _ layer: EditorLayer,
         fitted: CGSize
     ) -> some Gesture {
         DragGesture(
@@ -1286,13 +1379,13 @@ struct EditorView: View {
                 textRotateOrigin = layer.rotation
                 textRotateStartAngle = angle
                 textRotateDragStart = value.startLocation
-                editor.selectText(layer.id)
+                editor.selectLayer(layer.id)
                 editor.beginEdit()
             }
             let delta = angle - textRotateStartAngle
             let origin = textRotateOrigin ?? layer.rotation
-            editor.updateText(layer.id) { text in
-                text.rotation = origin + Float(delta)
+            editor.updateLayer(layer.id) { target in
+                target.rotation = origin + Float(delta)
             }
         }
         .onEnded { _ in
@@ -1303,7 +1396,7 @@ struct EditorView: View {
     }
 
     private func scaleHandleGesture(
-        _ layer: EditorTextLayer,
+        _ layer: EditorLayer,
         fitted: CGSize
     ) -> some Gesture {
         DragGesture(
@@ -1325,13 +1418,13 @@ struct EditorView: View {
             if textScaleOrigin == nil {
                 textScaleOrigin = layer.size
                 textScaleStartDistance = distance
-                editor.selectText(layer.id)
+                editor.selectLayer(layer.id)
                 editor.beginEdit()
             }
             let factor = distance / max(textScaleStartDistance, 1)
             let origin = textScaleOrigin ?? layer.size
-            editor.updateText(layer.id) { text in
-                text.size = origin * Float(factor)
+            editor.updateLayer(layer.id) { target in
+                target.size = origin * Float(factor)
             }
         }
         .onEnded { _ in
@@ -1429,16 +1522,17 @@ struct EditorView: View {
         textFocus = nil
         let draft = textDraft
         textDraft = ""
-        guard let layer = editor.texts.first(where: { $0.id == id }) else {
+        guard let layer = editor.layers.first(where: { $0.id == id }),
+              let text = layer.textLayer else {
             editor.endEdit()
             return
         }
         if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            if editor.selectedTextId != id {
-                editor.selectText(id)
+            if editor.selectedLayerId != id {
+                editor.selectLayer(id)
             }
-            editor.deleteSelectedText()
-        } else if draft != layer.text {
+            editor.deleteSelectedLayer()
+        } else if draft != text.text {
             editor.updateText(id, coalescing: false) { $0.text = draft }
         }
         editor.endEdit()
@@ -2386,19 +2480,22 @@ struct EditorView: View {
     }
 
     /// The quick styles, fonts, colour, toggles and opacity of the text pane,
-    /// plus the one-shot placement mode of the web.
+    /// plus the one-shot placement mode and the emoji rail of the web.
     private var textPane: some View {
-        VStack(spacing: 8) {
+        let stickerSelected = editor.selectedSticker != nil
+        return VStack(spacing: 8) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    selectChip(
-                        Strings.editorTextPlace,
-                        icon: "plus.viewfinder",
-                        active: textPlacing,
-                        height: 36,
-                        fontSize: 12
-                    ) {
-                        textPlacing.toggle()
+                    if !stickerSelected {
+                        selectChip(
+                            Strings.editorTextPlace,
+                            icon: "plus.viewfinder",
+                            active: textPlacing,
+                            height: 36,
+                            fontSize: 12
+                        ) {
+                            textPlacing.toggle()
+                        }
                     }
 
                     selectChip(
@@ -2411,87 +2508,95 @@ struct EditorView: View {
                         textFrameVisible.toggle()
                     }
 
-                    ForEach(EditorModel.TextStyle.allCases) { style in
-                        selectChip(
-                            style.title,
-                            active: activeTextStyle == style,
-                            height: 36,
-                            fontSize: 12
-                        ) {
-                            activeTextStyle = style
-                            editor.applyTextStyle(style)
+                    if !stickerSelected {
+                        ForEach(EditorModel.TextStyle.allCases) { style in
+                            selectChip(
+                                style.title,
+                                active: activeTextStyle == style,
+                                height: 36,
+                                fontSize: 12
+                            ) {
+                                activeTextStyle = style
+                                editor.applyTextStyle(style)
+                            }
+                            .disabled(editor.selectedText == nil)
                         }
-                        .disabled(editor.selectedText == nil)
                     }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 1)
             }
 
-            HStack(spacing: 8) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 2) {
-                        ForEach(EditorTextFont.allCases, id: \.self) { font in
-                            fontButton(font)
-                        }
-                    }
-                    .padding(2)
-                    .background(
-                        Color.white.opacity(0.04),
-                        in: RoundedRectangle(
-                            cornerRadius: 9,
-                            style: .continuous
-                        )
-                    )
-                }
-                .frame(maxWidth: .infinity)
+            stickerRail
 
-                ColorPicker(
-                    selection: textColorBinding,
-                    supportsOpacity: false
-                ) {
-                    Text(Strings.editorTextColor)
-                        .font(Font.mng(10.5, weight: .semibold))
-                        .foregroundStyle(Aurum.muted)
+            if !stickerSelected {
+                HStack(spacing: 8) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 2) {
+                            ForEach(EditorTextFont.allCases, id: \.self) { font in
+                                fontButton(font)
+                            }
+                        }
+                        .padding(2)
+                        .background(
+                            Color.white.opacity(0.04),
+                            in: RoundedRectangle(
+                                cornerRadius: 9,
+                                style: .continuous
+                            )
+                        )
+                    }
+                    .frame(maxWidth: .infinity)
+
+                    ColorPicker(
+                        selection: textColorBinding,
+                        supportsOpacity: false
+                    ) {
+                        Text(Strings.editorTextColor)
+                            .font(Font.mng(10.5, weight: .semibold))
+                            .foregroundStyle(Aurum.muted)
+                    }
+                    .fixedSize()
+                    .disabled(editor.selectedText == nil)
+                    .opacity(editor.selectedText == nil ? 0.45 : 1)
                 }
-                .fixedSize()
-                .disabled(editor.selectedText == nil)
-                .opacity(editor.selectedText == nil ? 0.45 : 1)
+                .padding(.horizontal, 12)
             }
-            .padding(.horizontal, 12)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 5) {
-                    textToggle(
-                        Strings.editorTextBold,
-                        active: editor.selectedText?.bold == true
-                    ) {
-                        editor.updateSelectedText(coalescing: false) {
-                            $0.bold.toggle()
+                    if !stickerSelected {
+                        textToggle(
+                            Strings.editorTextBold,
+                            active: editor.selectedText?.bold == true
+                        ) {
+                            editor.updateSelectedText(coalescing: false) {
+                                $0.bold.toggle()
+                            }
                         }
-                    }
-                    textToggle(
-                        Strings.editorTextItalic,
-                        active: editor.selectedText?.italic == true
-                    ) {
-                        editor.updateSelectedText(coalescing: false) {
-                            $0.italic.toggle()
+                        textToggle(
+                            Strings.editorTextItalic,
+                            active: editor.selectedText?.italic == true
+                        ) {
+                            editor.updateSelectedText(coalescing: false) {
+                                $0.italic.toggle()
+                            }
                         }
-                    }
-                    textToggle(
-                        Strings.editorTextOutline,
-                        active: editor.selectedText?.outline == true
-                    ) {
-                        editor.updateSelectedText(coalescing: false) {
-                            $0.outline.toggle()
+                        textToggle(
+                            Strings.editorTextOutline,
+                            active: editor.selectedText?.outline == true
+                        ) {
+                            editor.updateSelectedText(coalescing: false) {
+                                $0.outline.toggle()
+                            }
                         }
-                    }
-                    textToggle(
-                        Strings.editorTextShadow,
-                        active: editor.selectedText?.shadow == true
-                    ) {
-                        editor.updateSelectedText(coalescing: false) {
-                            $0.shadow.toggle()
+                        textToggle(
+                            Strings.editorTextShadow,
+                            active: editor.selectedText?.shadow == true
+                        ) {
+                            editor.updateSelectedText(coalescing: false) {
+                                $0.shadow.toggle()
+                            }
                         }
                     }
                     selectChip(
@@ -2501,9 +2606,9 @@ struct EditorView: View {
                         height: 30,
                         fontSize: 11
                     ) {
-                        editor.duplicateSelectedText()
+                        editor.duplicateSelectedLayer()
                     }
-                    .disabled(editor.selectedText == nil)
+                    .disabled(editor.selectedLayer == nil)
 
                     selectChip(
                         Strings.editorTextDelete,
@@ -2513,22 +2618,22 @@ struct EditorView: View {
                         fontSize: 11,
                         danger: true
                     ) {
-                        editor.deleteSelectedText()
+                        editor.deleteSelectedLayer()
                     }
-                    .disabled(editor.selectedText == nil)
+                    .disabled(editor.selectedLayer == nil)
                 }
                 .padding(.horizontal, 12)
             }
-            .opacity(editor.selectedText == nil ? 0.5 : 1)
+            .opacity(editor.selectedLayer == nil ? 0.5 : 1)
 
-            if let selected = editor.selectedText {
+            if let selected = editor.selectedLayer {
                 HStack(spacing: 8) {
                     Text(Strings.editorTextOpacity)
                         .font(Font.mng(12))
                         .foregroundStyle(Aurum.muted)
                     Spacer(minLength: 8)
                     Button {
-                        editor.setTextOpacity(100)
+                        editor.setLayerOpacity(100)
                     } label: {
                         Text("\(Int((selected.opacity * 100).rounded()))%")
                             .font(Font.mng(11, weight: .semibold))
@@ -2554,10 +2659,10 @@ struct EditorView: View {
                     value: Binding(
                         get: {
                             Float(
-                                (editor.selectedText?.opacity ?? 1) * 100
+                                (editor.selectedLayer?.opacity ?? 1) * 100
                             )
                         },
-                        set: { editor.setTextOpacity($0) }
+                        set: { editor.setLayerOpacity($0) }
                     ),
                     label: Strings.editorTextOpacity,
                     minimum: 10,
@@ -2579,6 +2684,65 @@ struct EditorView: View {
                     .foregroundStyle(Aurum.muted)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14)
+            }
+        }
+    }
+
+    /// The emoji rail. It stays visible in both modes: tapping a glyph adds a
+    /// sticker, and tapping another glyph while a sticker is selected replaces
+    /// its glyph instead of stacking a copy.
+    private var stickerRail: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 6) {
+                Text(Strings.editorStickerTitle)
+                    .font(Font.mng(10, weight: .bold))
+                    .foregroundStyle(Aurum.muted)
+                Text(Strings.editorStickerHint)
+                    .font(Font.mng(10))
+                    .foregroundStyle(Aurum.muted.opacity(0.8))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(EditorStickerCatalog.glyphs, id: \.self) { glyph in
+                        let active = editor.selectedSticker?.glyph == glyph
+                        Button {
+                            editor.applyStickerGlyph(glyph)
+                        } label: {
+                            Text(glyph)
+                                .font(.system(size: 22))
+                                .frame(width: 38, height: 38)
+                                .background(
+                                    active
+                                        ? Aurum.gold.opacity(0.16)
+                                        : Color.white.opacity(0.055),
+                                    in: RoundedRectangle(
+                                        cornerRadius: 11,
+                                        style: .continuous
+                                    )
+                                )
+                                .overlay {
+                                    RoundedRectangle(
+                                        cornerRadius: 11,
+                                        style: .continuous
+                                    )
+                                    .stroke(
+                                        active
+                                            ? Aurum.gold.opacity(0.5)
+                                            : Color.white.opacity(0.09),
+                                        lineWidth: 1
+                                    )
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(glyph)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 2)
             }
         }
     }

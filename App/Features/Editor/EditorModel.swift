@@ -397,7 +397,8 @@ final class EditorModel {
         var perspectiveY: Float
         var flipH: Bool
         var flipV: Bool
-        var texts: [EditorTextLayer]
+        /// Text and sticker layers in draw order, the web state v2 array.
+        var layers: [EditorLayer]
         /// The free-liquify dabs live in source UV, so the history step of a
         /// stroke restores the field exactly.
         var liquifyDabs: [EditorLiquifyDab]
@@ -480,9 +481,9 @@ final class EditorModel {
     /// The tone-tune section of the filter pane.
     private(set) var tuneOpen = false
     private(set) var tuneKey: Adjustment = .brightness
-    /// The text layers over the photo, in draw order.
-    private(set) var texts: [EditorTextLayer] = []
-    private(set) var selectedTextId: String?
+    /// The text and sticker layers over the photo, in draw order.
+    private(set) var layers: [EditorLayer] = []
+    private(set) var selectedLayerId: String?
     /// The thumbnails of the presets, one per filter.
     private(set) var filterThumbnails: [EditorFilter: UIImage] = [:]
     /// The saved filter presets, newest first, like the web's `userPresets`.
@@ -636,8 +637,8 @@ final class EditorModel {
             filterCategory = .all
             tuneOpen = false
             tuneKey = .brightness
-            texts = []
-            selectedTextId = nil
+            layers = []
+            selectedLayerId = nil
             undoStack = []
             redoStack = []
             editTransaction = nil
@@ -1587,14 +1588,28 @@ final class EditorModel {
         applyAdjustments()
     }
 
-    // MARK: - Text layers
+    // MARK: - Layers
 
-    var selectedText: EditorTextLayer? {
-        texts.first { $0.id == selectedTextId }
+    var selectedLayer: EditorLayer? {
+        layers.first { $0.id == selectedLayerId }
     }
 
+    /// The selected layer when it is text, for the text-only controls.
+    var selectedText: EditorTextLayer? {
+        selectedLayer?.textLayer
+    }
+
+    var selectedSticker: EditorStickerLayer? {
+        selectedLayer?.stickerLayer
+    }
+
+    func selectLayer(_ id: String?) {
+        selectedLayerId = id
+    }
+
+    /// Kept for the text overlay and the older call sites.
     func selectText(_ id: String?) {
-        selectedTextId = id
+        selectLayer(id)
     }
 
     /// Add a layer with the web's staggered default position and open it for
@@ -1602,7 +1617,7 @@ final class EditorModel {
     @discardableResult
     func addText() -> EditorTextLayer? {
         guard state == .ready else { return nil }
-        let index = texts.count
+        let index = layers.count
         let x = 0.5 + Float((index % 3) - 1) * 0.06
         let y = 0.42 + Float(index % 4) * 0.08
         return addText(x: x, y: y)
@@ -1617,61 +1632,113 @@ final class EditorModel {
             x: min(max(x, 0.05), 0.95),
             y: min(max(y, 0.05), 0.95)
         )
-        texts.append(layer)
-        selectedTextId = layer.id
-        applyTexts()
+        layers.append(.text(layer))
+        selectedLayerId = layer.id
+        applyLayers()
+        return layer
+    }
+
+    /// Add a sticker, or replace the glyph of the selected sticker so tapping
+    /// the rail again edits the current sticker instead of stacking copies.
+    @discardableResult
+    func applyStickerGlyph(_ glyph: String) -> EditorStickerLayer? {
+        guard state == .ready else { return nil }
+        let clean = EditorStickerSanitizer.sanitize(glyph)
+        guard !clean.isEmpty else { return nil }
+        if let current = selectedLayer?.stickerLayer,
+           let index = layers.firstIndex(where: { $0.id == current.id }) {
+            pushHistory()
+            var sticker = current
+            sticker.glyph = clean
+            guard let normalized = sticker.normalized() else { return nil }
+            layers[index] = .sticker(normalized)
+            applyLayers()
+            return normalized
+        }
+        pushHistory()
+        let index = layers.count
+        let layer = EditorStickerLayer(
+            id: UUID().uuidString,
+            glyph: clean,
+            x: 0.5 + Float((index % 3) - 1) * 0.07,
+            y: 0.5 + Float((index % 4) - 1.5) * 0.07
+        )
+        layers.append(.sticker(layer))
+        selectedLayerId = layer.id
+        applyLayers()
         return layer
     }
 
     /// Mutate one layer. Slider and drag changes are merged into one history
     /// step while they follow each other.
+    func updateLayer(
+        _ id: String,
+        coalescing: Bool = true,
+        _ mutate: (inout EditorLayer) -> Void
+    ) {
+        guard let index = layers.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        pushHistory(coalescing: coalescing)
+        var layer = layers[index]
+        mutate(&layer)
+        if let normalized = layer.normalized() {
+            layers[index] = normalized
+        }
+        applyLayers()
+    }
+
+    func updateSelectedLayer(
+        coalescing: Bool = true,
+        _ mutate: (inout EditorLayer) -> Void
+    ) {
+        guard let id = selectedLayerId else { return }
+        updateLayer(id, coalescing: coalescing, mutate)
+    }
+
     func updateText(
         _ id: String,
         coalescing: Bool = true,
         _ mutate: (inout EditorTextLayer) -> Void
     ) {
-        guard let index = texts.firstIndex(where: { $0.id == id }) else {
-            return
+        updateLayer(id, coalescing: coalescing) { layer in
+            guard case .text(var text) = layer else { return }
+            mutate(&text)
+            layer = .text(text)
         }
-        pushHistory(coalescing: coalescing)
-        var layer = texts[index]
-        mutate(&layer)
-        texts[index] = layer.normalized()
-        applyTexts()
     }
 
     func updateSelectedText(
         coalescing: Bool = true,
         _ mutate: (inout EditorTextLayer) -> Void
     ) {
-        guard let id = selectedTextId else { return }
+        guard let id = selectedLayerId, selectedText != nil else { return }
         updateText(id, coalescing: coalescing, mutate)
     }
 
-    func deleteSelectedText() {
-        guard let id = selectedTextId,
-              let index = texts.firstIndex(where: { $0.id == id }) else {
+    func deleteSelectedLayer() {
+        guard let id = selectedLayerId,
+              let index = layers.firstIndex(where: { $0.id == id }) else {
             return
         }
         pushHistory()
-        texts.remove(at: index)
-        selectedTextId = texts.first?.id
-        applyTexts()
+        layers.remove(at: index)
+        selectedLayerId = layers.first?.id
+        applyLayers()
     }
 
-    func duplicateSelectedText() {
-        guard let source = selectedText,
-              let index = texts.firstIndex(where: { $0.id == source.id }) else {
+    func duplicateSelectedLayer() {
+        guard let source = selectedLayer,
+              let index = layers.firstIndex(where: { $0.id == source.id }) else {
             return
         }
         pushHistory()
-        var copy = source
-        copy.id = UUID().uuidString
+        var copy = source.withID(UUID().uuidString)
         copy.x = min(max(copy.x + 0.05, 0), 1)
         copy.y = min(max(copy.y + 0.05, 0), 1)
-        texts.insert(copy, at: index + 1)
-        selectedTextId = copy.id
-        applyTexts()
+        layers.insert(copy, at: index + 1)
+        selectedLayerId = copy.id
+        applyLayers()
     }
 
     /// The four quick styles of the web text pane.
@@ -1710,15 +1777,15 @@ final class EditorModel {
         }
     }
 
-    private func applyTexts() {
+    private func applyLayers() {
         guard var editor else { return }
-        editor.setTextLayers(texts)
+        editor.setLayers(layers)
         self.editor = editor
     }
 
-    /// The opacity ruler of the text pane (the web uses 10…100%).
-    func setTextOpacity(_ percent: Float) {
-        updateSelectedText { layer in
+    /// The opacity ruler of the layer pane (the web uses 10…100%).
+    func setLayerOpacity(_ percent: Float) {
+        updateSelectedLayer { layer in
             layer.opacity = min(max(percent / 100, 0.1), 1)
         }
     }
@@ -2342,7 +2409,7 @@ final class EditorModel {
                 perspectiveY: perspectiveY,
                 flipH: flipH,
                 flipV: flipV,
-                texts: texts,
+                layers: layers,
                 liquifyDabs: liquifyDabs,
                 effectDabs: effectDabs
             )
@@ -2409,7 +2476,7 @@ final class EditorModel {
             perspectiveY: perspectiveY,
             flipH: flipH,
             flipV: flipV,
-            texts: texts,
+            layers: layers,
             liquifyDabs: liquifyDabs,
             effectDabs: effectDabs
         )
@@ -2425,10 +2492,10 @@ final class EditorModel {
         perspectiveY = snapshot.perspectiveY
         flipH = snapshot.flipH
         flipV = snapshot.flipV
-        texts = snapshot.texts
+        layers = snapshot.layers
         liquifyDabs = snapshot.liquifyDabs
         effectDabs = snapshot.effectDabs
-        selectedTextId = snapshot.texts.first?.id
+        selectedLayerId = snapshot.layers.first?.id
         aspect = .free
         editor.setGeometry(rotate: rotation, flipH: flipH, flipV: flipV)
         editor.setFineRotation(fineRotation)
@@ -2436,7 +2503,7 @@ final class EditorModel {
         editor.setAdjustments(adjustments)
         editor.setFilter(filter)
         editor.setCrop(crop)
-        editor.setTextLayers(texts)
+        editor.setLayers(layers)
         editor.setLiquifyDabs(liquifyDabs)
         editor.setEffectDabs(effectDabs)
         self.editor = editor
@@ -2464,7 +2531,7 @@ final class EditorModel {
         let qualityByte = UInt8(saveQuality)
         var prepared = editor
         prepared.setCrop(crop)
-        prepared.setTextLayers(texts)
+        prepared.setLayers(layers)
         do {
             let data = try await Task.detached(priority: .userInitiated) { [prepared] in
                 var copy = prepared
@@ -2587,7 +2654,7 @@ final class EditorModel {
                 && !flipH
                 && !flipV
                 && crop == .full
-                && texts.isEmpty
+                && layers.isEmpty
                 && !editor.hasEffects
             // A gesture renders smaller frames; the release rerenders at the
             // full preview quality. 640px still covers the phone stage while

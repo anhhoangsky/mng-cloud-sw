@@ -656,7 +656,10 @@ public struct Editor: Sendable {
     private var crop: EditorCrop = .full
     private var adjustments: EditorAdjustments = .zero
     private var filter: EditorFilter = .original
-    private var texts: [EditorTextLayer] = []
+    /// Layers over the photo in draw order: text and emoji stickers share one
+    /// array, exactly like the web state v2, so a text/sticker/text stack keeps
+    /// its z-order.
+    private var layers: [EditorLayer] = []
     /// Vision face anchors in oriented source space. They are derived from the
     /// photo, not edited, so they are not part of the history.
     private var faceAnchors: [EditorFaceAnchor] = []
@@ -705,7 +708,11 @@ public struct Editor: Sendable {
     public var currentCrop: EditorCrop { crop }
     public var currentAdjustments: EditorAdjustments { adjustments }
     public var currentFilter: EditorFilter { filter }
-    public var textLayers: [EditorTextLayer] { texts }
+    public var textLayers: [EditorTextLayer] {
+        layers.compactMap(\.textLayer)
+    }
+    /// Every layer in draw order, text and stickers together.
+    public var allLayers: [EditorLayer] { layers }
     public var currentFaceAnchors: [EditorFaceAnchor] { faceAnchors }
     public var currentBeautyMask: EditorBeautyMask? { beautyMask }
     public var currentLiquifyDabs: [EditorLiquifyDab] { liquifyDabs }
@@ -747,8 +754,37 @@ public struct Editor: Sendable {
         self.crop = crop
     }
 
-    public mutating func setTextLayers(_ layers: [EditorTextLayer]) {
-        texts = layers.map { $0.normalized() }
+    /// Replace every layer, normalising untrusted input the way the web
+    /// importer does: clamp numbers, drop an empty sticker, suffix duplicate
+    /// ids and keep the newest 64.
+    public mutating func setLayers(_ layers: [EditorLayer]) {
+        var seen = Set<String>()
+        var out: [EditorLayer] = []
+        out.reserveCapacity(min(layers.count, EditorLayer.maxLayers))
+        for layer in layers {
+            guard let item = layer.normalized() else { continue }
+            var id = item.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            if id.isEmpty { id = UUID().uuidString }
+            if seen.contains(id) {
+                var suffix = 1
+                while seen.contains("\(id)-\(suffix)") { suffix += 1 }
+                id = "\(id)-\(suffix)"
+            }
+            seen.insert(id)
+            out.append(item.withID(id))
+        }
+        if out.count > EditorLayer.maxLayers {
+            out = Array(out.suffix(EditorLayer.maxLayers))
+        }
+        self.layers = out
+    }
+
+    /// Compatibility wrapper for callers that only own text layers. Stickers
+    /// stay in place and the normalized texts are appended after them; the app
+    /// uses `setLayers` so the interleaved order is preserved.
+    public mutating func setTextLayers(_ textLayers: [EditorTextLayer]) {
+        let stickers = layers.filter { $0.stickerLayer != nil }
+        setLayers(stickers + textLayers.map { .text($0) })
     }
 
     /// Attach the Vision face anchors used by the six reshape sliders.
@@ -963,7 +999,7 @@ public struct Editor: Sendable {
         copy.setCrop(crop)
         copy.setAdjustments(adjustments)
         copy.setFilter(filter)
-        copy.setTextLayers(texts)
+        copy.setLayers(layers)
         copy.setFaceAnchors(faceAnchors)
         copy.setBeautyMask(beautyMask)
         copy.setLiquifyDabs(liquifyDabs)
@@ -1057,7 +1093,7 @@ public struct Editor: Sendable {
         let crop = cropPixels()
         let rgba = renderRGBA(crop, outWidth: crop.width, outHeight: crop.height)
         rendered = (crop.width, crop.height)
-        let composited = compositeTextLayers(
+        let composited = compositeLayers(
             rgba,
             width: crop.width,
             height: crop.height
