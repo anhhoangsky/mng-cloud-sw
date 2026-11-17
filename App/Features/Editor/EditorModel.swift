@@ -1661,7 +1661,7 @@ final class EditorModel {
             id: UUID().uuidString,
             glyph: clean,
             x: 0.5 + Float((index % 3) - 1) * 0.07,
-            y: 0.5 + Float((index % 4) - 1.5) * 0.07
+            y: 0.5 + (Float(index % 4) - 1.5) * 0.07
         )
         layers.append(.sticker(layer))
         selectedLayerId = layer.id
