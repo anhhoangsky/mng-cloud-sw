@@ -586,16 +586,23 @@ public enum CollageRenderer {
         context.draw(image, in: destination)
     }
 
+    private static let deviceRGB = CGColorSpaceCreateDeviceRGB()
+
     private static func color(from hex: String) -> CGColor {
         let text = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
         guard text.count == 6, let value = UInt32(text, radix: 16) else {
             return CGColor(red: 1, green: 1, blue: 1, alpha: 1)
         }
-        return CGColor(
-            red: CGFloat((value >> 16) & 0xFF) / 255,
-            green: CGFloat((value >> 8) & 0xFF) / 255,
-            blue: CGFloat(value & 0xFF) / 255,
-            alpha: 1
-        )
+        let components: [CGFloat] = [
+            CGFloat((value >> 16) & 0xFF) / 255,
+            CGFloat((value >> 8) & 0xFF) / 255,
+            CGFloat(value & 0xFF) / 255,
+            1,
+        ]
+        // The bitmap context uses Device RGB; staying in that space keeps
+        // `#101010` at 16,16,16 instead of letting a generic-RGB conversion
+        // lift it to 20,20,20.
+        return CGColor(colorSpace: deviceRGB, components: components)
+            ?? CGColor(red: 1, green: 1, blue: 1, alpha: 1)
     }
 }
