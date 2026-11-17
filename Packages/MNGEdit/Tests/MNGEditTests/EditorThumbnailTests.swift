@@ -66,30 +66,51 @@ final class EditorThumbnailTests: XCTestCase {
         XCTAssertEqual(thumbnail.rgba.count, 32 * 32 * 4)
     }
 
-    func testSquareCropIsCentred() throws {
+    func testSquareCropIsPixelAligned() throws {
+        func cropPixels(
+            _ crop: EditorCrop,
+            width: UInt32,
+            height: UInt32
+        ) throws -> EditorCropPixels {
+            var editor = try Editor(
+                width: width,
+                height: height,
+                rgba: [UInt8](
+                    repeating: 255,
+                    count: Int(width * height * 4)
+                )
+            )
+            editor.setCrop(crop)
+            return editor.cropPixels()
+        }
+
         let landscape = EditorThumbnailRenderer.squareCrop(
             width: 300,
             height: 180
         )
-        XCTAssertEqual(landscape.x, 0.2, accuracy: 0.000001)
-        XCTAssertEqual(landscape.y, 0, accuracy: 0.000001)
-        XCTAssertEqual(landscape.width, 0.6, accuracy: 0.000001)
-        XCTAssertEqual(landscape.height, 1, accuracy: 0.000001)
+        XCTAssertEqual(
+            try cropPixels(landscape, width: 300, height: 180),
+            EditorCropPixels(x: 60, y: 0, width: 180, height: 180)
+        )
 
         let portrait = EditorThumbnailRenderer.squareCrop(
             width: 180,
             height: 300
         )
-        XCTAssertEqual(portrait.x, 0, accuracy: 0.000001)
-        XCTAssertEqual(portrait.y, 0.2, accuracy: 0.000001)
-        XCTAssertEqual(portrait.width, 1, accuracy: 0.000001)
-        XCTAssertEqual(portrait.height, 0.6, accuracy: 0.000001)
+        XCTAssertEqual(
+            try cropPixels(portrait, width: 180, height: 300),
+            EditorCropPixels(x: 0, y: 60, width: 180, height: 180)
+        )
 
         let square = EditorThumbnailRenderer.squareCrop(
             width: 120,
             height: 120
         )
         XCTAssertEqual(square, .full)
+        XCTAssertEqual(
+            try cropPixels(square, width: 120, height: 120),
+            EditorCropPixels(x: 0, y: 0, width: 120, height: 120)
+        )
     }
 
     func testThumbnailCentreCropsTheSource() throws {

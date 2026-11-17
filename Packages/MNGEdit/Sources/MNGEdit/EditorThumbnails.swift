@@ -72,29 +72,28 @@ enum EditorThumbnailRenderer {
         )
     }
 
-    /// Normalised centre square of an oriented image.
+    /// Pixel-aligned centre square of an oriented image.
+    ///
+    /// The normalised edges are nudged inward by a ten-thousandth of a pixel.
+    /// `Editor.cropPixels()` floors the left edge and ceils the right edge, so
+    /// an exact boundary such as `0.2 × 300` would otherwise pick up an extra
+    /// source column and turn a square crop into 181 × 180.
     static func squareCrop(width: UInt32, height: UInt32) -> EditorCrop {
-        let w = max(1, Float(width))
-        let h = max(1, Float(height))
-        if w > h {
-            let fraction = h / w
-            return EditorCrop(
-                x: (1 - fraction) / 2,
-                y: 0,
-                width: fraction,
-                height: 1
-            )
+        let w = Int(max(1, width))
+        let h = Int(max(1, height))
+        let side = min(w, h)
+        if side == w, side == h {
+            return .full
         }
-        if h > w {
-            let fraction = w / h
-            return EditorCrop(
-                x: 0,
-                y: (1 - fraction) / 2,
-                width: 1,
-                height: fraction
-            )
-        }
-        return .full
+        let x0 = (w - side) / 2
+        let y0 = (h - side) / 2
+        let inset: Float = 0.0001
+        return EditorCrop(
+            x: (Float(x0) + inset) / Float(w),
+            y: (Float(y0) + inset) / Float(h),
+            width: (Float(side) - 2 * inset) / Float(w),
+            height: (Float(side) - 2 * inset) / Float(h)
+        )
     }
 
     /// Trim the odd pixel column or row that rounding can leave after a
