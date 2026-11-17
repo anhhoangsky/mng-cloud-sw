@@ -278,6 +278,11 @@ final class EditorEffectsTests: XCTestCase {
         XCTAssertLessThan(mask.rgba[feathered], 255)
         let outside = (256 * 512 + 400) * 4
         XCTAssertEqual(mask.rgba[outside], 0)
+        XCTAssertEqual(
+            mask.rgba[outside + 3],
+            255,
+            "alpha stays 255 across the whole mask, like the web upload"
+        )
     }
 
     func testMaskLongestSideIsCappedAt1024() throws {

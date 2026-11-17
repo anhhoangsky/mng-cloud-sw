@@ -220,13 +220,19 @@ enum EditorEffectMaskBuilder {
         ) else {
             return nil
         }
+        var rgba = [UInt8](
+            repeating: 0,
+            count: size.width * size.height * 4
+        )
+        // The web fills alpha once for the whole mask. R and G stay zero
+        // until a stamp writes them.
+        for index in stride(from: 3, to: rgba.count, by: 4) {
+            rgba[index] = 255
+        }
         return EditorEffectMask(
             width: size.width,
             height: size.height,
-            rgba: [UInt8](
-                repeating: 0,
-                count: size.width * size.height * 4
-            )
+            rgba: rgba
         )
     }
 
@@ -300,7 +306,6 @@ enum EditorEffectMaskBuilder {
                 let at = (row + x) * 4
                 if value > mask.rgba[at + channel] {
                     mask.rgba[at + channel] = value
-                    mask.rgba[at + 3] = 255
                     painted = true
                 }
             }
