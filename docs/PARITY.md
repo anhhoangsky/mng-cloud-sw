@@ -587,10 +587,137 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   pane, chips, brush arming, stroke dabs at 8 % radius, export change, one-step
   undo, both rulers, style switch, clear and leaving the tab — ALL PASS. The
   7-tab bar renders every label on one line at 390 px.
-- Swift port is the next B2 step: a CPU mask builder and mosaic/blur pass inside
-  `Editor.renderRGBA` (after warp, before detail/colour), the same state fields,
-  and the tab/pane/brush UI. Until that lands, the Swift editor intentionally
-  has no effect tab; the state decoder ignores the optional block.
+- The Swift port landed in Round 14; the web tab, state, mask and shader path
+  remain the source of truth.
+
+## Round 14 notes
+
+- `MNGEdit` now ships the region-effect engine in `EditorEffects.swift`:
+  `EditorEffectDab` / `EditorEffectKind` / `EditorEffectState` mirror the web
+  JSON (`kind`, `x`, `y`, width-normalised `radius`, `size`, `strength`), and
+  `EditorEffectLimits` fixes the same 0.002–0.2 radius, 0.01–0.2 size,
+  0–100 strength, 1600-dab history and 1024 px mask cap. Normalisation clamps
+  coordinates/radii, drops non-finite dabs and keeps the newest stamps.
+- `EditorEffectMaskBuilder` rasterises one RGBA8 mask with the web's exact
+  raster rules: R = mosaic, G = blur, A = 255 everywhere, solid core, linear
+  35 % feather, `max` compositing, source aspect with the longest side capped
+  at 1024 px. `EditorEffectMask.coverage` samples R/G with clamp-to-edge
+  bilinear filtering, matching the shader's `LINEAR` / `CLAMP_TO_EDGE` upload.
+- `EditorEffectGeometry` derives the same uniforms from the live settings:
+  `blockPx = max(2, round(size × srcW × 0.55))`, `grid = srcW/blockPx ×
+  srcH/blockPx`, `blur = [size × 0.42, size × 0.42 × srcW / srcH]` and
+  strength/100. `EditorEffectKernel` is the CPU port of the shader block:
+  mosaic reads one bilinear texel at the centre of each grid cell, blur
+  averages nine source taps, and both blend by `region × strength` before
+  detail, beauty and colour.
+- `Editor` stores the dab list, live size/strength and cached mask.
+  `setEffectDabs` rebuilds, `addEffectDab` stamps incrementally and only falls
+  back to a rebuild when the 1600 cap trims the oldest stamp, `clearEffects`
+  removes the paint but keeps the brush settings, and `replacingSource` copies
+  the globals and replots the dabs on the new bitmap. The render pass runs
+  after the source sample and before `DetailKernel` / `BeautyKernel`; a mask
+  with zero strength or no paint keeps the byte-identical bypass, and the
+  source sampler is only built when an effect is active.
+- `EditorModel` adds `Tab.effect` between Chân dung and Bộ lọc, mirrors the
+  brush mode/style/size/strength/dabs, arms a style chip directly, disarms the
+  other brush, records one undo step per stroke via `beginEdit`/`endEdit`, and
+  keeps `effectDabs` inside `Snapshot` so undo/redo restores the exact paint.
+  Clear is its own undo step, leaving the tab or applying a chain preset
+  disarms the brush, and the preview fast path treats any paint as an edit.
+- `EditorView` adds the **Hiệu ứng** dock tab, the Mosaic / Làm mờ / Cọ chips,
+  the hint, the shared size rail (with clear) and the strength rail. The stage
+  gets a transparent high-priority drag layer with the gold ring, dabs spaced
+  0.35 × the screen radius (at most 48 per event, duplicate source UVs
+  skipped), one undo step per stroke, and pan/pinch/double-tap stand aside
+  while either brush is active. The shared `brushSizeRow` / `percentChip`
+  refactor leaves the liquify rail unchanged. Seven dock labels now use 9 pt
+  with one line and a 0.78 scale floor.
+- `Strings.swift` adds the tab, pane, brush, size, strength, clear and hint
+  strings in Vietnamese.
+- `EditorEffectsTests` adds 18 XCTest methods: default/normalize/cap/JSON
+  round-trip, R/G channel isolation, shared mask, feather and 1024 cap, empty
+  dabs, geometry, render diff inside/outside, flat mosaic cells, blur energy,
+  strength 0 identity, clear, incremental-vs-rebuild equality and
+  preview/export agreement. `MNGEdit` now runs 87 test methods; CI run
+  `44096607341` is green at `e6d7647`, including both app builds, the simulator
+  test and both uploads.
+- A follow-up (`9ac7873`) starts the shared mask at A=255 everywhere and lets
+  a stamp write only R or G, matching the web upload byte for byte; CI run
+  `44098374566` is green, including the simulator test and both uploads.
+
+## Round 15 notes
+
+- The filter rail used to render 29 copies of the live editor at 180 px, so
+  every thumbnail carried the current crop, adjustments and effect paint and
+  the whole strip re-rendered after a slider move. The web has always built
+  `presetThumbnail` from the frozen preview bitmap with the filter colour only.
+- `EditorThumbnails.swift` restores that contract. `EditorThumbnail` carries
+  the straight RGBA bytes, `EditorThumbnailRenderer` takes the pixel-aligned
+  centre square (`squareCrop`, inset by 1/10000 px so the editor's floor/ceil
+  crop cannot pick up an extra row or column), renders it at `maxSide: 128`
+  with one filter and trims any rounding row/column (`centreSquare`), and
+  `EditorThumbnailCache` keeps the results in an `NSCache` behind an
+  `NSLock`. The cache key is source dimensions + filter + side, the count limit
+  is 64, and a generation counter rejects a render that started before
+  `invalidate()`.
+- `EditorModel` now replaces the whole cache when the base bitmap changes
+  (load, close, AI bake, AI revert). Replacing instead of only clearing means a
+  `Task.detached` pass that is still rendering the old photo holds the old
+  cache, so it cannot publish a stale thumbnail under a key the new photo would
+  hit even when both photos share dimensions. `renderFilterThumbnails` captures
+  the source snapshot and the cache once, renders the 29 filters off the main
+  actor, then converts the bytes to `UIImage` on the main task. Moving a
+  slider no longer rebuilds the strip; entering the filter tab fills an empty
+  rail from the frozen source.
+- `EditorThumbnailTests` adds 7 XCTest methods: 128 px square output, a small
+  source staying at its own square size, the pixel-aligned square geometry for
+  landscape/portrait/square, the centre-crop content, the grey mono tone, a
+  cache hit + invalidation and per-filter keys. `MNGEdit` now runs 94 test
+  methods; CI run `44101668070` is green at `3e63d0f`, including both app
+  builds, the simulator test and both uploads. The first run of `c8d6063` was
+  red because a 181 × 180 source cropped to 127 × 127; the 1/10000 px inset in
+  `squareCrop` fixed the floor/ceil pick-up, and the fix run is the green one.
+
+## Round 16 notes
+
+- The web editor now carries text and emoji stickers in one `layers` array of
+  the v2 state, so a text/sticker/text stack keeps its z-order across a save
+  and a reload. A sticker is glyph-first (`kind: "sticker"`, `glyph`, `x`, `y`,
+  `size`, `rotation`, `opacity`); `size` reaches the whole frame (0.02…1)
+  because a sticker is not bounded by a text line. The rail of 28 emoji lives
+  in the existing text tab instead of adding an eighth tab. The glyph is
+  sanitised to an emoji family: control characters and lone surrogates are
+  dropped, ZWJ sequences, skin tones and variation selectors are kept, and an
+  empty or unknown-kind layer is rejected instead of drawn. Gestures, the
+  shared node, the export stack and the one-step undo are the text layer's.
+- Web commit `68c5226` carries the state, types, UI, CSS and README changes;
+  `test-sticker.html` runs 34 checks and reports ALL PASS, `tsc --noEmit` is
+  clean, the bundle builds at 90.6 KB gzip, and the older `test-state-v2.html`
+  (42 checks) and `test-effects-ui.html` (14 checks) still pass.
+- `MNGEdit` mirrors the array in `EditorSticker.swift`: `EditorStickerLayer`,
+  the `EditorLayer` union that encodes flat objects with `kind` (missing kind
+  reads as text, so a v2.0 state loads unchanged), the 28-glyph catalog and
+  the same sanitizer (Swift strings cannot hold a lone surrogate, so the scalar
+  pass covers control characters, the 16-code-point cap and the trim). The
+  editor stores one `layers` array (`allLayers`, `setLayers`, duplicate-id
+  suffixes, newest 64), keeps `textLayers`/`setTextLayers` working for callers
+  that only own text, and `compositeLayers` draws stickers with the colour-emoji
+  face so the export matches the preview.
+- The app moves to the shared array: `EditorModel.layers` with `selectedLayer`,
+  `applyStickerGlyph` (tapping another glyph edits the selected sticker),
+  `updateLayer`, `deleteSelectedLayer` and `duplicateSelectedLayer`, and
+  `Snapshot.layers` so a drag is one undo step. `EditorView` renders through
+  `layerNode`/`stickerNode` with the same move/pinch/rotate gestures and
+  handles as text; the text-only controls (styles, fonts, colour, bold, italic,
+  outline, shadow, placement) hide while a sticker is selected, while the frame,
+  duplicate, delete and opacity stay. `EditorStickerTests` adds 8 XCTest
+  methods (defaults, sanitizer, clamp/drop, order/suffix/cap, flat JSON and a
+  missing kind, `replacingSource`, export pixels); `MNGEdit` now runs 102 test
+  methods and CI run `44108283934` is green at `8a9028e`, including both app
+  builds, the simulator test and both uploads. The first C1 run (`cc13903`)
+  passed the package tests but failed the app build because the sticker
+  placement mixed an `Int` remainder with a `Double` literal; `8a9028e` keeps
+  that offset in `Float`.
 
 ## Visual checks per UI phase
 
