@@ -667,6 +667,13 @@ public struct Editor: Sendable {
     /// a cache: rebuilding it is cheap, but not cheap enough for every pixel.
     private var liquifyDabs: [EditorLiquifyDab] = []
     private var liquifyField: EditorLiquifyField?
+    /// Region-effect stamps in stored source UV. Size and strength are live
+    /// globals, not per-dab values, exactly like the web effect brush.
+    private var effectDabs: [EditorEffectDab] = []
+    private var effectSize: Float = EditorEffectLimits.defaultSize
+    private var effectStrength: Float = EditorEffectLimits.defaultStrength
+    /// The shared R/G mask, rasterised once per dab and reused by every frame.
+    private var effectMask: EditorEffectMask?
     private var rendered: (width: UInt32, height: UInt32)
 
     public init(width: UInt32, height: UInt32, rgba: [UInt8]) throws {
@@ -703,6 +710,12 @@ public struct Editor: Sendable {
     public var currentBeautyMask: EditorBeautyMask? { beautyMask }
     public var currentLiquifyDabs: [EditorLiquifyDab] { liquifyDabs }
     public var hasLiquify: Bool { !liquifyDabs.isEmpty }
+    public var currentEffectDabs: [EditorEffectDab] { effectDabs }
+    public var hasEffects: Bool { !effectDabs.isEmpty }
+    /// Brush radius as a fraction of the source width.
+    public var currentEffectSize: Float { effectSize }
+    /// Region-effect blend strength, 0…100.
+    public var currentEffectStrength: Float { effectStrength }
 
     public mutating func setGeometry(rotate: UInt8, flipH: Bool, flipV: Bool) {
         self.rotate = rotate % 4
@@ -819,6 +832,91 @@ public struct Editor: Sendable {
         )
     }
 
+    /// Replace the region-effect history.
+    ///
+    /// Every dab is clamped to the web state limits, malformed entries are
+    /// dropped and only the newest `EditorEffectLimits.maxDabs` survive. The
+    /// mask is rebuilt here, not per rendered frame.
+    public mutating func setEffectDabs(_ dabs: [EditorEffectDab]) {
+        let normalized = dabs.compactMap(\.normalized)
+        effectDabs = Array(
+            normalized.suffix(EditorEffectLimits.maxDabs)
+        )
+        rebuildEffectMask()
+    }
+
+    /// Append one stamp, the `addEffectDab` of the web editor.
+    ///
+    /// The mask is stamped incrementally so a live stroke does not rasterise
+    /// the whole history for every finger move. Only the rare cap trim falls
+    /// back to a full rebuild.
+    public mutating func addEffectDab(_ dab: EditorEffectDab) {
+        guard let normalized = dab.normalized else { return }
+        effectDabs.append(normalized)
+        let overflow = effectDabs.count - EditorEffectLimits.maxDabs
+        if overflow > 0 {
+            effectDabs.removeFirst(overflow)
+            rebuildEffectMask()
+            return
+        }
+        stampEffectDab(normalized)
+    }
+
+    /// Remove every stamp. The brush size and strength are untouched.
+    public mutating func clearEffects() {
+        guard !effectDabs.isEmpty || effectMask != nil else { return }
+        effectDabs = []
+        effectMask = nil
+    }
+
+    /// Set the brush radius as a fraction of the source width, 0.01…0.2.
+    public mutating func setEffectSize(_ size: Float) {
+        guard size.isFinite else { return }
+        effectSize = min(
+            max(size, EditorEffectLimits.minSize),
+            EditorEffectLimits.maxSize
+        )
+    }
+
+    /// Set the blend strength, 0…100.
+    public mutating func setEffectStrength(_ strength: Float) {
+        guard strength.isFinite else { return }
+        effectStrength = min(max(strength, 0), 100)
+    }
+
+    /// Set both live globals at once, the shape of a saved web state.
+    public mutating func setEffectState(_ state: EditorEffectState) {
+        let normalized = state.normalized
+        effectSize = normalized.size
+        effectStrength = normalized.strength
+    }
+
+    private mutating func rebuildEffectMask() {
+        effectMask = EditorEffectMaskBuilder.build(
+            dabs: effectDabs,
+            sourceWidth: Int(width),
+            sourceHeight: Int(height)
+        )
+    }
+
+    private mutating func stampEffectDab(_ dab: EditorEffectDab) {
+        if var mask = effectMask {
+            if EditorEffectMaskBuilder.stamp(dab, into: &mask) {
+                effectMask = mask
+            }
+            return
+        }
+        guard var mask = EditorEffectMaskBuilder.makeMask(
+            sourceWidth: Int(width),
+            sourceHeight: Int(height)
+        ) else {
+            return
+        }
+        if EditorEffectMaskBuilder.stamp(dab, into: &mask) {
+            effectMask = mask
+        }
+    }
+
     public mutating func setAdjustments(_ adjustments: EditorAdjustments) {
         self.adjustments = adjustments.clamped()
     }
@@ -869,6 +967,9 @@ public struct Editor: Sendable {
         copy.setFaceAnchors(faceAnchors)
         copy.setBeautyMask(beautyMask)
         copy.setLiquifyDabs(liquifyDabs)
+        copy.setEffectSize(effectSize)
+        copy.setEffectStrength(effectStrength)
+        copy.setEffectDabs(effectDabs)
         return copy
     }
 
@@ -1000,6 +1101,16 @@ public struct Editor: Sendable {
         let detail = DetailKernel(parameters: adjustments.clamped().detail)
         let detailActive = !detail.isIdentity
         let beautyActive = !beauty.isIdentity
+        // Region effects are the first thing after the source sample, before
+        // detail and colour, exactly like section 0 of the shader.
+        let effect = EditorEffectKernel(
+            mask: effectMask,
+            size: effectSize,
+            strength: effectStrength,
+            sourceWidth: Int(width),
+            sourceHeight: Int(height)
+        )
+        let effectActive = effect != nil
 
         let xScale = Float(crop.width) / Float(outWidth)
         let yScale = Float(crop.height) / Float(outHeight)
@@ -1011,7 +1122,7 @@ public struct Editor: Sendable {
         )
         let exactCopy = colorIdentity && xScale == 1 && yScale == 1
             && !geometry.hasFine && !geometry.hasPerspective
-            && warp.isIdentity && liquifyField == nil
+            && warp.isIdentity && liquifyField == nil && !effectActive
         let bytesPerRow = pixelWidth * 4
 
         // A live rotate or perspective drag renders hundreds of thousands of
@@ -1022,7 +1133,7 @@ public struct Editor: Sendable {
         let sourcePixels = source
         out.withUnsafeMutableBufferPointer { destination in
             sourcePixels.withUnsafeBufferPointer { pixels in
-                let sourcePass: BeautySampleSource? = (detailActive || beautyActive)
+                let sourcePass: BeautySampleSource? = (detailActive || beautyActive || effectActive)
                     ? BeautySampleSource(
                         width: Int(width),
                         height: Int(height),
@@ -1069,6 +1180,13 @@ public struct Editor: Sendable {
                                 Float(sampled.z) / 255
                             )
                             var shown = base
+                            if let effect {
+                                shown = effect.apply(
+                                    shown,
+                                    uv: uv,
+                                    source: sourcePass
+                                )
+                            }
                             if detailActive {
                                 shown = detail.apply(
                                     shown,

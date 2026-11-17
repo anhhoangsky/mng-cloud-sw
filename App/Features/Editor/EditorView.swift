@@ -78,6 +78,12 @@ struct EditorView: View {
     @State private var liquifyStrokeScreen: CGPoint?
     @State private var liquifyStrokeSource: SIMD2<Float>?
     @State private var liquifyStrokeActive = false
+    /// The live region-effect stroke: the finger on screen, the last emitted
+    /// point and the source UV of the previous dab.
+    @State private var effectRing: CGPoint?
+    @State private var effectStrokeScreen: CGPoint?
+    @State private var effectStrokeSource: SIMD2<Float>?
+    @State private var effectStrokeActive = false
 
     /// The four modes of the crop pane, in the web's order: ratio, rotation
     /// and the two 3D perspective axes.
@@ -456,6 +462,15 @@ struct EditorView: View {
                                     )
                             }
 
+                            if editor.effectOn, !isComparing,
+                               !editor.aiRefining {
+                                effectCanvas(fitted: fitted)
+                                    .frame(
+                                        width: fitted.width,
+                                        height: fitted.height
+                                    )
+                            }
+
                             if editor.aiRefining, editor.aiRefinePreview != nil {
                                 aiBrushCanvas(fitted: fitted)
                                     .frame(
@@ -497,13 +512,13 @@ struct EditorView: View {
             .gesture(
                 DragGesture()
                     .onChanged { value in
-                        guard !editor.aiRefining, !editor.liquifyOn else {
+                        guard !editor.aiRefining, !isBrushActive else {
                             return
                         }
                         gestureOffset = value.translation
                     }
                     .onEnded { value in
-                        guard !editor.aiRefining, !editor.liquifyOn else {
+                        guard !editor.aiRefining, !isBrushActive else {
                             return
                         }
                         stageOffset.width += value.translation.width
@@ -515,13 +530,13 @@ struct EditorView: View {
             .simultaneousGesture(
                 MagnificationGesture()
                     .onChanged { value in
-                        guard !editor.aiRefining, !editor.liquifyOn else {
+                        guard !editor.aiRefining, !isBrushActive else {
                             return
                         }
                         gestureScale = value
                     }
                     .onEnded { value in
-                        guard !editor.aiRefining, !editor.liquifyOn else {
+                        guard !editor.aiRefining, !isBrushActive else {
                             return
                         }
                         pinchStart = max(min(stageScale * value, 6), 1)
@@ -532,7 +547,7 @@ struct EditorView: View {
             )
             .onTapGesture(count: 2) {
                 guard editor.tab != .text, !editor.aiRefining,
-                      !editor.liquifyOn else {
+                      !isBrushActive else {
                     return
                 }
                 withAnimation(.easeOut(duration: 0.22)) {
@@ -553,6 +568,11 @@ struct EditorView: View {
             .onChange(of: editor.liquifyOn) { _, on in
                 if !on {
                     resetLiquifyStroke()
+                }
+            }
+            .onChange(of: editor.effectOn) { _, on in
+                if !on {
+                    resetEffectStroke()
                 }
             }
         }
@@ -720,6 +740,113 @@ struct EditorView: View {
         liquifyStrokeScreen = nil
         liquifyStrokeSource = nil
         liquifyRing = nil
+    }
+
+    /// True while any brush owns the stage: the pan, pinch and double-tap
+    /// gestures step aside so a stroke is never eaten by the canvas.
+    private var isBrushActive: Bool {
+        editor.liquifyOn || editor.effectOn
+    }
+
+    // MARK: - Region-effect brush
+
+    /// The transparent painting layer over the cropped photo, plus the gold
+    /// ring that shows the true source size of the effect brush.
+    private func effectCanvas(fitted: CGSize) -> some View {
+        ZStack(alignment: .topLeading) {
+            Color.clear
+                .contentShape(Rectangle())
+                .highPriorityGesture(effectGesture(fitted: fitted))
+
+            if let ring = effectRing {
+                let radius = max(
+                    4,
+                    editor.effectRingFraction * fitted.width
+                )
+                Circle()
+                    .stroke(Color.black.opacity(0.55), lineWidth: 3)
+                    .overlay {
+                        Circle().stroke(Aurum.gold, lineWidth: 1.5)
+                    }
+                    .frame(width: radius * 2, height: radius * 2)
+                    .position(x: ring.x, y: ring.y)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    /// One brush stroke is one undo step. A tap paints one stamp; a drag walks
+    /// dabs 0.35 × the screen radius apart, at most 48 per event, exactly like
+    /// the web pointer handler. Every point is stored-source UV, so the
+    /// preview and the full-resolution export paint the same pixels.
+    private func effectGesture(fitted: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .onChanged { value in
+                guard editor.effectOn else { return }
+                effectRing = sourceUV(value.location, fitted: fitted) == nil
+                    ? nil
+                    : value.location
+
+                if !effectStrokeActive {
+                    guard let start = sourceUV(
+                        value.startLocation,
+                        fitted: fitted
+                    ) else {
+                        return
+                    }
+                    effectStrokeActive = true
+                    effectStrokeScreen = value.startLocation
+                    effectStrokeSource = start
+                    editor.beginEdit()
+                    editor.drawEffect(at: start)
+                }
+
+                guard let lastScreen = effectStrokeScreen,
+                      var lastSource = effectStrokeSource else {
+                    return
+                }
+                let radius = max(
+                    4,
+                    editor.effectRingFraction * fitted.width
+                )
+                let spacing = max(1.5, radius * 0.35)
+                let remaining = hypot(
+                    value.location.x - lastScreen.x,
+                    value.location.y - lastScreen.y
+                )
+                guard remaining >= spacing else { return }
+                let dirX = (value.location.x - lastScreen.x) / remaining
+                let dirY = (value.location.y - lastScreen.y) / remaining
+                let steps = min(48, Int(remaining / spacing))
+                var cursor = lastScreen
+                for _ in 0..<steps {
+                    cursor.x += dirX * spacing
+                    cursor.y += dirY * spacing
+                    guard let next = sourceUV(cursor, fitted: fitted) else {
+                        continue
+                    }
+                    if abs(next.x - lastSource.x)
+                        + abs(next.y - lastSource.y) > 0.000001 {
+                        editor.drawEffect(at: next)
+                        lastSource = next
+                    }
+                }
+                effectStrokeScreen = cursor
+                effectStrokeSource = lastSource
+            }
+            .onEnded { _ in
+                if effectStrokeActive {
+                    editor.endEdit()
+                }
+                resetEffectStroke()
+            }
+    }
+
+    private func resetEffectStroke() {
+        effectStrokeActive = false
+        effectStrokeScreen = nil
+        effectStrokeSource = nil
+        effectRing = nil
     }
 
     // MARK: - Text layers
@@ -1389,6 +1516,8 @@ struct EditorView: View {
                 adjustPane
             case .portrait:
                 portraitPane
+            case .effect:
+                effectPane
             case .filter:
                 filterPane
             case .text:
@@ -1419,6 +1548,86 @@ struct EditorView: View {
             lead: EditorModel.portraitPresets,
             showsLiquify: true
         )
+    }
+
+    /// The Hiệu ứng pane: the two styles, the brush toggle and the shared
+    /// hint, then the live size and strength rails, exactly the web layout.
+    private var effectPane: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 5) {
+                selectChip(
+                    Strings.editorEffectMosaic,
+                    icon: "square.grid.3x3",
+                    active: editor.effectKind == .mosaic,
+                    height: 30,
+                    fontSize: 11
+                ) {
+                    editor.selectEffectKind(.mosaic)
+                }
+                selectChip(
+                    Strings.editorEffectBlur,
+                    icon: "drop.halffull",
+                    active: editor.effectKind == .blur,
+                    height: 30,
+                    fontSize: 11
+                ) {
+                    editor.selectEffectKind(.blur)
+                }
+                selectChip(
+                    Strings.editorEffectBrush,
+                    icon: "paintbrush.pointed",
+                    active: editor.effectOn,
+                    height: 30,
+                    fontSize: 11
+                ) {
+                    editor.toggleEffectBrush()
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+
+            Text(Strings.editorEffectHint)
+                .font(Font.mng(9.5, weight: .medium))
+                .foregroundStyle(Aurum.muted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+
+            brushSizeRow(
+                value: Binding(
+                    get: { Float(editor.effectSize) },
+                    set: { editor.setEffectSize($0) }
+                ),
+                label: Strings.editorEffectSize,
+                resetValue: 8,
+                clearLabel: Strings.editorEffectClear,
+                canClear: !editor.effectDabs.isEmpty
+            ) {
+                editor.clearEffects()
+            }
+
+            HStack(spacing: 6) {
+                percentChip(
+                    Int(editor.effectStrength.rounded()),
+                    accessibility: Strings.editorEffectStrength
+                ) {
+                    editor.setEffectStrength(60)
+                }
+
+                TickSlider(
+                    value: Binding(
+                        get: { editor.effectStrength },
+                        set: { editor.setEffectStrength($0) }
+                    ),
+                    label: Strings.editorEffectStrength,
+                    minimum: 0,
+                    maximum: 100,
+                    tickStep: 2,
+                    zero: true,
+                    ruler: true
+                )
+            }
+            .padding(.horizontal, 12)
+        }
     }
 
     /// One chip rail, one value chip and one ruler. The Tinh chỉnh tab adds
@@ -1541,60 +1750,54 @@ struct EditorView: View {
         }
     }
 
-    /// The brush-size rail that replaces the value ruler while the liquify
-    /// brush is on. The height matches the ruler, so entering the mode cannot
-    /// move the photo; the gold chip resets the brush to 5 %, like the web.
+    /// The brush-size rail of the liquify brush. The height matches the value
+    /// ruler, so entering the mode cannot move the photo; the gold chip resets
+    /// the brush to 5 %, like the web.
     private var liquifyRow: some View {
+        brushSizeRow(
+            value: Binding(
+                get: { Float(editor.liquifySize) },
+                set: { editor.setLiquifySize($0) }
+            ),
+            label: Strings.editorBrushSize,
+            resetValue: 5,
+            clearLabel: Strings.editorClearLiquify,
+            canClear: !editor.liquifyDabs.isEmpty
+        ) {
+            editor.clearLiquify()
+        }
+    }
+
+    /// The shared size rail of the two brushes: a gold percent chip that
+    /// resets the default, the size ruler and a clear action.
+    private func brushSizeRow(
+        value: Binding<Float>,
+        label: String,
+        resetValue: Float,
+        clearLabel: String,
+        canClear: Bool,
+        onClear: @escaping () -> Void
+    ) -> some View {
         HStack(spacing: 6) {
-            Button {
-                editor.setLiquifySize(5)
-            } label: {
-                Text("\(editor.liquifySize)%")
-                    .font(Font.mng(11.5, weight: .bold))
-                    .monospacedDigit()
-                    .foregroundStyle(Aurum.gold)
-                    .frame(width: 48, height: 40)
-                    .background(
-                        Aurum.gold.opacity(0.14),
-                        in: RoundedRectangle(
-                            cornerRadius: 11,
-                            style: .continuous
-                        )
-                    )
-                    .overlay {
-                        RoundedRectangle(
-                            cornerRadius: 11,
-                            style: .continuous
-                        )
-                        .stroke(Aurum.gold.opacity(0.30), lineWidth: 1)
-                    }
+            percentChip(
+                Int(value.wrappedValue.rounded()),
+                accessibility: label
+            ) {
+                value.wrappedValue = resetValue
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(
-                "\(Strings.editorBrushSize): \(editor.liquifySize)%"
-            )
 
             TickSlider(
-                value: Binding(
-                    get: { Float(editor.liquifySize) },
-                    set: { editor.setLiquifySize($0) }
-                ),
-                label: Strings.editorBrushSize,
+                value: value,
+                label: label,
                 minimum: 1,
                 maximum: 20,
                 tickStep: 1
             )
 
-            Button {
-                editor.clearLiquify()
-            } label: {
+            Button(action: onClear) {
                 Image(systemName: "arrow.uturn.backward")
                     .font(Font.mng(14, weight: .semibold))
-                    .foregroundStyle(
-                        editor.liquifyDabs.isEmpty
-                            ? Aurum.muted
-                            : Color.white
-                    )
+                    .foregroundStyle(canClear ? Color.white : Aurum.muted)
                     .frame(width: 44, height: 40)
                     .background(
                         Color.white.opacity(0.06),
@@ -1612,10 +1815,42 @@ struct EditorView: View {
                     }
             }
             .buttonStyle(.plain)
-            .disabled(editor.liquifyDabs.isEmpty)
-            .accessibilityLabel(Strings.editorClearLiquify)
+            .disabled(!canClear)
+            .accessibilityLabel(clearLabel)
         }
         .padding(.horizontal, 12)
+    }
+
+    /// The gold readout chip shared by both brush rails. Tapping it resets
+    /// the value to the default of that brush.
+    private func percentChip(
+        _ value: Int,
+        accessibility: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text("\(value)%")
+                .font(Font.mng(11.5, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(Aurum.gold)
+                .frame(width: 48, height: 40)
+                .background(
+                    Aurum.gold.opacity(0.14),
+                    in: RoundedRectangle(
+                        cornerRadius: 11,
+                        style: .continuous
+                    )
+                )
+                .overlay {
+                    RoundedRectangle(
+                        cornerRadius: 11,
+                        style: .continuous
+                    )
+                    .stroke(Aurum.gold.opacity(0.30), lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(accessibility): \(value)%")
     }
 
     private var autoButton: some View {
@@ -3659,6 +3894,7 @@ struct EditorView: View {
         HStack(spacing: 0) {
             dockTab(.adjust, "slider.horizontal.3", Strings.editorTuneTab)
             dockTab(.portrait, "face.smiling", Strings.editorPortraitTab)
+            dockTab(.effect, "square.grid.3x3", Strings.editorEffectTab)
             dockTab(.filter, "camera.filters", Strings.editorFilterTab)
             dockTab(.text, "textformat", Strings.editorTextTab)
             dockTab(.ai, "wand.and.stars", Strings.editorAITab)
@@ -3683,7 +3919,12 @@ struct EditorView: View {
                 Image(systemName: icon)
                     .font(Font.mng(16, weight: .medium))
                 Text(title)
-                    .font(Font.mng(10, weight: .semibold))
+                    // Seven tabs share a phone width: 9 pt keeps every
+                    // Vietnamese label on one line, and the scale factor is
+                    // a safety net for a wider Dynamic Type setting.
+                    .font(Font.mng(9, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
             }
             .foregroundStyle(active ? Aurum.gold : Aurum.muted)
             .frame(maxWidth: .infinity)

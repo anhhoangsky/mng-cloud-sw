@@ -49,6 +49,7 @@ final class EditorModel {
     enum Tab: String, CaseIterable, Identifiable {
         case adjust
         case portrait
+        case effect
         case filter
         case text
         case ai
@@ -400,6 +401,9 @@ final class EditorModel {
         /// The free-liquify dabs live in source UV, so the history step of a
         /// stroke restores the field exactly.
         var liquifyDabs: [EditorLiquifyDab]
+        /// Region-effect stamps share the same source-UV space. Brush size and
+        /// strength are live globals, so they stay out of the history.
+        var effectDabs: [EditorEffectDab]
     }
 
     /// A filter/tune combination the person saved from the filter pane.
@@ -457,6 +461,14 @@ final class EditorModel {
     /// Mirror of the editor's dab list. The editor itself is not observable,
     /// so the pane and the clear action read this copy.
     private(set) var liquifyDabs: [EditorLiquifyDab] = []
+    /// The region-effect brush mode, style and live settings. The paint lives
+    /// in the editor's mask; the dabs are mirrored for the clear action and
+    /// the history, like liquify.
+    private(set) var effectOn = false
+    private(set) var effectKind: EditorEffectKind = .mosaic
+    private(set) var effectSize = 8
+    private(set) var effectStrength: Float = 60
+    private(set) var effectDabs: [EditorEffectDab] = []
     private(set) var mode: SaveMode = .overwrite
     /// The quality of a JPEG or WebP export, 10…100.
     private(set) var saveQuality = 92
@@ -608,6 +620,11 @@ final class EditorModel {
             liquifyOn = false
             liquifySize = 5
             liquifyDabs = []
+            effectOn = false
+            effectKind = .mosaic
+            effectSize = 8
+            effectStrength = 60
+            effectDabs = []
             mode = .overwrite
             saveQuality = 92
             aspect = .free
@@ -688,6 +705,9 @@ final class EditorModel {
         self.tab = tab
         if tab != .portrait {
             liquifyOn = false
+        }
+        if tab != .effect {
+            effectOn = false
         }
         if tab == .portrait,
            !Self.portraitGroups.contains(activeAdjustment.group) {
@@ -1917,6 +1937,9 @@ final class EditorModel {
     /// Chân dung tab, like the web's `setLiquify` guard.
     func toggleLiquify() {
         guard editor != nil, tab == .portrait else { return }
+        if !liquifyOn {
+            effectOn = false
+        }
         liquifyOn.toggle()
     }
 
@@ -1977,6 +2000,94 @@ final class EditorModel {
         editor.clearLiquify()
         self.editor = editor
         liquifyDabs = []
+        renderPreview()
+    }
+
+    // MARK: - Region effects
+
+    /// Enter or leave the mosaic/blur brush. It only exists in the Hiệu ứng
+    /// tab, like the web's `setEffectBrush` guard.
+    func toggleEffectBrush() {
+        guard editor != nil, tab == .effect else { return }
+        if !effectOn {
+            liquifyOn = false
+        }
+        effectOn.toggle()
+    }
+
+    /// Pick a style. Choosing a style is the intent to paint, so the brush
+    /// arms itself unless the same style is already armed, like the web.
+    func selectEffectKind(_ kind: EditorEffectKind) {
+        guard editor != nil, tab == .effect else { return }
+        if effectKind == kind, effectOn { return }
+        effectKind = kind
+        effectOn = true
+        liquifyOn = false
+    }
+
+    /// Brush size in percent of the source width, the web's 1…20 range.
+    func setEffectSize(_ value: Float) {
+        guard value.isFinite else { return }
+        let next = min(max(Int(value.rounded()), 1), 20)
+        guard next != effectSize else { return }
+        effectSize = next
+        guard var editor else { return }
+        editor.setEffectSize(Float(next) / 100)
+        self.editor = editor
+        renderPreview()
+    }
+
+    /// Blend strength, 0…100 %.
+    func setEffectStrength(_ value: Float) {
+        guard value.isFinite else { return }
+        let next = min(max(value.rounded(), 0), 100)
+        guard abs(next - effectStrength) > 0.0001 else { return }
+        effectStrength = next
+        guard var editor else { return }
+        editor.setEffectStrength(next)
+        self.editor = editor
+        renderPreview()
+    }
+
+    /// The ring radius as a fraction of the fitted preview width, computed
+    /// with the same geometry inverse as the liquify brush.
+    var effectRingFraction: CGFloat {
+        guard let editor else {
+            return CGFloat(effectSize) / 100
+        }
+        let radius = Float(effectSize) / 100
+        let center = editor.sourceUV(forOutputPoint: SIMD2<Float>(0.5, 0.5))
+        let edge = editor.sourceUV(forOutputPoint: SIMD2<Float>(0.51, 0.5))
+        let perOutput = abs(edge.x - center.x)
+        guard perOutput > 0.0001 else {
+            return CGFloat(radius)
+        }
+        return CGFloat(radius * 0.01 / perOutput)
+    }
+
+    /// Stamp one dab at a stored-source UV point.
+    func drawEffect(at point: SIMD2<Float>) {
+        guard var editor, effectOn else { return }
+        let dab = EditorEffectDab(
+            kind: effectKind,
+            x: point.x,
+            y: point.y,
+            radius: Float(effectSize) / 100
+        )
+        editor.addEffectDab(dab)
+        self.editor = editor
+        effectDabs = editor.currentEffectDabs
+        renderPreview()
+    }
+
+    /// Remove every stamp and record the clear as one undo step. The style,
+    /// size and strength stay where they are, like the web's clear action.
+    func clearEffects() {
+        guard var editor, !effectDabs.isEmpty else { return }
+        pushHistory()
+        editor.clearEffects()
+        self.editor = editor
+        effectDabs = []
         renderPreview()
     }
 
@@ -2165,6 +2276,7 @@ final class EditorModel {
     func applyChainPreset(_ preset: ChainPreset) {
         guard editor != nil else { return }
         liquifyOn = false
+        effectOn = false
         let keys = preset.chain.adjust ?? [:]
         guard !keys.isEmpty else { return }
         var values = adjustments
@@ -2223,7 +2335,8 @@ final class EditorModel {
                 flipH: flipH,
                 flipV: flipV,
                 texts: texts,
-                liquifyDabs: liquifyDabs
+                liquifyDabs: liquifyDabs,
+                effectDabs: effectDabs
             )
         )
         if undoStack.count > 60 {
@@ -2289,7 +2402,8 @@ final class EditorModel {
             flipH: flipH,
             flipV: flipV,
             texts: texts,
-            liquifyDabs: liquifyDabs
+            liquifyDabs: liquifyDabs,
+            effectDabs: effectDabs
         )
     }
 
@@ -2305,6 +2419,7 @@ final class EditorModel {
         flipV = snapshot.flipV
         texts = snapshot.texts
         liquifyDabs = snapshot.liquifyDabs
+        effectDabs = snapshot.effectDabs
         selectedTextId = snapshot.texts.first?.id
         aspect = .free
         editor.setGeometry(rotate: rotation, flipH: flipH, flipV: flipV)
@@ -2315,6 +2430,7 @@ final class EditorModel {
         editor.setCrop(crop)
         editor.setTextLayers(texts)
         editor.setLiquifyDabs(liquifyDabs)
+        editor.setEffectDabs(effectDabs)
         self.editor = editor
         renderPreview()
     }
@@ -2464,6 +2580,7 @@ final class EditorModel {
                 && !flipV
                 && crop == .full
                 && texts.isEmpty
+                && !editor.hasEffects
             // A gesture renders smaller frames; the release rerenders at the
             // full preview quality. 640px still covers the phone stage while
             // cutting the pixels of a live rotate/perspective drag roughly in

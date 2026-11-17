@@ -374,6 +374,7 @@ enum Strings {
     static let editorAdjustTab = "Chỉnh màu"
     static let editorTuneTab = "Tinh chỉnh"
     static let editorPortraitTab = "Chân dung"
+    static let editorEffectTab = "Hiệu ứng"
     static let editorFilterTab = "Bộ lọc"
     static let editorGeometry = "Xoay và lật"
     static let editorRotateLeft = "Trái"
@@ -418,6 +419,16 @@ enum Strings {
     static let editorLiquifyTitle = "Bóp méo vùng ảnh bằng cọ"
     static let editorBrushSize = "Cỡ cọ"
     static let editorClearLiquify = "Xóa bóp méo"
+    /// The mosaic/blur brush of the Hiệu ứng tab.
+    static let editorEffectTitle = "Hiệu ứng vùng"
+    static let editorEffectMosaic = "Mosaic"
+    static let editorEffectBlur = "Làm mờ"
+    static let editorEffectBrush = "Cọ hiệu ứng"
+    static let editorEffectSize = "Cỡ cọ"
+    static let editorEffectStrength = "Độ mạnh"
+    static let editorEffectClear = "Xóa hiệu ứng"
+    static let editorEffectHint =
+        "Chọn kiểu rồi kéo lên ảnh. Mỗi nét là một bước hoàn tác."
     /// The short names of the adjustments, the ones on the chips.
     static let editorBrightnessShort = "Sáng"
     static let editorContrastShort = "Tương phản"
