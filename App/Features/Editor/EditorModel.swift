@@ -539,6 +539,10 @@ final class EditorModel {
     /// can be merged.
     @ObservationIgnored private var lastHistoryAt: TimeInterval = 0
     @ObservationIgnored private var thumbnailTask: Task<Void, Never>?
+    /// The 128 px filter thumbnails of the current source. A new photo gets a
+    /// fresh cache, so a render that was already in flight for the old bitmap
+    /// can never publish its thumbnail under a key the new photo would hit.
+    @ObservationIgnored private var thumbnailCache = EditorThumbnailCache()
     /// The AI request in flight and a generation number that makes a late
     /// result from a cancelled pass harmless.
     @ObservationIgnored private var aiTask: Task<Void, Never>?
@@ -642,6 +646,7 @@ final class EditorModel {
             preview = nil
             originalPreview = nil
             filterThumbnails = [:]
+            thumbnailCache = EditorThumbnailCache()
             state = .ready
             renderPreview()
             detectFaceAnchors(for: editor, seq: seq)
@@ -689,6 +694,7 @@ final class EditorModel {
         originalPreview = nil
         item = nil
         filterThumbnails = [:]
+        thumbnailCache = EditorThumbnailCache()
         state = .idle
     }
 
@@ -1152,6 +1158,7 @@ final class EditorModel {
         activeSavedPresetId = nil
         savedReturnState = nil
         filterThumbnails = [:]
+        thumbnailCache = EditorThumbnailCache()
         preview = nil
         renderPreview()
         onToast?(Strings.editorAIReverted)
@@ -1444,6 +1451,7 @@ final class EditorModel {
         activeSavedPresetId = nil
         savedReturnState = nil
         filterThumbnails = [:]
+        thumbnailCache = EditorThumbnailCache()
         preview = nil
         aiCutout = cutout
         renderPreview()
@@ -2613,34 +2621,35 @@ final class EditorModel {
         }
     }
 
-    /// Render the small preview of every preset, so the pane of the filters
-    /// shows what the photo looks like.
+    /// Render the 128 px square preview of every preset from the frozen source
+    /// bitmap. Like the web's `presetThumbnail`, the rail depends only on the
+    /// loaded photo and the filter, so moving a slider does not rebuild it.
     private func renderFilterThumbnails() {
         guard let editor else { return }
+        let source = editor.sourceSnapshot()
+        let cache = thumbnailCache
         thumbnailTask?.cancel()
         thumbnailTask = Task { [weak self] in
-            let rendered = await Task.detached(priority: .userInitiated) { [editor] in
-                var thumbnails: [EditorFilter: (rgba: [UInt8], width: UInt32, height: UInt32)] = [:]
+            let rendered = await Task.detached(priority: .userInitiated) {
+                [cache, source] in
+                var thumbnails: [EditorFilter: EditorThumbnail] = [:]
                 for filter in EditorFilter.allCases {
-                    var copy = editor
-                    copy.setFilter(filter)
-                    copy.setCrop(.full)
-                    let rgba = copy.renderPreview(maxSide: 180)
-                    thumbnails[filter] = (
-                        rgba: rgba,
-                        width: copy.lastRenderSize.width,
-                        height: copy.lastRenderSize.height
-                    )
+                    if let thumbnail = cache.thumbnail(
+                        for: filter,
+                        source: source
+                    ) {
+                        thumbnails[filter] = thumbnail
+                    }
                 }
                 return thumbnails
             }.value
             guard !Task.isCancelled else { return }
             var images: [EditorFilter: UIImage] = [:]
-            for (filter, rendered) in rendered {
+            for (filter, thumbnail) in rendered {
                 guard let image = EditorModel.image(
-                    from: rendered.rgba,
-                    width: rendered.width,
-                    height: rendered.height
+                    from: thumbnail.rgba,
+                    width: UInt32(thumbnail.width),
+                    height: UInt32(thumbnail.height)
                 ) else {
                     continue
                 }
