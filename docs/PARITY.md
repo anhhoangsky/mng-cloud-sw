@@ -719,6 +719,40 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   placement mixed an `Int` remainder with a `Double` literal; `8a9028e` keeps
   that offset in `Float`.
 
+## Round 17 notes
+
+- The collage engine lands before its screen, on purpose: both clients now
+  read `specs/layouts.json` (19 layouts, 2-9 cells on a 12-unit grid) and a
+  document only stores `layout`, `gap`, `radius`, `background` and one
+  `{source, zoom, offsetX, offsetY}` per cell. The host renders each source and
+  hands the bitmaps in order; `renderCollage`/`CollageRenderer` only lays them
+  out, so the later collage screen and export share one geometry.
+- The gap is both the outer border and the gutter: every cell is inset by
+  `gap` and the grid is scaled by `1 - gap`, which makes the four borders and
+  every space between cells measure the same. `radius` is a fraction of the
+  shorter side of a cell, clamped to half, and the whole frame is painted with
+  the background first so a JPEG export can never show transparent corners.
+- The cover fit is one formula in both clients: scale = max(cell/source) x
+  zoom, pan expressed as a fraction of the slack (`-1` left/top, `+1`
+  right/bottom), and the sampled source rect is clamped so a pan cannot expose
+  the background. The web test pins the square-into-wide-cell crop
+  (100x100 into 200x100 -> 100x50 at y=25), zoom 2 and both pan ends.
+- Web `d91a4d1` adds `specs/layouts.json`, `src/core/collage.ts` and
+  `test-collage.html` (56 checks, ALL PASS); `test-state-v2.html` (42) and
+  `test-sticker.html` (34) still pass, `tsc --noEmit` is clean and the bundle
+  builds at 92.6 KB gzip. `MNGEdit` bundles the same JSON byte-for-byte and
+  mirrors the types/geometry/renderer in `Collage.swift`; `CollageTests` adds
+  18 XCTest methods (catalog coverage, gap, state normalize, cover math and
+  rendered pixels for source order, top-down orientation, gaps, corners and
+  the nine-grid). `MNGEdit` now runs 120 test methods and CI run `44138337412`
+  is green at `c430140`. The first run (`f8275fe`) rendered `#101010` as
+  20,20,20 because `CGColor(red:)` is generic RGB; the fix builds the
+  background colour in the context's Device RGB space.
+- Still to come: the separate collage screen (web picker/rail/gesture and
+  Swift `CollageView` fullScreenCover). The engine deliberately takes already
+  rendered sources, so that screen can reuse the editor preview per cell
+  without changing this contract.
+
 ## Visual checks per UI phase
 
 - iPhone SE (compact, 375 pt), iPhone 15/16 (393 pt), iPad 11" portrait and
