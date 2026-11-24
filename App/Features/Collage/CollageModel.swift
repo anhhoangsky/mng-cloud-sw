@@ -379,6 +379,12 @@ final class CollageModel {
 
     // MARK: - Gestures
 
+    /// The web hides the hint on the first pointer-down, even when the touch
+    /// only selects a cell and never moves.
+    func noteInteraction() {
+        hideHint()
+    }
+
     func beginGesture() {
         hideHint()
         guard !interactive else { return }

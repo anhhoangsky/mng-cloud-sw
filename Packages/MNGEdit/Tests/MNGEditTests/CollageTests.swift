@@ -448,10 +448,12 @@ final class CollageTests: XCTestCase {
             (69, 123, 157), (29, 53, 87), (255, 183, 3),
             (251, 133, 0), (131, 56, 236), (58, 134, 255),
         ]
-        let sources = palette.map { solid($0.0, $0.1, $0.2, width: 90, height: 70) }
+        let sources = palette.map {
+            solid($0.0, $0.1, $0.2, width: 90, height: 70)
+        }
         let images = try sources.map { try image($0) }
 
-        let snapshot = try render(state, sources: sources, size: 180)
+        let expected = try render(state, sources: sources, size: 180)
         let rendered = try XCTUnwrap(
             CollageRenderer.renderImage(
                 state: state,
@@ -461,12 +463,10 @@ final class CollageTests: XCTestCase {
         )
         XCTAssertEqual(rendered.width, 180)
         XCTAssertEqual(rendered.height, 180)
-        let output = try XCTUnwrap(
-            EditorBitmap.topDownRGBA(from: rendered)
-        )
+        let output = try snapshot(rendered)
         XCTAssertEqual(output.width, 180)
         XCTAssertEqual(output.height, 180)
-        XCTAssertEqual(output.rgba, snapshot.rgba)
+        XCTAssertEqual(output.rgba, expected.rgba)
     }
 
     func testImageRenderKeepsTopDownOrientation() throws {
@@ -486,9 +486,7 @@ final class CollageTests: XCTestCase {
                 size: 128
             )
         )
-        let output = try XCTUnwrap(
-            EditorBitmap.topDownRGBA(from: rendered)
-        )
+        let output = try snapshot(rendered)
         assertColor(output, 64, 32, 255, 0, 0)
         assertColor(output, 64, 96, 0, 0, 255)
     }
@@ -506,9 +504,7 @@ final class CollageTests: XCTestCase {
                 size: 64
             )
         )
-        let output = try XCTUnwrap(
-            EditorBitmap.topDownRGBA(from: rendered)
-        )
+        let output = try snapshot(rendered)
         assertColor(output, 16, 32, 255, 0, 0)
         assertColor(output, 48, 32, 16, 16, 16)
     }
@@ -594,6 +590,26 @@ final class CollageTests: XCTestCase {
             ),
             file: file,
             line: line
+        )
+    }
+
+    /// Read a rendered image back into the snapshot shape the pixel helpers
+    /// use, so the image entry point is checked with the same asserts as the
+    /// snapshot entry point.
+    private func snapshot(
+        _ image: CGImage,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> EditorSourceSnapshot {
+        let output = try XCTUnwrap(
+            EditorBitmap.topDownRGBA(from: image),
+            file: file,
+            line: line
+        )
+        return EditorSourceSnapshot(
+            width: UInt32(output.width),
+            height: UInt32(output.height),
+            rgba: output.rgba
         )
     }
 

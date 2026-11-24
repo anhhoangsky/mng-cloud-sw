@@ -499,6 +499,7 @@ private struct CollageStage: View {
                 if !dragging {
                     dragging = true
                     dragStart = value.translation
+                    model.noteInteraction()
                     model.selectCell(at: normalized(value.startLocation))
                     return
                 }
