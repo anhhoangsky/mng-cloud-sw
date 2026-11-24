@@ -68,7 +68,7 @@ struct ViewerView: View {
             EditorView(model: model, item: item)
         }
         .fullScreenCover(item: $collageItem) { item in
-            CollageView(
+            CollageEditorView(
                 model: model,
                 seed: item,
                 candidates: model.library.page.items

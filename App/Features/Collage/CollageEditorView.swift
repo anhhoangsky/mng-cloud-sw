@@ -8,7 +8,9 @@ import UIKit
 /// It is deliberately not a tab of `EditorView`: the web ships it as its own
 /// surface (`collage.html`), and a collage edits several photos while the
 /// editor edits one. The geometry and the pixels live in `MNGEdit.Collage`.
-struct CollageView: View {
+/// The name keeps the viewer's collage covers (`CollageView` in
+/// `LibraryCards.swift`) untouched.
+struct CollageEditorView: View {
     let shell: ShellModel
     /// Photos of the library page, used by the add sheet.
     let candidates: [Item]
