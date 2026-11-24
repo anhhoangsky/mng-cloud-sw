@@ -214,6 +214,27 @@ The Phase 2/Phase 4/Phase 5 model download/fallback/quality matrix is in
 [`AI_BENCHMARK.md`](AI_BENCHMARK.md) §9. Maximum names ISNet 1024, falls back
 to BiRefNet Lite 512, and always ends at Vision.
 
+## Collage
+
+- [ ] The grid button in the viewer opens the collage for a photo and is
+      absent for a video; the current photo is the first cell.
+- [ ] "Thêm ảnh" opens the multi-select sheet over the loaded library page;
+      the chosen photos are excluded, the tap order becomes the cell order,
+      and the ninth photo is the ceiling.
+- [ ] The rail lists only the layouts for the current count; switching keeps
+      the crops; the active mini diagram is gold.
+- [ ] Tapping selects a cell; dragging pans it, pinching zooms it and a double
+      tap resets it; the hint disappears on the first touch and after 7 s.
+- [ ] Gap and radius update the preview under the slider; the four swatches
+      and the system colour picker change the background immediately.
+- [ ] "Lưu ảnh" renders a 2048 px PNG and opens the share sheet; dismissing it
+      deletes the temporary file.
+- [ ] Nine 12 MP photos do not trigger a memory warning, and the preview keeps
+      up with a drag and a pinch.
+- [ ] The stage stays square on an iPhone SE and the screen scrolls to the
+      panel; the viewer title still truncates beside four top-bar buttons.
+- [ ] A 401 while loading a photo returns to the login screen.
+
 ## Administration (admin account only)
 
 - [ ] The Settings row "Quản trị người dùng" only appears for administrators.

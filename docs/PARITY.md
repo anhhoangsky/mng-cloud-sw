@@ -748,10 +748,54 @@ Legend: ✅ done · 🟡 in progress · ⏳ not started · ➖ not applicable on
   is green at `c430140`. The first run (`f8275fe`) rendered `#101010` as
   20,20,20 because `CGColor(red:)` is generic RGB; the fix builds the
   background colour in the context's Device RGB space.
-- Still to come: the separate collage screen (web picker/rail/gesture and
-  Swift `CollageView` fullScreenCover). The engine deliberately takes already
-  rendered sources, so that screen can reuse the editor preview per cell
-  without changing this contract.
+- The separate collage screen followed in Round 18. The engine deliberately
+  takes already rendered sources, so that screen reuses the editor preview per
+  cell without changing this contract.
+
+## Round 18 notes
+
+- The collage screen ships on both clients. Web `fde564c` adds
+  `src/ui/collage-ui.ts` + `collage.css` (`AurumCollage`,
+  `createCollageEditor`, `COLLAGE_CSS`, `ensureCollageStyles`), the
+  `collage.html` demo (four sources, `?state=`, `?export=1`) and
+  `test-collage-ui.html` (53 checks, ALL PASS). `tsc --noEmit` is clean, the
+  bundle builds at 101.4 KB gzip, and `test-collage` (56), `test-state-v2`
+  (42) and `test-sticker` (34) still pass.
+- The screen is a full surface in both clients, not an editor tab: the viewer
+  seeds it with the current photo, then up to eight more come from the loaded
+  library page. The picker excludes the chosen photos and keeps the tap order,
+  so cell 1 is the seed; there is no remove, matching the web.
+- Swift `a7ac952` adds `App/Features/Collage/CollageModel.swift` and
+  `CollageEditorView.swift`: the square stage with pan/pinch/double-tap (the
+  web's `offset -= dx*2/slack` mapping), the layout rail with mini diagrams,
+  the gap/radius sliders, four swatches plus the system colour picker, the
+  per-cell zoom bar, and the hint that hides after 7 s or the first touch.
+  `ViewerTopBar` shows "Ghép ảnh" for photos only. The screen cannot be named
+  `CollageView`: `LibraryCards.swift` already owns that name for the
+  four-cover album card, and the first build stopped on the redeclaration;
+  `38a5004` (the rename plus the image-test read-back) is the green commit.
+- `CollageRenderer.renderImage(state:images:size:)` is the preview entry
+  point: it draws the decoded `CGImage`s directly, so a frame costs one draw
+  instead of a copy of every source's RGBA bytes. The snapshot entry point
+  converts each source once and reuses the same pass, so the upload contract
+  and every existing caller keep the exact pixels. Three XCTest methods pin
+  byte equality between both entry points, the top-down orientation and the
+  background behind a missing source; `MNGEdit` runs 123 test methods.
+- Decoding is ImageIO with the camera transform at a 1600 px cap. The preview
+  renders on a background task with at most one render in flight (768 px while
+  a gesture runs, 1024 px on release); the export renders 2048 px and writes a
+  PNG to the temporary folder, deleted when the sheet closes. A 401 during a
+  load calls the shell's session expiry. No pixel leaves the device.
+- CI run `45378968186` is green at `38a5004`: both app builds, the simulator
+  test and both uploads pass. The first run stopped at the redeclaration
+  (`a7ac952`); the second (`08cda66`) stopped because the new collage tests
+  passed a `topDownRGBA` tuple to a helper that takes an
+  `EditorSourceSnapshot`. Reading the rendered `CGImage` back through a
+  `snapshot(_:)` helper fixed the tests without changing the engine.
+- Deliberate mobile differences: pinch replaces the wheel, there are no arrow
+  keys, and the save is a PNG share; JPEG/WebP and the social aspect presets
+  are C3. The web's 53 UI checks and 56 engine checks remain the behavioral
+  reference.
 
 ## Visual checks per UI phase
 
