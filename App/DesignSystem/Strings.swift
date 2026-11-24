@@ -1006,4 +1006,71 @@ enum Strings {
         "\(cloudHealthGood) · \(max(0, ms)) ms"
     }
 
+    // Collage (C2)
+
+    static let collageTitle = "Ghép ảnh"
+    static let collageAdd = "Thêm ảnh"
+    static let collageEmptyTitle = "Chưa đủ ảnh"
+    static let collageEmptyBody =
+        "Chọn ít nhất 2 ảnh để ghép. Bạn có thể thêm tối đa 9 ảnh."
+    static let collageChoose = "Chọn ảnh"
+    static let collageGap = "Khoảng cách"
+    static let collageRadius = "Bo góc"
+    static let collageBackground = "Nền"
+    static let collageCell = "Ô"
+    static let collageZoom = "Zoom"
+    static let collageReset = "Đặt lại"
+    static let collageHint = "Kéo để căn · chụm để zoom · chạm đúp để đặt lại"
+    static let collageCanvasLabel =
+        "Khung ghép ảnh. Kéo để căn ảnh, chụm để zoom, chạm đúp để đặt lại."
+    static let collageLayouts = "Bố cục"
+    static let collageSave = "Lưu ảnh"
+    static let collageSaving = "Đang lưu…"
+    static let collageLoading = "Đang tải ảnh…"
+    static let collageLoadFail = "Không đọc được ảnh đã chọn."
+    static let collageOpenFailTitle = "Không mở được ảnh"
+    static let collageExportFail = "Chưa thể xuất ảnh."
+    static let collageMax = "Tối đa 9 ảnh."
+    static let collagePickerTitle = "Thêm ảnh"
+    static let collagePickerAdd = "Thêm"
+    static let collagePickerEmpty = "Thư viện không còn ảnh nào để thêm."
+
+    static func collageCount(_ count: Int) -> String {
+        "\(count)/\(Collage.maxCells) ảnh"
+    }
+
+    static func collageCellIndex(_ index: Int) -> String {
+        "\(collageCell) \(index + 1)"
+    }
+
+    static func collageSelection(_ count: Int, limit: Int) -> String {
+        "Đã chọn \(count)/\(limit) ảnh"
+    }
+
+    /// Display name of a shared layout id, matching `LAYOUT_NAMES` of the web.
+    static func collageLayoutName(_ id: String) -> String {
+        switch id {
+        case "duo-split": return "Đôi dọc"
+        case "duo-stack": return "Đôi ngang"
+        case "trio-columns": return "Ba cột"
+        case "trio-rows": return "Ba hàng"
+        case "trio-left": return "Ba trái"
+        case "trio-top": return "Ba trên"
+        case "quad-grid": return "Bốn lưới"
+        case "quad-columns": return "Bốn cột"
+        case "quad-rows": return "Bốn hàng"
+        case "quad-left": return "Bốn trái"
+        case "penta-top": return "Năm trên"
+        case "penta-left": return "Năm trái"
+        case "hex-grid": return "Sáu lưới"
+        case "hex-grid-tall": return "Sáu dọc"
+        case "seven-left": return "Bảy trái"
+        case "seven-top": return "Bảy trên"
+        case "eight-grid": return "Tám lưới"
+        case "eight-grid-tall": return "Tám dọc"
+        case "nine-grid": return "Chín lưới"
+        default: return id
+        }
+    }
+
 }

@@ -9,6 +9,7 @@ struct ViewerView: View {
 
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var editingItem: Item?
+    @State private var collageItem: Item?
     @State private var liveText: LiveTextOutcome?
     @FocusState private var isFocused: Bool
 
@@ -66,6 +67,13 @@ struct ViewerView: View {
         .fullScreenCover(item: $editingItem) { item in
             EditorView(model: model, item: item)
         }
+        .fullScreenCover(item: $collageItem) { item in
+            CollageView(
+                model: model,
+                seed: item,
+                candidates: model.library.page.items
+            )
+        }
     }
 
     private func topBar(_ item: Item) -> some View {
@@ -81,7 +89,9 @@ struct ViewerView: View {
             onFavorite: viewer.toggleFavorite,
             onInfo: viewer.openInfo,
             canEdit: canEdit(item),
-            onEdit: { editingItem = item }
+            onEdit: { editingItem = item },
+            canCollage: !item.isVideo,
+            onCollage: { collageItem = item }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .zIndex(6)
@@ -198,6 +208,8 @@ private struct ViewerTopBar: View {
     let onInfo: () -> Void
     var canEdit = false
     var onEdit: () -> Void = {}
+    var canCollage = false
+    var onCollage: () -> Void = {}
 
     private let favoriteColor = Color(red: 1, green: 55.0 / 255.0, blue: 95.0 / 255.0)
 
@@ -238,6 +250,14 @@ private struct ViewerTopBar: View {
                     label: Strings.info,
                     action: onInfo
                 )
+
+                if canCollage {
+                    ViewerCircleButton(
+                        icon: "square.grid.2x2",
+                        label: Strings.collageTitle,
+                        action: onCollage
+                    )
+                }
 
                 if canEdit {
                     ViewerCircleButton(

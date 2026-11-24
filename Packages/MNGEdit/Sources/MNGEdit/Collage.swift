@@ -467,11 +467,57 @@ public enum Collage {
 /// painted with the background first, which also makes an opaque JPEG export
 /// impossible to get wrong.
 public enum CollageRenderer {
+    /// Composite the layout into a new image.
+    ///
+    /// This is the preview path: the host already holds decoded `CGImage`s,
+    /// so a frame costs one draw instead of a copy of every source's RGBA
+    /// bytes. `sources` keeps the original signature for the snapshot entry
+    /// point and for hosts that render child aurum states.
+    public static func renderImage(
+        state: CollageState,
+        images: [CGImage],
+        size: Int
+    ) -> CGImage? {
+        renderImage(
+            state: state,
+            images: images.map { Optional($0) },
+            size: size
+        )
+    }
+
+    /// Composite already rendered sources into a snapshot.
+    ///
+    /// The conversion of every snapshot to a `CGImage` happens once, then the
+    /// normal draw pass runs; both entry points share the same geometry and
+    /// the same pixels.
     public static func render(
         state: CollageState,
         sources: [EditorSourceSnapshot],
         size: Int
     ) -> EditorSourceSnapshot? {
+        let images: [CGImage?] = sources.map {
+            EditorBitmap.cgImage(
+                width: Int($0.width),
+                height: Int($0.height),
+                rgba: $0.rgba
+            )
+        }
+        guard let image = renderImage(state: state, images: images, size: size),
+              let output = EditorBitmap.topDownRGBA(from: image) else {
+            return nil
+        }
+        return EditorSourceSnapshot(
+            width: UInt32(output.width),
+            height: UInt32(output.height),
+            rgba: output.rgba
+        )
+    }
+
+    private static func renderImage(
+        state: CollageState,
+        images: [CGImage?],
+        size: Int
+    ) -> CGImage? {
         let next = Collage.normalize(state)
         let side = max(1, size)
         guard let layout = Collage.layout(id: next.layout) else { return nil }
@@ -528,45 +574,26 @@ public enum CollageRenderer {
 
             if index < next.cells.count {
                 let cell = next.cells[index]
-                if cell.source >= 0, cell.source < sources.count {
-                    draw(
-                        sources[cell.source],
-                        cell: cell,
-                        in: box,
-                        context: context
-                    )
+                if cell.source >= 0, cell.source < images.count,
+                   let image = images[cell.source] {
+                    draw(image, cell: cell, in: box, context: context)
                 }
             }
             context.restoreGState()
         }
 
-        guard let image = context.makeImage(),
-              let output = EditorBitmap.topDownRGBA(from: image) else {
-            return nil
-        }
-        return EditorSourceSnapshot(
-            width: UInt32(output.width),
-            height: UInt32(output.height),
-            rgba: output.rgba
-        )
+        return context.makeImage()
     }
 
     private static func draw(
-        _ source: EditorSourceSnapshot,
+        _ image: CGImage,
         cell: CollageCellState,
         in box: CGRect,
         context: CGContext
     ) {
-        guard let image = EditorBitmap.cgImage(
-            width: Int(source.width),
-            height: Int(source.height),
-            rgba: source.rgba
-        ) else {
-            return
-        }
         let cover = Collage.cover(
-            sourceWidth: Double(source.width),
-            sourceHeight: Double(source.height),
+            sourceWidth: Double(image.width),
+            sourceHeight: Double(image.height),
             cellWidth: box.width,
             cellHeight: box.height,
             zoom: cell.zoom,

@@ -431,6 +431,88 @@ final class CollageTests: XCTestCase {
         }
     }
 
+    // MARK: - Image entry point
+
+    /// The preview path draws decoded `CGImage`s directly; it must produce
+    /// exactly the same bytes as the snapshot path, which is the one the
+    /// existing callers and the web client's contract use.
+    func testImageRenderMatchesTheSnapshotRender() throws {
+        let state = CollageState(
+            layout: "nine-grid",
+            gap: 0.05,
+            radius: 0.2,
+            background: "#f3c77b"
+        )
+        let palette: [(Int, Int, Int)] = [
+            (230, 57, 70), (241, 250, 238), (168, 218, 220),
+            (69, 123, 157), (29, 53, 87), (255, 183, 3),
+            (251, 133, 0), (131, 56, 236), (58, 134, 255),
+        ]
+        let sources = palette.map { solid($0.0, $0.1, $0.2, width: 90, height: 70) }
+        let images = try sources.map { try image($0) }
+
+        let snapshot = try render(state, sources: sources, size: 180)
+        let rendered = try XCTUnwrap(
+            CollageRenderer.renderImage(
+                state: state,
+                images: images,
+                size: 180
+            )
+        )
+        XCTAssertEqual(rendered.width, 180)
+        XCTAssertEqual(rendered.height, 180)
+        let output = try XCTUnwrap(
+            EditorBitmap.topDownRGBA(from: rendered)
+        )
+        XCTAssertEqual(output.width, 180)
+        XCTAssertEqual(output.height, 180)
+        XCTAssertEqual(output.rgba, snapshot.rgba)
+    }
+
+    func testImageRenderKeepsTopDownOrientation() throws {
+        let images = [
+            try image(solid(255, 0, 0)),
+            try image(solid(0, 0, 255)),
+        ]
+        let rendered = try XCTUnwrap(
+            CollageRenderer.renderImage(
+                state: CollageState(
+                    layout: "duo-stack",
+                    gap: 0,
+                    radius: 0,
+                    background: "#101010"
+                ),
+                images: images,
+                size: 128
+            )
+        )
+        let output = try XCTUnwrap(
+            EditorBitmap.topDownRGBA(from: rendered)
+        )
+        assertColor(output, 64, 32, 255, 0, 0)
+        assertColor(output, 64, 96, 0, 0, 255)
+    }
+
+    func testImageRenderKeepsMissingSourcesOnTheBackground() throws {
+        let rendered = try XCTUnwrap(
+            CollageRenderer.renderImage(
+                state: CollageState(
+                    layout: "duo-split",
+                    gap: 0,
+                    radius: 0,
+                    background: "#101010"
+                ),
+                images: [try image(solid(255, 0, 0))],
+                size: 64
+            )
+        )
+        let output = try XCTUnwrap(
+            EditorBitmap.topDownRGBA(from: rendered)
+        )
+        assertColor(output, 16, 32, 255, 0, 0)
+        assertColor(output, 48, 32, 16, 16, 16)
+    }
+
     // MARK: - Helpers
 
     private func assertRect(
@@ -493,6 +575,22 @@ final class CollageTests: XCTestCase {
                 state: state,
                 sources: sources,
                 size: size
+            ),
+            file: file,
+            line: line
+        )
+    }
+
+    private func image(
+        _ snapshot: EditorSourceSnapshot,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> CGImage {
+        try XCTUnwrap(
+            EditorBitmap.cgImage(
+                width: Int(snapshot.width),
+                height: Int(snapshot.height),
+                rgba: snapshot.rgba
             ),
             file: file,
             line: line
